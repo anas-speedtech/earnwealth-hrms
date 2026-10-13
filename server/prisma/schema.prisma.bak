@@ -1,0 +1,267 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  passwordHash      String    @db.VarChar(255)
+  role              String    @db.VarChar(20)
+  status            String    @default("ACTIVE") @db.VarChar(20)
+  lastLoginAt       DateTime? @db.DateTime(0)
+  passwordChangedAt DateTime? @db.DateTime(0)
+  createdAt         DateTime  @default(now()) @db.DateTime(0)
+  updatedAt         DateTime  @updatedAt @db.DateTime(0)
+
+  refreshTokens      RefreshToken[]
+  passwordResetToken PasswordResetToken?
+  superAdminProfile SuperAdminProfile?
+  adminProfile      AdminProfile?
+  hrProfile         HRProfile?
+  employeeProfile   EmployeeProfile?
+
+  @@map("users")
+}
+
+model SuperAdminProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  fullName  String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @db.DateTime(0)
+  updatedAt DateTime  @updatedAt @db.DateTime(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("super_admin_profiles")
+}
+
+model AdminProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  fullName  String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @db.DateTime(0)
+  updatedAt DateTime  @updatedAt @db.DateTime(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admin_profiles")
+}
+
+model HRProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  fullName  String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @db.DateTime(0)
+  updatedAt DateTime  @updatedAt @db.DateTime(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("hr_profiles")
+}
+
+model EmployeeProfile {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  employeeCode   String   @unique @db.VarChar(20)
+  firstName      String   @db.VarChar(50)
+  lastName       String   @db.VarChar(50)
+  dateOfBirth    DateTime? @db.Date
+  gender         String?  @db.VarChar(10)
+  phoneNumber    String?  @db.VarChar(20)
+  personalEmail  String?  @db.VarChar(100)
+  address        String?  @db.Text
+  departmentId   String?
+  designationId  String?
+  managerId      String?
+  employmentType String   @default("FULL_TIME") @db.VarChar(20)
+  joiningDate    DateTime @db.Date
+  status         String   @default("ACTIVE") @db.VarChar(20)
+  createdAt      DateTime @default(now()) @db.DateTime(0)
+  updatedAt      DateTime  @updatedAt @db.DateTime(0)
+
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department Department?   @relation(fields: [departmentId], references: [id])
+  designation Designation? @relation(fields: [designationId], references: [id])
+  manager    EmployeeProfile? @relation("EmployeeManager", fields: [managerId], references: [id])
+  subordinates EmployeeProfile[] @relation("EmployeeManager")
+
+  attendances Attendance[]
+  workSessions WorkSession[]
+  wfhRequests WFHRequest[]
+  attendanceCorrections AttendanceCorrection[]
+
+  @@index([departmentId])
+  @@index([designationId])
+  @@index([managerId])
+  @@map("employee_profiles")
+}
+
+model Department {
+  id          String   @id @default(uuid())
+  name        String   @db.VarChar(100)
+  description String?  @db.Text
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.DateTime(0)
+  updatedAt   DateTime  @updatedAt @db.DateTime(0)
+
+  employees EmployeeProfile[]
+
+  @@unique([name])
+  @@map("departments")
+}
+
+model Designation {
+  id          String   @id @default(uuid())
+  name        String   @db.VarChar(100)
+  description String?  @db.Text
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.DateTime(0)
+  updatedAt   DateTime  @updatedAt @db.DateTime(0)
+
+  employees EmployeeProfile[]
+
+  @@unique([name])
+  @@map("designations")
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  userId     String
+  tokenHash  String   @db.VarChar(255)
+  expiresAt  DateTime @db.DateTime(0)
+  revokedAt  DateTime? @db.DateTime(0)
+  createdAt  DateTime @default(now()) @db.DateTime(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  tokenHash String   @db.VarChar(255)
+  used      Boolean  @default(false)
+  usedAt    DateTime? @db.DateTime(0)
+  expiresAt DateTime @db.DateTime(0)
+  createdAt DateTime @default(now()) @db.DateTime(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model InvitationToken {
+  id        String   @id @default(uuid())
+  email     String   @db.VarChar(100)
+  tokenHash String   @db.VarChar(255)
+  role      String   @db.VarChar(20)
+  used      Boolean  @default(false)
+  usedAt    DateTime? @db.DateTime(0)
+  expiresAt DateTime @db.DateTime(0)
+  createdAt DateTime @default(now()) @db.DateTime(0)
+
+  @@index([email])
+  @@map("invitation_tokens")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorId     String
+  actorRole   String   @db.VarChar(20)
+  action      String   @db.VarChar(50)
+  entityType  String   @db.VarChar(50)
+  entityId    String
+  ipAddress   String?  @db.VarChar(45)
+  userAgent   String?  @db.VarChar(255)
+  metadata    String?  @db.Text
+  createdAt   DateTime @default(now()) @db.DateTime(0)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Attendance {
+  id           String   @id @default(uuid())
+  employeeId   String
+  date         DateTime @db.Date
+  workMode     String   @default("OFFICE") @db.VarChar(10) // OFFICE | WFH
+  status       String   @default("PRESENT") @db.VarChar(20) // PRESENT | PARTIAL | MISSED_PUNCH | CORRECTED
+  totalMinutes Int?     @default(0)
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now()) @db.DateTime(0)
+  updatedAt    DateTime @updatedAt @db.DateTime(0)
+
+  employee  EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  sessions  WorkSession[]
+  corrections AttendanceCorrection[]
+
+  @@unique([employeeId, date], name: "attendance_employee_date")
+  @@index([employeeId, date])
+  @@map("attendances")
+}
+
+model WorkSession {
+  id           String   @id @default(uuid())
+  attendanceId String
+  employeeId   String
+  punchIn       DateTime @db.DateTime(0)
+  punchOut      DateTime? @db.DateTime(0)
+  durationMinutes Int?   @default(0)
+  createdAt    DateTime @default(now()) @db.DateTime(0)
+
+  attendance Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, punchIn])
+  @@map("work_sessions")
+}
+
+model AttendanceCorrection {
+  id              String   @id @default(uuid())
+  attendanceId    String
+  employeeId      String
+  originalPunchIn DateTime? @db.DateTime(0)
+  originalPunchOut DateTime? @db.DateTime(0)
+  originalStatus  String?  @db.VarChar(20)
+  correctedPunchIn  DateTime? @db.DateTime(0)
+  correctedPunchOut DateTime? @db.DateTime(0)
+  correctedStatus  String?  @db.VarChar(20)
+  reason          String   @db.Text
+  status          String   @default("PENDING") @db.VarChar(20) // PENDING | APPROVED | REJECTED
+  reviewedBy      String?
+  reviewedAt      DateTime? @db.DateTime(0)
+  reviewComment   String?  @db.Text
+  createdAt       DateTime @default(now()) @db.DateTime(0)
+  updatedAt       DateTime @updatedAt @db.DateTime(0)
+
+  attendance Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, status])
+  @@index([status, createdAt])
+  @@map("attendance_corrections")
+}
+
+model WFHRequest {
+  id           String   @id @default(uuid())
+  employeeId   String
+  requestDate  DateTime @db.Date
+  reason       String   @db.Text
+  status       String   @default("PENDING") @db.VarChar(20) // PENDING | APPROVED | REJECTED | CANCELLED
+  reviewedBy   String?
+  reviewedAt   DateTime? @db.DateTime(0)
+  reviewComment String?  @db.Text
+  createdAt    DateTime @default(now()) @db.DateTime(0)
+  updatedAt    DateTime @updatedAt @db.DateTime(0)
+
+  @@index([employeeId, requestDate, status])
+  @@map("wfh_requests")
+}

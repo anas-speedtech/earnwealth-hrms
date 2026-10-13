@@ -1,0 +1,43 @@
+{
+  "name": "ews-hrms",
+  "version": "1.0.0",
+  "private": true,
+  "description": "EWS Human Resource Management System",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "install:all": "npm install",
+    "build": "npm run build:server && npm run build:client",
+    "build:server": "cd server && npm run build",
+    "build:client": "cd client && npm run build",
+    "test": "cd server && npm test",
+    "db:generate": "cd server && npx prisma generate",
+    "db:migrate": "cd server && npx prisma migrate dev",
+    "db:seed": "cd server && npx prisma db seed",
+    "db:studio": "cd server && npx prisma studio",
+    "db:push": "cd server && npx prisma db push",
+    "lint": "cd server && npx tsc --noEmit && cd ../client && npx tsc --noEmit",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "prettier": "^3.4.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.21.5": true,
+    "esbuild@0.25.12": true,
+    "@prisma/client@6.7.0": true,
+    "@prisma/engines@6.7.0": true,
+    "prisma@6.7.0": true,
+    "bcrypt@5.1.1": true
+  }
+}
