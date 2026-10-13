@@ -70,10 +70,8 @@ export default function CommonLogin() {
 
   return (
     <LoginPage
-      role="EMPLOYEE"
       title="HRMS Login"
       subtitle="Sign in using your company email and password"
-      roleColor="slate"
       onSubmit={handleSubmit}
       isLoading={isLoading}
       error={error}

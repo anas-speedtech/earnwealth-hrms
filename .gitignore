@@ -49,3 +49,6 @@ tmp/
 
 # Puppeteer cache (if Chromium download occurs during dev)
 .cache/
+
+# TypeScript build info
+*.tsbuildinfo

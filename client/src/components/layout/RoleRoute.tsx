@@ -24,7 +24,10 @@ export default function RoleRoute({ children, allowedRoles }: RoleRouteProps) {
     return <Navigate to="/login" replace />;
   }
 
-  if (!allowedRoles.includes(user.role)) {
+  // The stored role may be the legacy HR_MANAGER value; it authorises as HR.
+  const effectiveRole = user.role === 'HR_MANAGER' ? 'HR' : user.role;
+
+  if (!allowedRoles.includes(effectiveRole)) {
     const fallback: Record<string, string> = {
       SUPER_ADMIN: '/super-admin/dashboard',
       ADMIN: '/admin/dashboard',

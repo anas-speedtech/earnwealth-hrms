@@ -4,23 +4,14 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 
 interface LoginPageProps {
-  role: 'SUPER_ADMIN' | 'ADMIN' | 'HR' | 'EMPLOYEE';
   title: string;
   subtitle: string;
-  roleColor: string;
   onSubmit: (email: string, password: string) => Promise<void>;
   isLoading?: boolean;
   error?: string | null;
 }
 
-export const roleConfig: Record<string, { label: string; color: string }> = {
-  SUPER_ADMIN: { label: 'Super Admin', color: 'purple' },
-  ADMIN: { label: 'Admin', color: 'blue' },
-  HR: { label: 'HR', color: 'green' },
-  EMPLOYEE: { label: 'Employee', color: 'slate' },
-};
-
-export default function LoginPage({ role: _role, title, subtitle, roleColor, onSubmit, isLoading, error }: LoginPageProps) {
+export default function LoginPage({ title, subtitle, onSubmit, isLoading, error }: LoginPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -46,38 +37,14 @@ export default function LoginPage({ role: _role, title, subtitle, roleColor, onS
     await onSubmit(email, password);
   };
 
-  const colorMap: Record<string, { bg: string; text: string; border: string; focus: string; light: string }> = {
-    purple: {
-      bg: 'bg-purple-50',
-      text: 'text-purple-700',
-      border: 'border-purple-200',
-      focus: 'focus:ring-purple-500 focus:border-purple-500',
-      light: 'bg-purple-100 text-purple-700',
-    },
-    blue: {
-      bg: 'bg-blue-50',
-      text: 'text-blue-700',
-      border: 'border-blue-200',
-      focus: 'focus:ring-blue-500 focus:border-blue-500',
-      light: 'bg-blue-100 text-blue-700',
-    },
-    green: {
-      bg: 'bg-green-50',
-      text: 'text-green-700',
-      border: 'border-green-200',
-      focus: 'focus:ring-green-500 focus:border-green-500',
-      light: 'bg-green-100 text-green-700',
-    },
-    slate: {
-      bg: 'bg-slate-50',
-      text: 'text-slate-700',
-      border: 'border-slate-200',
-      focus: 'focus:ring-slate-500 focus:border-slate-500',
-      light: 'bg-slate-100 text-slate-700',
-    },
+  // One neutral brand treatment for all roles — the login page is role-agnostic.
+  const colors = {
+    bg: 'bg-slate-50',
+    text: 'text-slate-700',
+    border: 'border-slate-200',
+    focus: 'focus:ring-slate-500 focus:border-slate-500',
+    light: 'bg-slate-100 text-slate-700',
   };
-
-  const colors = colorMap[roleColor] || colorMap.slate;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-8">
@@ -109,13 +76,6 @@ export default function LoginPage({ role: _role, title, subtitle, roleColor, onS
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">{title}</h2>
             <p className="text-sm text-slate-500 mt-1">{subtitle}</p>
-          </div>
-
-          {/* Role badge */}
-          <div className="mb-4">
-            <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${colors.light}`}>
-              {roleConfig[_role]?.label || _role}
-            </span>
           </div>
 
           {/* Error message */}

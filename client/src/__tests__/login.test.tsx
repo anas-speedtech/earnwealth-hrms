@@ -1,220 +1,155 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { BrowserRouter } from 'react-router-dom';
-import { ToastProvider } from '../contexts/ToastContext';
-import { AuthProvider } from '../contexts/AuthContext';
-import { useAuth } from '../contexts/AuthContext';
-import SuperAdminLogin from '../pages/auth/SuperAdminLogin';
-import AdminLogin from '../pages/auth/AdminLogin';
-import HrLogin from '../pages/auth/HrLogin';
-import EmployeeLogin from '../pages/auth/EmployeeLogin';
+import { MemoryRouter } from 'react-router-dom';
+import CommonLogin from '../pages/auth/CommonLogin';
 
-const user = userEvent.setup();
+const mockLogin = vi.fn();
+const mockGetProfile = vi.fn();
+const mockAuthLogin = vi.fn();
 
-function Wrapper({ children }: { children: React.ReactNode }) {
-  return (
-    <BrowserRouter>
-      <ToastProvider>
-        <AuthProvider>{children}</AuthProvider>
-      </ToastProvider>
-    </BrowserRouter>
+vi.mock('../services/auth.service', () => ({
+  authService: {
+    login: (...args: unknown[]) => mockAuthLogin(...args),
+  },
+}));
+
+const mockNavigate = vi.fn();
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return { ...actual, useNavigate: () => mockNavigate };
+});
+
+const mockAuthContext = {
+  user: null,
+  isAuthenticated: false,
+  login: (...args: unknown[]) => mockLogin(...args),
+  fetchProfile: () => mockGetProfile(),
+  logout: vi.fn(),
+};
+
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: () => mockAuthContext,
+  IDLE_REASON_KEY: 'ews_idle_reason',
+}));
+
+function renderLogin() {
+  return render(
+    <MemoryRouter>
+      <CommonLogin />
+    </MemoryRouter>,
   );
 }
 
-function renderLogin(Component: typeof SuperAdminLogin) {
-  return render(<Component />, { wrapper: Wrapper });
-}
-
-describe('Login Pages', () => {
-  beforeEach(() => {
-    sessionStorage.clear();
-    vi.clearAllMocks();
-  });
-
-  describe('All login pages render correctly', () => {
-    it('SuperAdminLogin renders with title', () => {
-      renderLogin(SuperAdminLogin);
-      expect(screen.getByText('Super Admin Login')).toBeDefined();
-    });
-
-    it('AdminLogin renders with title', () => {
-      renderLogin(AdminLogin);
-      expect(screen.getByText('Admin Login')).toBeDefined();
-    });
-
-    it('HrLogin renders with title', () => {
-      renderLogin(HrLogin);
-      expect(screen.getByText('HR Login')).toBeDefined();
-    });
-
-    it('EmployeeLogin renders with title', () => {
-      renderLogin(EmployeeLogin);
-      expect(screen.getByText('Employee Login')).toBeDefined();
-    });
-
-    it('all login pages show EWS HRMS branding', () => {
-      renderLogin(SuperAdminLogin);
-      // Branding renders in both the desktop side panel and the mobile header.
-      expect(screen.getAllByText('EWS HRMS').length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('Form validation', () => {
-    it('submit button is disabled while loading', async () => {
-      renderLogin(SuperAdminLogin);
-      const emailInput = screen.getByLabelText('Email Address');
-      const passwordInput = screen.getByLabelText('Password');
-      const submitButton = screen.getByRole('button', { name: /sign in/i });
-
-      await user.type(emailInput, 'test@test.com');
-      await user.type(passwordInput, 'password123');
-      fireEvent.click(submitButton);
-
-      await waitFor(() => {
-        expect(submitButton.hasAttribute('disabled')).toBe(true);
-      });
-    });
-
-    it('shows validation error for empty email', async () => {
-      renderLogin(AdminLogin);
-      const passwordInput = screen.getByLabelText('Password');
-      const submitButton = screen.getByRole('button', { name: /sign in/i });
-
-      await user.type(passwordInput, 'password123');
-      fireEvent.click(submitButton);
-
-      await waitFor(() => {
-        expect(screen.getByText('Email is required.')).toBeDefined();
-      });
-    });
-
-    it('shows validation error for invalid email format', async () => {
-      renderLogin(HrLogin);
-      const emailInput = screen.getByLabelText('Email Address');
-      const passwordInput = screen.getByLabelText('Password');
-      const submitButton = screen.getByRole('button', { name: /sign in/i });
-
-      await user.type(emailInput, 'not-an-email');
-      await user.type(passwordInput, 'password123');
-      fireEvent.click(submitButton);
-
-      await waitFor(() => {
-        expect(screen.getByText('Please enter a valid email address.')).toBeDefined();
-      });
-    });
-
-    it('shows validation error for empty password', async () => {
-      renderLogin(EmployeeLogin);
-      const emailInput = screen.getByLabelText('Email Address');
-      const submitButton = screen.getByRole('button', { name: /sign in/i });
-
-      await user.type(emailInput, 'test@test.com');
-      fireEvent.click(submitButton);
-
-      await waitFor(() => {
-        expect(screen.getByText('Password is required.')).toBeDefined();
-      });
-    });
-  });
-
-  describe('Password visibility toggle', () => {
-    it('toggles password visibility', async () => {
-      renderLogin(SuperAdminLogin);
-      const passwordInput = screen.getByLabelText('Password') as HTMLInputElement;
-      expect(passwordInput.type).toBe('password');
-
-      const toggleButton = screen.getByLabelText('Show password');
-      fireEvent.click(toggleButton);
-      expect(passwordInput.type).toBe('text');
-
-      fireEvent.click(screen.getByLabelText('Hide password'));
-      expect(passwordInput.type).toBe('password');
-    });
-  });
-
-  describe('Role badge display', () => {
-    it('SuperAdminLogin shows Super Admin badge', () => {
-      renderLogin(SuperAdminLogin);
-      expect(screen.getByText('Super Admin')).toBeDefined();
-    });
-
-    it('AdminLogin shows Admin badge', () => {
-      renderLogin(AdminLogin);
-      expect(screen.getByText('Admin')).toBeDefined();
-    });
-
-    it('HrLogin shows HR badge', () => {
-      renderLogin(HrLogin);
-      expect(screen.getByText('HR')).toBeDefined();
-    });
-
-    it('EmployeeLogin shows Employee badge', () => {
-      renderLogin(EmployeeLogin);
-      expect(screen.getByText('Employee')).toBeDefined();
-    });
-  });
-
-  describe('Login error handling', () => {
-    it('shows loading state on submit', async () => {
-      renderLogin(SuperAdminLogin);
-
-      const emailInput = screen.getByLabelText('Email Address');
-      const passwordInput = screen.getByLabelText('Password');
-      const submitButton = screen.getByRole('button', { name: /sign in/i });
-
-      await user.type(emailInput, 'wrong@test.com');
-      await user.type(passwordInput, 'wrongpass');
-      fireEvent.click(submitButton);
-
-      await waitFor(() => {
-        expect(submitButton.hasAttribute('disabled')).toBe(true);
-      });
-    });
-  });
-
-  describe('Responsive and accessibility', () => {
-    it('email input is rendered as enabled email input', () => {
-      renderLogin(SuperAdminLogin);
-      const emailInput = screen.getByLabelText('Email Address') as HTMLInputElement;
-      expect(emailInput.type).toBe('email');
-      expect(emailInput.disabled).toBe(false);
-    });
-
-    it('password toggle button is accessible', () => {
-      renderLogin(AdminLogin);
-      const toggleButton = screen.getByLabelText('Show password');
-      expect(toggleButton.hasAttribute('aria-label')).toBe(true);
-    });
-
-    it('all inputs have proper labels', () => {
-      renderLogin(HrLogin);
-      expect(screen.getByLabelText('Email Address')).toBeDefined();
-      expect(screen.getByLabelText('Password')).toBeDefined();
-    });
-  });
+beforeEach(() => {
+  vi.clearAllLocalStorage?.();
+  localStorage.clear();
+  sessionStorage.clear();
+  vi.clearAllMocks();
 });
 
-describe('AuthContext', () => {
-  beforeEach(() => {
-    sessionStorage.clear();
+describe('CommonLogin — single login page, role decided by the server', () => {
+  it('renders one generic login form with no role selector', () => {
+    renderLogin();
+    expect(screen.getByLabelText(/email address/i)).toBeDefined();
+    expect(screen.getByLabelText(/^password$/i)).toBeDefined();
+
+    // No role picker, and no role name advertised on the page.
+    expect(screen.queryByRole('combobox')).toBeNull();
+    ['Super Admin', 'Admin', 'HR', 'Employee'].forEach((label) => {
+      expect(screen.queryByText(new RegExp(`^${label}$`, 'i'))).toBeNull();
+    });
   });
 
-  it('starts unauthenticated', () => {
-    let capturedValue: { isAuthenticated: boolean; user: unknown } | null = null;
-    function TestComponent() {
-      const ctx = useAuth();
-      capturedValue = { isAuthenticated: ctx.isAuthenticated, user: ctx.user };
-      return null;
-    }
-    render(
-      <BrowserRouter>
-        <AuthProvider>
-          <TestComponent />
-        </AuthProvider>
-      </BrowserRouter>,
+  it('redirects each role to its own dashboard after the server reports the role', async () => {
+    mockAuthLogin.mockResolvedValue({
+      user: { id: '1', email: 'a@x.com', role: 'SUPER_ADMIN' },
+      accessToken: 'a',
+      refreshToken: 'r',
+    });
+
+    renderLogin();
+    await userEvent.type(screen.getByLabelText(/email address/i), 'a@x.com');
+    await userEvent.type(screen.getByLabelText(/^password$/i), 'pw123456');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/super-admin/dashboard', { replace: true }),
     );
-    expect(capturedValue!.isAuthenticated).toBe(false);
-    expect(capturedValue!.user).toBe(null);
+    // The role passed to the auth store is the server's, not anything from the UI.
+    expect(mockLogin).toHaveBeenCalledWith('SUPER_ADMIN', 'a@x.com', 'a', 'r');
+  });
+
+  it('maps the legacy HR_MANAGER role to the HR dashboard', async () => {
+    mockAuthLogin.mockResolvedValue({
+      user: { id: '2', email: 'hr@x.com', role: 'HR_MANAGER' },
+      accessToken: 'a',
+      refreshToken: 'r',
+    });
+
+    renderLogin();
+    await userEvent.type(screen.getByLabelText(/email address/i), 'hr@x.com');
+    await userEvent.type(screen.getByLabelText(/^password$/i), 'pw123456');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/hr/dashboard', { replace: true }),
+    );
+  });
+
+  it('blocks an unknown role instead of granting any dashboard', async () => {
+    mockAuthLogin.mockResolvedValue({
+      user: { id: '3', email: 'x@x.com', role: 'MYSTERY_ROLE' },
+      accessToken: 'a',
+      refreshToken: 'r',
+    });
+
+    renderLogin();
+    await userEvent.type(screen.getByLabelText(/email address/i), 'x@x.com');
+    await userEvent.type(screen.getByLabelText(/^password$/i), 'pw123456');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/role is not supported/i)).toBeDefined(),
+    );
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('shows invalid credentials for a wrong password without revealing which field failed', async () => {
+    mockAuthLogin.mockRejectedValue({
+      response: { data: { error: { code: 'INVALID_CREDENTIALS' } } },
+    });
+
+    renderLogin();
+    await userEvent.type(screen.getByLabelText(/email address/i), 'a@x.com');
+    await userEvent.type(screen.getByLabelText(/^password$/i), 'wrong');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/invalid email or password/i)).toBeDefined(),
+    );
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a second, different user while one is signed in on this browser', async () => {
+    localStorage.setItem('ews_session_lock', 'someone@else.com');
+
+    renderLogin();
+    await userEvent.type(screen.getByLabelText(/email address/i), 'a@x.com');
+    await userEvent.type(screen.getByLabelText(/^password$/i), 'pw123456');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() => expect(screen.getByText(/already signed in/i)).toBeDefined());
+    // The login request must not even be sent.
+    expect(mockAuthLogin).not.toHaveBeenCalled();
+  });
+
+  it('toggles password visibility', async () => {
+    renderLogin();
+    const field = screen.getByLabelText(/^password$/i) as HTMLInputElement;
+    expect(field.type).toBe('password');
+    await userEvent.click(screen.getByRole('button', { name: /show password/i }));
+    expect(field.type).toBe('text');
   });
 });
