@@ -67,9 +67,35 @@ async function findUserByEmail(prismaClient, email) {
  */
 async function safeCreateRefreshToken(prismaClient, userId, tokenHash, expiresAt) {
   try {
-    await prismaClient.refreshToken.create({ data: { userId, tokenHash, expiresAt } });
+    // Raw SQL: the live users.id is an INT auto-increment, so the Prisma
+    // model's String userId does not match this deployment.
+    await prismaClient.$executeRaw`
+      INSERT INTO refresh_tokens (id, userId, tokenHash, expiresAt)
+      VALUES (UUID(), ${Number(userId)}, ${tokenHash}, ${expiresAt})
+    `;
   } catch (err) {
     logger.warn('Refresh token persistence unavailable', { error: err.message });
+  }
+}
+
+/**
+ * Revokes every unrevoked refresh token for a user, so only the newest
+ * session stays valid. Non-blocking if the table is absent.
+ */
+async function safeRevokeExistingSessions(prismaClient, userId) {
+  try {
+    const result = await prismaClient.$executeRaw`
+      UPDATE refresh_tokens SET revokedAt = NOW()
+      WHERE userId = ${Number(userId)} AND revokedAt IS NULL
+    `;
+    if (result > 0) {
+      logger.info('Revoked previous sessions for single-session policy', {
+        userId,
+        revoked: result,
+      });
+    }
+  } catch (err) {
+    logger.warn('Session revocation unavailable', { error: err.message });
   }
 }
 
@@ -140,13 +166,19 @@ class AuthService {
       : parseInt(env.JWT_REFRESH_EXPIRY) * 1000;
     expiresAt.setMilliseconds(expiresAt.getMilliseconds() + expiryMs);
 
-    // Step 5: Persist refresh token (table may not exist — non-blocking)
+    // Step 5: Enforce one active session per account by revoking every
+    // existing refresh token for this user before issuing the new one.
+    // A login from a second machine therefore ends the first session on
+    // its next refresh attempt.
+    await safeRevokeExistingSessions(prismaClient, user.id);
+
+    // Step 6: Persist the new refresh token
     await safeCreateRefreshToken(prismaClient, user.id, refreshTokenHash, expiresAt);
 
-    // Step 6: Update last login timestamp (column may not exist — non-blocking)
+    // Step 7: Update last login timestamp (column may not exist — non-blocking)
     await safeUpdateLastLogin(prismaClient, user.id);
 
-    // Step 7: Audit log (table may not exist — non-blocking)
+    // Step 8: Audit log (table may not exist — non-blocking)
     await safeAuditLog(prismaClient, user.id, user.role, 'LOGIN', 'User', user.id);
 
     logger.info('Login successful', { userId: user.id, email, role: user.role });
@@ -174,20 +206,23 @@ class AuthService {
       );
     }
 
-    const storedToken = await prismaClient.refreshToken.findFirst({
-      where: {
-        id: tokenId,
-        revokedAt: null,
-        expiresAt: { gt: new Date() },
-      },
-      include: { user: true },
-    });
+    // Raw SQL: users.id is INT in this deployment, so the Prisma model's
+    // String-typed userId does not match. revokedAt is honoured here, which is
+    // what makes the one-session-per-account policy effective.
+    const rows = await prismaClient.$queryRaw`
+      SELECT id, userId, tokenHash FROM refresh_tokens
+      WHERE id = ${tokenId}
+        AND revokedAt IS NULL
+        AND expiresAt > NOW()
+      LIMIT 1
+    `;
 
-    if (!storedToken) {
+    if (!rows || rows.length === 0) {
       throw new AppError(AppErrorCodes.TOKEN_INVALID, 'Invalid or expired refresh token.', 401);
     }
 
-    const valid = await comparePassword(rawToken, storedToken.tokenHash);
+    const storedToken = rows[0];
+    const valid = await comparePassword(rawToken, String(storedToken.tokenHash));
     if (!valid) {
       logger.warn('Refresh token mismatch', { tokenId });
       throw new AppError(AppErrorCodes.TOKEN_INVALID, 'Invalid refresh token.', 401);
@@ -245,10 +280,15 @@ class AuthService {
 
   static async logout(tokenId) {
     const prismaClient = getPrisma();
-    await prismaClient.refreshToken.updateMany({
-      where: { id: tokenId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    try {
+      // Raw SQL: matches the live schema, where users.id is INT.
+      await prismaClient.$executeRaw`
+        UPDATE refresh_tokens SET revokedAt = NOW()
+        WHERE id = ${tokenId} AND revokedAt IS NULL
+      `;
+    } catch (err) {
+      logger.warn('Logout revocation unavailable', { error: err.message });
+    }
     logger.info('User logged out', { tokenId });
   }
 

@@ -14,12 +14,14 @@ const { hashPassword, comparePassword } = require('../src/utils/password');
 // ── Mock Prisma instance ──────────────────────────────────────────────────
 
 const mockQueryRaw = jest.fn();
+const mockExecuteRaw = jest.fn().mockResolvedValue(1);
 const mockRefreshTokenCreate = jest.fn().mockResolvedValue(undefined);
 const mockAuditLogCreate = jest.fn().mockResolvedValue(undefined);
 const mockUserUpdate = jest.fn().mockResolvedValue(undefined);
 
 const mockPrismaInstance = {
   $queryRaw: mockQueryRaw,
+  $executeRaw: mockExecuteRaw,
   refreshToken: { create: mockRefreshTokenCreate },
   auditLog: { create: mockAuditLogCreate },
   user: { update: mockUserUpdate },
@@ -74,6 +76,8 @@ function configureMockForUser(passwordHash, isActive = 1) {
 
 function resetMockState() {
   mockQueryRaw.mockClear();
+  mockExecuteRaw.mockClear();
+  mockExecuteRaw.mockResolvedValue(1);
   mockRefreshTokenCreate.mockClear();
   mockAuditLogCreate.mockClear();
   mockUserUpdate.mockClear();
@@ -148,11 +152,12 @@ describe('AuthService.login — legacy schema compatibility', () => {
 
   test('persists refresh token when table exists', async () => {
     await AuthService.login({ email: 'admin@earnwealth.com', password: 'TestPass123!' });
-    expect(mockRefreshTokenCreate).toHaveBeenCalledTimes(1);
+    // Sessions are revoked first, then the new token is inserted.
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(2);
   });
 
   test('does not break login when refresh_tokens table is missing', async () => {
-    mockRefreshTokenCreate.mockRejectedValue(new Error('Table refresh_tokens does not exist'));
+    mockExecuteRaw.mockRejectedValueOnce(new Error('Table refresh_tokens does not exist'));
 
     const result = await AuthService.login({ email: 'admin@earnwealth.com', password: 'TestPass123!' });
     expect(result.accessToken).toBeDefined();

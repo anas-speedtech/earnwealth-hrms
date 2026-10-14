@@ -43,7 +43,6 @@ function renderLogin() {
 }
 
 beforeEach(() => {
-  vi.clearAllLocalStorage?.();
   localStorage.clear();
   sessionStorage.clear();
   vi.clearAllMocks();
