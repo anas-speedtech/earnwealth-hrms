@@ -92,9 +92,12 @@ export default function HrLeavesPage() {
     organizationService
       .getEmployees({ page: 1 })
       .then((page) => {
-        const items = (page as unknown as { data: { id: string; name: string }[] }).data;
-        setEmployees(items);
+        const items = (page as unknown as { data: { id: string; firstName: string; lastName: string }[] }).data;
+        setEmployees(items.map((e) => ({ id: e.id, name: `${e.firstName} ${e.lastName}`.trim() })));
         setSelectedEmployeeId((current) => current || items[0]?.id || '');
+      })
+      .catch(() => {
+        // ignore
       });
   }, []);
 
@@ -181,7 +184,10 @@ export default function HrLeavesPage() {
     }
   };
 
-  const totals = computeTotals(balances);
+  // Filter to only the three regular leave types: PL, CL, EL
+  const REGULAR_LEAVE_CODES = ['PL', 'CL', 'EL'];
+  const regularBalances = balances.filter((b) => REGULAR_LEAVE_CODES.includes(b.code));
+  const totals = computeTotals(regularBalances);
 
   const displayName = user?.profile?.firstName && user?.profile?.lastName
     ? `${user.profile.firstName} ${user.profile.lastName}`
@@ -292,7 +298,7 @@ export default function HrLeavesPage() {
                 ))}
               </select>
             </div>
-            {balancesLoading || balances.length === 0 ? (
+            {balancesLoading || regularBalances.length === 0 ? (
               <p className="text-slate-500">No balances available.</p>
             ) : (
               <>
@@ -300,22 +306,31 @@ export default function HrLeavesPage() {
                   <thead className="bg-slate-50 text-left text-slate-500">
                     <tr>
                       <th className="px-3 py-2">Leave type</th>
+                      <th className="px-3 py-2 text-right">Allocated</th>
                       <th className="px-3 py-2 text-right">Used</th>
                       <th className="px-3 py-2 text-right">Remaining</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {balances.map((row) => (
+                    {regularBalances.map((row) => (
                       <tr key={row.code || row.leaveTypeId} className="border-t border-slate-100">
                         <td className="px-3 py-2 text-slate-700">{row.displayName || row.name}</td>
+                        <td className="px-3 py-2 text-right text-slate-600">{Number(row.openingBalance || 0).toFixed(2)}</td>
                         <td className="px-3 py-2 text-right text-slate-600">{row.usedBalance}</td>
                         <td className="px-3 py-2 text-right font-medium text-slate-800">{row.availableBalance}</td>
                       </tr>
                     ))}
+                    <tr className="border-t border-slate-200 bg-slate-50 font-semibold">
+                      <td className="px-3 py-2 text-slate-700">Total (PL / CL / EL)</td>
+                      <td className="px-3 py-2 text-right">{totals.totalAllocated.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right">{totals.totalUsed}</td>
+                      <td className="px-3 py-2 text-right">{totals.totalRemaining}</td>
+                    </tr>
                   </tbody>
                 </table>
-                <p className="mt-3 text-sm text-slate-600">
-                  Total regular leave: {totals.totalRemaining} days remaining.
+                <p className="mt-3 text-xs text-slate-500">
+                  Totals cover regular leave types (PL, CL, EL) only. Comp-Off credits are tracked separately under Comp-Off and
+                  WFH does not affect leave balances.
                 </p>
               </>
             )}
@@ -440,13 +455,15 @@ export default function HrLeavesPage() {
 }
 
 function computeTotals(balances: LeaveBalanceItem[]) {
+  let allocated = 0;
   let used = 0;
   let available = 0;
   for (const row of balances) {
+    allocated += Number(row.openingBalance || 0);
     used += row.usedBalance;
     available += row.availableBalance;
   }
-  return { totalUsed: used, totalRemaining: available };
+  return { totalAllocated: allocated, totalUsed: used, totalRemaining: available };
 }
 
 function errorMessage(err: unknown, fallback: string) {

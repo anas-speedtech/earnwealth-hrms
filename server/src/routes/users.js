@@ -54,7 +54,7 @@ router.post(
 
 router.patch(
   '/admin-users/:id/status',
-  authorize(Role.SUPER_ADMIN),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
   validateBody(statusSchema),
   async (req, res, next) => {
     try {

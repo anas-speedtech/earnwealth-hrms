@@ -97,8 +97,10 @@ class DesignationService {
     }
 
     const now = new Date();
+    const id = require('crypto').randomUUID();
     const desig = await prismaClient.$queryRawUnsafe(
-      'INSERT INTO designations (name, description, isActive, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO designations (id, name, description, isActive, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
+      id,
       data.name,
       data.description || null,
       data.isActive !== undefined ? data.isActive : true,
@@ -116,9 +118,9 @@ class DesignationService {
       },
     });
 
-    logger.info('Designation created', { designationId: desig.insertId, name: data.name });
+    logger.info('Designation created', { designationId: id, name: data.name });
 
-    return { id: String(desig.insertId), name: data.name, description: data.description, isActive: data.isActive !== undefined ? data.isActive : true };
+    return { id: String(id), name: data.name, description: data.description, isActive: data.isActive !== undefined ? data.isActive : true };
   }
 
   static async update(reqUser, designationId, data) {

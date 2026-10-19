@@ -114,7 +114,7 @@ export default function EmployeeLeaveRequestsPage() {
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-slate-900">{req.leaveTypeName}</span>
+                          <span className="font-medium text-slate-900">{req.leaveTypeName || req.type || 'Leave'}</span>
                           {statusBadge(req.status)}
                         </div>
                         <p className="text-sm text-slate-600">

@@ -154,10 +154,12 @@ class LeaveService {
     const [rows, countRows] = await Promise.all([
       prismaClient.$queryRawUnsafe(
         `SELECT l.id, l.employeeId, e.employeeCode, e.name AS employeeName,
-                l.type, l.status, l.startDate, l.endDate, l.reason,
+                l.type, lt.displayName AS leaveTypeName, lt.code AS leaveTypeCode,
+                l.status, l.startDate, l.endDate, l.reason,
                 l.approverId, l.approverNote, l.createdAt, l.updatedAt
          FROM leaves l
          LEFT JOIN employees e ON e.id = l.employeeId
+         LEFT JOIN leave_types lt ON lt.name = l.type
          ${where}
          ORDER BY l.createdAt DESC
          LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
@@ -190,10 +192,11 @@ class LeaveService {
     const prismaClient = getPrisma();
     const rows = await prismaClient.$queryRawUnsafe(
       `SELECT l.id, l.employeeId, e.employeeCode, e.name AS employeeName,
-              l.type, l.startDate, l.endDate, l.reason, l.createdAt
+              l.type, lt.displayName AS leaveTypeName, lt.code AS leaveTypeCode, l.startDate, l.endDate, l.reason, l.createdAt
        FROM leaves l
        LEFT JOIN employees e ON e.id = l.employeeId
-       WHERE l.status = 'PENDING'
+       LEFT JOIN leave_types lt ON lt.name = l.type
+        WHERE l.status = 'PENDING'
        ORDER BY l.createdAt ASC`
     );
     return rows;
@@ -203,11 +206,12 @@ class LeaveService {
     const prismaClient = getPrisma();
     const rows = await prismaClient.$queryRawUnsafe(
       `SELECT l.id, l.employeeId, e.userId, e.employeeCode, e.name AS employeeName,
-              l.type, l.status, l.startDate, l.endDate, l.reason,
+              l.type, lt.displayName AS leaveTypeName, lt.code AS leaveTypeCode, l.status, l.startDate, l.endDate, l.reason,
               l.approverId, l.approverNote, l.createdAt, l.updatedAt
        FROM leaves l
        LEFT JOIN employees e ON e.id = l.employeeId
-       WHERE l.id = ?
+       LEFT JOIN leave_types lt ON lt.name = l.type
+        WHERE l.id = ?
        LIMIT 1`,
       id
     );
@@ -409,7 +413,7 @@ class LeaveService {
             `UPDATE leave_balances
              SET usedBalance = usedBalance + ?,
                  reservedBalance = GREATEST(0, reservedBalance - ?),
-                 availableBalance = GREATEST(0, openingBalance + accruedBalance - usedBalance - reservedBalance),
+                 availableBalance = GREATEST(0, openingBalance - usedBalance - reservedBalance),
                  updatedAt = NOW()
              WHERE employeeId = ? AND leaveTypeId = ? AND year = ?`,
             days, days, record.employeeId, typeRow[0].id, year

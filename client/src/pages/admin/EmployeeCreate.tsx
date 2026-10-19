@@ -12,6 +12,7 @@ export default function EmployeeCreatePage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [departments, setDepartments] = useState<{ id: string; name: string; isActive: boolean }[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; name: string; employeeCode: string }[]>([]);
 
   const [form, setForm] = useState({
     employeeCode: '',
@@ -25,6 +26,7 @@ export default function EmployeeCreatePage() {
     departmentId: '',
     joiningDate: new Date().toISOString().split('T')[0],
     status: 'ACTIVE',
+    reportingManagerId: '',
   });
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -34,6 +36,17 @@ export default function EmployeeCreatePage() {
       try {
         const depts = await organizationService.getDepartments();
         setDepartments(depts.filter((d) => d.isActive));
+      } catch {
+        // Non-critical
+      }
+      try {
+        const empPage = await organizationService.getEmployees({ page: 1 });
+        const items = empPage.data || [];
+        setEmployees(items.map((e: { id: string; firstName?: string; lastName?: string; name?: string; employeeCode?: string }) => ({
+          id: e.id,
+          name: (e.firstName && e.lastName) ? `${e.firstName} ${e.lastName}` : (e.name || 'Unknown'),
+          employeeCode: e.employeeCode || '',
+        })));
       } catch {
         // Non-critical
       }
@@ -79,6 +92,7 @@ export default function EmployeeCreatePage() {
         departmentId: form.departmentId || undefined,
         joiningDate: form.joiningDate,
         status: form.status,
+        reportingManagerId: form.reportingManagerId ? Number(form.reportingManagerId) : undefined,
       });
       setSuccess('Employee created successfully.');
       setTimeout(() => navigate('/admin/employees'), 1500);
@@ -160,6 +174,14 @@ export default function EmployeeCreatePage() {
               <select value={form.departmentId} onChange={(e) => update('departmentId', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100">
                 <option value="">Select Department</option>
                 {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Reporting Manager</label>
+              <select value={form.reportingManagerId} onChange={(e) => update('reportingManagerId', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100">
+                <option value="">— None —</option>
+                {employees.map((e) => <option key={e.id} value={e.id}>{e.name} ({e.employeeCode})</option>)}
               </select>
             </div>
 

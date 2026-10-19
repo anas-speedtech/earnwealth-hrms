@@ -67,10 +67,12 @@ class EmployeeService {
 
     const rows = await prismaClient.$queryRawUnsafe(
       `SELECT e.id, e.userId, e.employeeCode, e.name, e.designation, e.joiningDate,
-              e.departmentText, e.isActive, d.id AS departmentId, d.name AS departmentName, u.email
+              e.departmentText, e.isActive, d.id AS departmentId, d.name AS departmentName, u.email,
+              e.reportingManagerId, m.name AS reportingManagerName
        FROM employees e
        LEFT JOIN departments d ON d.id = e.departmentId
        LEFT JOIN users u ON u.id = e.userId
+       LEFT JOIN employees m ON m.id = e.reportingManagerId
        WHERE ${whereClause}
        ORDER BY e.id DESC
        LIMIT ? OFFSET ?`,
@@ -93,7 +95,8 @@ class EmployeeService {
         phoneNumber: null,
         department: e.departmentId == null ? null : { id: String(e.departmentId), name: e.departmentName || e.departmentText || '' },
         designation: e.designation ? { id: '', name: e.designation } : null,
-        employmentType: null,
+        manager: e.reportingManagerName ? { id: String(e.reportingManagerId), name: e.reportingManagerName } : null,
+      employmentType: null,
         joiningDate: e.joiningDate,
         status: e.isActive ? 'ACTIVE' : 'INACTIVE',
         accountStatus: e.isActive ? 'ACTIVE' : 'INACTIVE',
@@ -116,10 +119,12 @@ class EmployeeService {
     const rows = await prismaClient.$queryRawUnsafe(
       `SELECT e.id, e.userId, e.employeeCode, e.name, e.designation, e.joiningDate,
               e.departmentText, e.basicSalary, e.allowances, e.deductions, e.isActive,
+              e.reportingManagerId, m.name AS reportingManagerName,
               d.id AS departmentId, d.name AS departmentName, u.email
        FROM employees e
        LEFT JOIN departments d ON d.id = e.departmentId
        LEFT JOIN users u ON u.id = e.userId
+       LEFT JOIN employees m ON m.id = e.reportingManagerId
        WHERE e.id = ?
        LIMIT 1`,
       employeeProfileId
@@ -152,7 +157,7 @@ class EmployeeService {
       address: null,
       department: profile.departmentId == null ? null : { id: String(profile.departmentId), name: profile.departmentName || profile.departmentText || '' },
       designation: profile.designation ? { id: '', name: profile.designation } : null,
-      manager: null,
+      manager: profile.reportingManagerName ? { id: String(profile.reportingManagerId), name: profile.reportingManagerName } : null,
       employmentType: null,
       joiningDate: profile.joiningDate,
       basicSalary: profile.basicSalary,
@@ -208,6 +213,19 @@ class EmployeeService {
       'SELECT id FROM employees WHERE employeeCode = ? LIMIT 1',
       employeeCode
     );
+
+    // Validate reporting manager if provided
+    let reportingManagerId = null;
+    if (data.reportingManagerId) {
+      const managerRows = await prismaClient.$queryRawUnsafe(
+        'SELECT id, isActive FROM employees WHERE id = ? LIMIT 1',
+        Number(data.reportingManagerId)
+      );
+      if (!managerRows || !managerRows.length) {
+        throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Invalid reporting manager selected.', 400);
+      }
+      reportingManagerId = Number(data.reportingManagerId);
+    }
     if (existingCode && existingCode.length) {
       throw new AppError(AppErrorCodes.DUPLICATE_ENTRY, 'An employee with this code already exists.', 409);
     }
@@ -232,7 +250,7 @@ class EmployeeService {
     const isActive = status === 'ACTIVE' ? 1 : 0;
 
     await prismaClient.$executeRawUnsafe(
-      'INSERT INTO employees (employeeCode, name, designation, joiningDate, deviceEnrollNo, basicSalary, allowances, deductions, isActive, departmentId, departmentText, userId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))',
+      'INSERT INTO employees (employeeCode, name, designation, joiningDate, deviceEnrollNo, basicSalary, allowances, deductions, isActive, departmentId, departmentText, userId, reportingManagerId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))',
       employeeCode,
       name,
       designation,
@@ -244,7 +262,8 @@ class EmployeeService {
       isActive,
       departmentId,
       departmentText,
-      data.userId ? Number(data.userId) : null
+      data.userId ? Number(data.userId) : null,
+      reportingManagerId
     );
 
     const insertedRows = await prismaClient.$queryRawUnsafe(
@@ -281,6 +300,7 @@ class EmployeeService {
       joiningDate: dateValue.toISOString().slice(0, 10),
       departmentId,
       department: departmentId ? { id: String(departmentId), name: departmentText || '' } : null,
+      manager: reportingManagerId ? { id: String(reportingManagerId), name: '' } : null,
       status,
       accountStatus: status,
     };
@@ -294,7 +314,7 @@ class EmployeeService {
     const prismaClient = getPrisma();
 
     const existingRows = await prismaClient.$queryRawUnsafe(
-      'SELECT id, name, designation, departmentId, departmentText, isActive, joiningDate, employeeCode, basicSalary, allowances, deductions FROM employees WHERE id = ? LIMIT 1',
+      'SELECT id, name, designation, departmentId, departmentText, isActive, joiningDate, employeeCode, basicSalary, allowances, deductions, reportingManagerId FROM employees WHERE id = ? LIMIT 1',
       employeeProfileId
     );
 
@@ -357,6 +377,40 @@ class EmployeeService {
     if (data.designationId !== undefined && data.designation === undefined) {
       updates.push('designation = ?');
       values.push(String(data.designationId || '').trim());
+    }
+
+    if (data.reportingManagerId !== undefined) {
+      if (data.reportingManagerId === null || data.reportingManagerId === '' || data.reportingManagerId === 0) {
+        updates.push('reportingManagerId = NULL');
+      } else {
+        const managerRows = await prismaClient.$queryRawUnsafe(
+          'SELECT id FROM employees WHERE id = ? LIMIT 1',
+          Number(data.reportingManagerId)
+        );
+        if (!managerRows || !managerRows.length) {
+          throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Invalid reporting manager selected.', 400);
+        }
+        if (Number(data.reportingManagerId) === Number(employeeProfileId)) {
+          throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'An employee cannot be their own reporting manager.', 400);
+        }
+        // Prevent circular reporting chains
+        const chainCheck = await prismaClient.$queryRawUnsafe(
+          `WITH RECURSIVE chain AS (
+             SELECT id, reportingManagerId FROM employees WHERE id = ?
+             UNION ALL
+             SELECT e.id, e.reportingManagerId FROM employees e
+             INNER JOIN chain c ON e.id = c.reportingManagerId
+           )
+           SELECT id FROM chain WHERE id = ?`,
+          Number(data.reportingManagerId),
+          Number(employeeProfileId)
+        );
+        if (chainCheck && chainCheck.length > 0) {
+          throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Circular reporting chain detected.', 400);
+        }
+        updates.push('reportingManagerId = ?');
+        values.push(Number(data.reportingManagerId));
+      }
     }
 
     if (data.departmentId !== undefined) {
@@ -422,7 +476,7 @@ class EmployeeService {
     }
 
     const updatedRows = await prismaClient.$queryRawUnsafe(
-      'SELECT id, employeeCode, name, designation, departmentId, departmentText, joiningDate, basicSalary, allowances, deductions, isActive FROM employees WHERE id = ? LIMIT 1',
+      'SELECT e.id, e.employeeCode, e.name, e.designation, e.departmentId, e.departmentText, e.joiningDate, e.basicSalary, e.allowances, e.deductions, e.isActive, e.reportingManagerId, m.name AS reportingManagerName FROM employees e LEFT JOIN employees m ON m.id = e.reportingManagerId WHERE e.id = ? LIMIT 1',
       employeeProfileId
     );
     const updated = updatedRows && updatedRows[0];
@@ -449,6 +503,7 @@ class EmployeeService {
       firstName: String(updated.name || '').trim().split(/\s+/)[0] || '',
       lastName: String(updated.name || '').trim().split(/\s+/).slice(1).join(' '),
       designation: updated.designation ? { id: '', name: updated.designation } : null,
+      manager: updated.reportingManagerName ? { id: String(updated.reportingManagerId), name: updated.reportingManagerName } : null,
       department: updated.departmentId ? { id: String(updated.departmentId), name: updated.departmentText || '' } : null,
       joiningDate: updated.joiningDate,
       basicSalary: updated.basicSalary,

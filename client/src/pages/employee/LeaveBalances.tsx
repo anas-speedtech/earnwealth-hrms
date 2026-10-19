@@ -39,7 +39,7 @@ export default function EmployeeLeaveBalancesPage() {
       ...b,
       leaveTypeName: LEAVE_DISPLAY_NAMES[b.code] || b.displayName || b.name,
       leaveTypeCode: b.code,
-      allocated: Number(b.openingBalance || 0) + Number(b.accruedBalance || 0),
+      allocated: Number(b.openingBalance || 0),
       used: Number(b.usedBalance || 0),
       available: Number(b.availableBalance || 0),
     })), [balances]);

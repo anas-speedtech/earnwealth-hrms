@@ -30,6 +30,7 @@ const createSchema = z.object({
   status: z.string().default('ACTIVE').transform((value) => value.toUpperCase()),
   role: z.enum(['EMPLOYEE']).optional(),
   departmentText: z.string().optional(),
+  reportingManagerId: z.coerce.number().int().positive().optional(),
 });
 
 const updateSchema = z.object({
@@ -43,6 +44,7 @@ const updateSchema = z.object({
   allowances: z.coerce.number().min(0).optional(),
   deductions: z.coerce.number().min(0).optional(),
   status: z.string().optional(),
+  reportingManagerId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 // All endpoints require authentication

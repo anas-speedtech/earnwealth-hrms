@@ -15,6 +15,7 @@ export default function EmployeeDetailPage() {
   const navigate = useNavigate();
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; name: string; employeeCode: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -31,12 +32,22 @@ export default function EmployeeDetailPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const [emp, depts] = await Promise.all([
+        const [emp, depts, empPage] = await Promise.all([
           organizationService.getEmployee(id),
           organizationService.getDepartments(),
+          organizationService.getEmployees({ page: 1 }),
         ]);
         setEmployee(emp);
         setDepartments(depts.filter((d) => d.isActive));
+        const items = empPage.data || [];
+        setEmployees(items
+          .filter((e: { id: string }) => e.id !== id)
+          .map((e: { id: string; firstName?: string; lastName?: string; name?: string; employeeCode?: string }) => ({
+            id: e.id,
+            name: (e.firstName && e.lastName) ? `${e.firstName} ${e.lastName}` : (e.name || 'Unknown'),
+            employeeCode: e.employeeCode || '',
+          }))
+        );
       } catch {
         setError('Failed to load employee details.');
       } finally {
@@ -62,6 +73,7 @@ export default function EmployeeDetailPage() {
         allowances?: string;
         deductions?: string;
         status?: string;
+        reportingManagerId?: number | null;
       } = {};
 
       if (employee.firstName) payload.firstName = employee.firstName;
@@ -74,6 +86,8 @@ export default function EmployeeDetailPage() {
       if (employee.basicSalary !== undefined) payload.basicSalary = String(employee.basicSalary);
       if (employee.allowances !== undefined) payload.allowances = String(employee.allowances);
       if (employee.deductions !== undefined) payload.deductions = String(employee.deductions);
+      if (employee.manager?.id) payload.reportingManagerId = Number(employee.manager.id);
+      else payload.reportingManagerId = null;
 
       const updated = await organizationService.updateEmployee(id, payload);
       setEmployee((prev) => (prev ? { ...prev, ...(updated as EmployeeDetail) } : prev));
@@ -194,6 +208,13 @@ export default function EmployeeDetailPage() {
                 options={employmentOptions}
                 onChange={(v) => setEmployee((p) => (p ? { ...p, status: v } : p))}
               />
+              <EditableSelect
+                label="Reporting Manager"
+                value={employee.manager?.id || ''}
+                options={employees.map((e) => ({ value: e.id, label: `${e.name} (${e.employeeCode})` }))}
+                noneLabel="— None —"
+                onChange={(v) => setEmployee((p) => (p ? { ...p, manager: v ? { id: v, name: employees.find((e) => e.id === v)?.name || '' } : null } : p))}
+              />
 
               <div className="md:col-span-2 flex gap-3 pt-4">
                 <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">
@@ -215,6 +236,7 @@ export default function EmployeeDetailPage() {
               </ReadField>
               <ReadField label="Department" value={employee.department?.name || '—'} />
               <ReadField label="Designation" value={employee.designation?.name || '—'} />
+              <ReadField label="Reporting Manager" value={employee.manager?.name || '—'} />
               <ReadField label="Basic Salary" value={String(employee.basicSalary ?? '—')} />
               <ReadField label="Allowances" value={String(employee.allowances ?? '—')} />
               <ReadField label="Deductions" value={String(employee.deductions ?? '—')} />
@@ -248,12 +270,12 @@ function EditableDate({ label, value, onChange }: { label: string; value: string
   );
 }
 
-function EditableSelect({ label, value, options, onChange }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void }) {
+function EditableSelect({ label, value, options, onChange, noneLabel }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void; noneLabel?: string }) {
   return (
     <div>
       <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
       <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none">
-        <option value="">Select...</option>
+        <option value="">{noneLabel || 'Select...'}</option>
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </div>

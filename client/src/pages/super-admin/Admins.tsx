@@ -12,6 +12,8 @@ interface AdminAccount {
   role: string;
   isActive: boolean;
   createdAt: string;
+  employeeCode: string | null;
+  reportingManager: string | null;
 }
 
 interface NewAccount {
@@ -27,6 +29,12 @@ const ROLE_OPTIONS: { value: NewAccount['role']; label: string }[] = [
   { value: 'EMPLOYEE', label: 'Employee' },
 ];
 
+// HR Admin can only create Employee accounts, not HR Admin accounts
+function getRoleOptions(userRole: string): { value: NewAccount['role']; label: string }[] {
+  if (userRole === 'SUPER_ADMIN') return ROLE_OPTIONS;
+  return ROLE_OPTIONS.filter((o) => o.value === 'EMPLOYEE');
+}
+
 const ROLE_LABELS: Record<string, string> = {
   HR_ADMIN: 'HR Admin',
   EMPLOYEE: 'Employee',
@@ -39,6 +47,7 @@ export default function SuperAdminAdminsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [form, setForm] = useState<NewAccount>({
     name: '',
@@ -49,6 +58,7 @@ export default function SuperAdminAdminsPage() {
   });
 
   const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ADMIN';
+  const roleOptions = getRoleOptions(user?.role || '');
 
   const load = async () => {
     setIsLoading(true);
@@ -113,14 +123,21 @@ export default function SuperAdminAdminsPage() {
   };
 
   const handleToggle = async (account: AdminAccount) => {
+    if (togglingId) return; // Prevent repeated requests
+    setTogglingId(account.id);
     try {
       const { data } = await api.patch(`/admin-users/${account.id}/status`, {
         isActive: !account.isActive,
       });
-      toast.success(data.message || 'Account updated.');
+      toast.success(data.message || `Account ${!account.isActive ? 'activated' : 'deactivated'}.`);
       load();
-    } catch {
-      toast.error('Could not update the account.');
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message || 'Could not update the account.';
+      toast.error(message);
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -129,7 +146,7 @@ export default function SuperAdminAdminsPage() {
     : user?.email || 'Super Admin';
 
   return (
-    <DashboardShell role="SUPER_ADMIN" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
+    <DashboardShell role={user?.role || 'SUPER_ADMIN'} userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="HR Admin" subtitle="Provision and manage HR Admin and Employee accounts" />
       <div className="p-8 max-w-6xl">
         {canManage && (
@@ -210,7 +227,7 @@ export default function SuperAdminAdminsPage() {
                     value={form.role}
                     onChange={(e) => setForm({ ...form, role: e.target.value as NewAccount['role'] })}
                   >
-                    {ROLE_OPTIONS.map((option) => (
+                    {roleOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -238,17 +255,21 @@ export default function SuperAdminAdminsPage() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left">
                 <tr>
+                  <th className="px-4 py-3 font-medium text-slate-500">Employee Code</th>
                   <th className="px-4 py-3 font-medium text-slate-500">Name</th>
+                  <th className="px-4 py-3 font-medium text-slate-500">Reporting Manager</th>
                   <th className="px-4 py-3 font-medium text-slate-500">Email</th>
                   <th className="px-4 py-3 font-medium text-slate-500">Role</th>
                   <th className="px-4 py-3 font-medium text-slate-500">Status</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Actions</th>
+                  <th className="px-4 py-3 font-medium text-slate-500">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {accounts.map((account) => (
                   <tr key={account.id} className="border-t border-slate-100">
+                    <td className="px-4 py-3 text-slate-600">{account.employeeCode || '—'}</td>
                     <td className="px-4 py-3 font-medium text-slate-700">{account.name}</td>
+                    <td className="px-4 py-3 text-slate-600">{account.reportingManager || '—'}</td>
                     <td className="px-4 py-3 text-slate-600">{account.email}</td>
                     <td className="px-4 py-3">
                       <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
@@ -267,14 +288,23 @@ export default function SuperAdminAdminsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      {account.isActive && (
-                        <button
-                          onClick={() => handleToggle(account)}
-                          className="px-3 py-1 rounded-lg border border-slate-300 text-xs text-slate-600 hover:bg-slate-50"
-                        >
-                          Deactivate
-                        </button>
-                      )}
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={account.isActive}
+                          disabled={togglingId === account.id}
+                          onChange={() => handleToggle(account)}
+                          aria-label={`${account.isActive ? 'Active' : 'Inactive'} - toggle to ${account.isActive ? 'deactivate' : 'activate'}`}
+                        />
+                        <div className={`w-11 h-6 rounded-full peer transition-colors ${
+                          account.isActive ? 'bg-green-500' : 'bg-slate-300'
+                        } ${togglingId === account.id ? 'opacity-50' : ''}`}>
+                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                            account.isActive ? 'translate-x-5' : 'translate-x-0'
+                          } ${togglingId === account.id ? 'animate-pulse' : ''}`} />
+                        </div>
+                      </label>
                     </td>
                   </tr>
                 ))}

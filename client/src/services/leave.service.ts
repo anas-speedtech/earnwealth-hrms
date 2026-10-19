@@ -40,6 +40,7 @@ export interface LeaveRequestItem {
   leaveTypeId: string;
   leaveTypeName: string;
   leaveTypeCode: string;
+  type?: string;
   employeeName?: string;
   employeeCode?: string;
   startDate: string;

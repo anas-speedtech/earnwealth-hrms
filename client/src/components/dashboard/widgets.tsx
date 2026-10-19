@@ -270,15 +270,25 @@ export function StatusSummary({ counts }: { counts: Record<string, number> }) {
   );
 }
 
+function formatHolidayDate(raw: string): string {
+  try {
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return raw;
+    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch {
+    return raw;
+  }
+}
+
 export function HolidayList({ rows }: { rows: HolidayRow[] }) {
   return (
     <ul className="divide-y divide-slate-100">
       {rows.map((r, i) => (
         <li key={i} className="flex items-center gap-3 py-2.5 text-sm">
-          <span className="grid h-8 w-11 shrink-0 place-items-center rounded-lg bg-primary-50 px-1 text-center text-[10px] font-bold leading-tight text-primary-700">
-            {r.date}
+          <span className="grid h-8 shrink-0 place-items-center rounded-lg bg-primary-50 px-2 text-center text-[10px] font-bold leading-tight text-primary-700">
+            {formatHolidayDate(r.date)}
           </span>
-          <span className="text-slate-700">{r.name}</span>
+          <span className="min-w-0 flex-1 text-slate-700">{r.name}</span>
         </li>
       ))}
     </ul>

@@ -12,6 +12,7 @@ export interface Employee {
   address?: string;
   department?: { id: string; name: string } | null;
   designation?: { id: string; name: string } | null;
+  manager?: { id: string; name: string } | null;
   employmentType?: string;
   joiningDate: string;
   status: string;
@@ -81,6 +82,7 @@ export const organizationService = {
     departmentId?: string;
     joiningDate: string;
     status: string;
+    reportingManagerId?: number;
   }): Promise<Employee> {
     const { data } = await api.post('/employees', payload);
     return data;
@@ -97,6 +99,7 @@ export const organizationService = {
     allowances?: string;
     deductions?: string;
     status?: string;
+    reportingManagerId?: number | null;
   }): Promise<Employee> {
     const { data } = await api.patch(`/employees/${id}`, payload);
     return data;

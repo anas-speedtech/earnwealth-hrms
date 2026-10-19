@@ -28,8 +28,14 @@ class UserManagementService {
     // The live table has no lastLoginAt column, so the login timestamp is not
     // selected here. Adding it would require a migration.
     const rows = await prismaClient.$queryRawUnsafe(
-      'SELECT id, name, email, role, isActive, createdAt ' +
-        'FROM users WHERE role IN (' + placeholders + ') ORDER BY createdAt DESC',
+      'SELECT u.id, u.name, u.email, u.role, u.isActive, u.createdAt, ' +
+        'COALESCE(e.employeeCode, ep.employeeCode) AS employeeCode, ' +
+        'm.name AS reportingManagerName ' +
+        'FROM users u ' +
+        'LEFT JOIN employees e ON e.userId = u.id ' +
+        'LEFT JOIN employee_profiles ep ON ep.userId = u.id ' +
+        'LEFT JOIN employees m ON m.id = COALESCE(e.reportingManagerId, ep.reportingManagerId) ' +
+        'WHERE u.role IN (' + placeholders + ') ORDER BY u.createdAt DESC',
       ...roles
     );
 
@@ -41,6 +47,8 @@ class UserManagementService {
       isActive: Boolean(r.isActive),
       createdAt: r.createdAt,
       lastLoginAt: null,
+      employeeCode: r.employeeCode || null,
+      reportingManager: r.reportingManagerName || null,
     }));
   }
 
@@ -52,6 +60,15 @@ class UserManagementService {
       throw new AppError(
         AppErrorCodes.FORBIDDEN,
         'Only HR Admin, Employee and Super Admin accounts can be created here.',
+        403
+      );
+    }
+
+    // HR Admin can only create Employee accounts, not HR Admin or Super Admin
+    if (actor.role === 'HR_ADMIN' && role !== 'EMPLOYEE') {
+      throw new AppError(
+        AppErrorCodes.FORBIDDEN,
+        'HR Admin can only create Employee accounts.',
         403
       );
     }
@@ -146,6 +163,14 @@ class UserManagementService {
       throw new AppError(
         AppErrorCodes.FORBIDDEN,
         'You cannot deactivate your own account.',
+        403
+      );
+    }
+    // HR Admin can only toggle Employee accounts, not HR Admin or Super Admin
+    if (actor.role === 'HR_ADMIN' && rows[0].role !== 'EMPLOYEE') {
+      throw new AppError(
+        AppErrorCodes.FORBIDDEN,
+        'HR Admin can only manage Employee accounts.',
         403
       );
     }

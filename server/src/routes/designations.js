@@ -24,28 +24,47 @@ router.use(authenticate);
 
 router.get('/designations', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    // The actual schema has no designations table, so expose a truthful
-    // empty list rather than calling a missing Prisma model.
-    res.json([]);
+    const result = await DesignationService.list(req.user);
+    res.json(result);
   } catch (err) {
     next(err);
   }
 });
 
 router.get('/designations/:id', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
-  next(new AppError(AppErrorCodes.NOT_FOUND, 'Designations are not stored in the existing database schema.', 404));
+  try {
+    const result = await DesignationService.getById(req.user, req.params.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.post('/designations', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(createSchema), async (req, res, next) => {
-  next(new AppError(AppErrorCodes.INVALID_INPUT, 'Designations cannot be created because the existing schema has no designations table.', 501));
+  try {
+    const result = await DesignationService.create(req.user, req.body);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.patch('/designations/:id', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(updateSchema), async (req, res, next) => {
-  next(new AppError(AppErrorCodes.INVALID_INPUT, 'Designations cannot be updated because the existing schema has no designations table.', 501));
+  try {
+    const result = await DesignationService.update(req.user, req.params.id, req.body);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.delete('/designations/:id', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
-  next(new AppError(AppErrorCodes.INVALID_INPUT, 'Designations cannot be deleted because the existing schema has no designations table.', 501));
+  try {
+    const result = await DesignationService.delete(req.user, req.params.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;
