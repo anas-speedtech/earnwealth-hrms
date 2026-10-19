@@ -23,7 +23,7 @@ const roleNavigation: Record<string, { label: string; href: string }[]> = {
     { label: 'Leaves', href: '/super-admin/leaves' },
     { label: 'User Role', href: '/super-admin/user-roles' },
   ],
-  // HR Admin: same modules as Super Admin minus User Role and HR Staff.
+  // HR Admin: same modules as Super Admin minus HR Staff.
   // Uses /hr/* routes where available, /super-admin/* routes where no /hr/* equivalent exists.
   HR_ADMIN: [
     { label: 'Dashboard', href: '/hr/dashboard' },
@@ -36,6 +36,7 @@ const roleNavigation: Record<string, { label: string; href: string }[]> = {
     { label: 'Audit Logs', href: '/super-admin/audit-logs' },
     { label: 'Reports', href: '/hr/reports' },
     { label: 'Leaves', href: '/hr/leaves' },
+    { label: 'User Role', href: '/super-admin/user-roles' },
   ],
   EMPLOYEE: [
     { label: 'Dashboard', href: '/employee/dashboard' },

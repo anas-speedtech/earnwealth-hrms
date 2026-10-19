@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
@@ -62,7 +62,10 @@ export default function SuperAdminUserRolesPage() {
       setIsLoading(false);
     }
   };
-  load();
+
+  useEffect(() => {
+    load();
+  }, []);
 
   const displayName = user?.profile?.firstName && user?.profile?.lastName
     ? `${user.profile.firstName} ${user.profile.lastName}`
