@@ -24,6 +24,8 @@ interface NewAccount {
   name: string;
   email: string;
   role: string;
+  employeeCode: string;
+  reportingManager: string;
 }
 
 const ALL_ROLE_GROUPS: { role: string; label: string }[] = [
@@ -42,6 +44,8 @@ export default function SuperAdminUserRolesPage() {
     name: '',
     email: '',
     role: 'EMPLOYEE',
+    employeeCode: '',
+    reportingManager: '',
   });
 
   const load = async () => {
@@ -87,9 +91,11 @@ export default function SuperAdminUserRolesPage() {
         name: form.name,
         email: form.email,
         role: form.role,
+        employeeCode: form.employeeCode || '',
+        reportingManager: form.reportingManager || '',
       });
       toast.success(`Account created for ${form.email}.`);
-      setForm({ name: '', email: '', role: 'EMPLOYEE' });
+      setForm({ name: '', email: '', role: 'EMPLOYEE', employeeCode: '', reportingManager: '' });
       load();
     } catch (err: unknown) {
       const message =
@@ -142,13 +148,33 @@ export default function SuperAdminUserRolesPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Employee Code</label>
+                <input
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={form.employeeCode}
+                  onChange={(e) => setForm({ ...form, employeeCode: e.target.value })}
+                  placeholder="EMP-1001"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Reporting Manager Name</label>
+                <input
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={form.reportingManager}
+                  onChange={(e) => setForm({ ...form, reportingManager: e.target.value })}
+                  placeholder="Manager full name"
+                />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
                 <select
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   value={form.role}
                   onChange={(e) => setForm({ ...form, role: e.target.value })}
                 >
-                  <option value="HR_ADMIN">HR Admin</option>
+                  <option value="HR_ADMIN">HR Staff</option>
                   <option value="EMPLOYEE">Employee</option>
                 </select>
               </div>

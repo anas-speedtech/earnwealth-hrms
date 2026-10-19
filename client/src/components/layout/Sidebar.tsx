@@ -13,7 +13,7 @@ const roleNavigation: Record<string, { label: string; href: string }[]> = {
   SUPER_ADMIN: [
     { label: 'Dashboard', href: '/super-admin/dashboard' },
     { label: 'Payroll Approval', href: '/super-admin/payroll-approval' },
-    { label: 'HR Admin', href: '/super-admin/admins' },
+    { label: 'HR Staff', href: '/super-admin/admins' },
     { label: 'Settings', href: '/super-admin/settings' },
     { label: 'Policies', href: '/super-admin/policies' },
     { label: 'Holidays', href: '/super-admin/holidays' },
@@ -28,7 +28,7 @@ const roleNavigation: Record<string, { label: string; href: string }[]> = {
   HR_ADMIN: [
     { label: 'Dashboard', href: '/hr/dashboard' },
     { label: 'Payroll Approval', href: '/hr/payroll' },
-    { label: 'HR Admin', href: '/super-admin/admins' },
+    { label: 'HR Staff', href: '/super-admin/admins' },
     { label: 'Settings', href: '/super-admin/settings' },
     { label: 'Policies', href: '/super-admin/policies' },
     { label: 'Holidays', href: '/super-admin/holidays' },

@@ -55,7 +55,7 @@ class UserManagementService {
   /**
    * Creates an HR Admin, Employee or Super Admin account.
    */
-  static async create(actor, { name, email, password, role }) {
+  static async create(actor, { name, email, password, role, employeeCode, reportingManager }) {
     if (!['HR_ADMIN', 'EMPLOYEE', 'SUPER_ADMIN'].includes(role)) {
       throw new AppError(
         AppErrorCodes.FORBIDDEN,
@@ -74,6 +74,46 @@ class UserManagementService {
     }
 
     const prismaClient = getPrisma();
+
+    // When an employee code is supplied, validate it up front and resolve the
+    // reporting manager so the account is linked to the correct employee row.
+    // Doing this before the user insert avoids leaving an orphaned account if
+    // the code does not exist.
+    let employeeLink = null;
+    if (employeeCode && String(employeeCode).trim()) {
+      const code = String(employeeCode).trim();
+      const empRows = await prismaClient.$queryRawUnsafe(
+        'SELECT id FROM employees WHERE employeeCode = ? LIMIT 1',
+        code
+      );
+      if (!empRows || !empRows.length) {
+        throw new AppError(
+          AppErrorCodes.VALIDATION_ERROR,
+          'No employee found for the given employee code.',
+          400
+        );
+      }
+
+      let reportingManagerId = null;
+      let reportingManagerName = null;
+      if (reportingManager && String(reportingManager).trim()) {
+        const mgrRows = await prismaClient.$queryRawUnsafe(
+          'SELECT id, name FROM employees WHERE name = ? LIMIT 1',
+          String(reportingManager).trim()
+        );
+        if (mgrRows && mgrRows.length) {
+          reportingManagerId = Number(mgrRows[0].id);
+          reportingManagerName = mgrRows[0].name;
+        }
+      }
+
+      employeeLink = {
+        employeeId: Number(empRows[0].id),
+        code,
+        reportingManagerId,
+        reportingManagerName,
+      };
+    }
 
     const existing = await prismaClient.$queryRaw`
       SELECT id FROM users WHERE email = ${email} LIMIT 1
@@ -109,6 +149,16 @@ class UserManagementService {
     `;
     const user = rows[0];
 
+    // Link the new account to the employee record and its reporting manager.
+    if (employeeLink) {
+      await prismaClient.$executeRawUnsafe(
+        'UPDATE employees SET userId = ?, reportingManagerId = ?, updatedAt = NOW(3) WHERE id = ?',
+        Number(user.id),
+        employeeLink.reportingManagerId,
+        employeeLink.employeeId
+      );
+    }
+
     await AuthService.logAudit(
       String(actor.id),
       actor.role,
@@ -136,6 +186,8 @@ class UserManagementService {
       role: user.role,
       isActive: Boolean(user.isActive),
       createdAt: user.createdAt,
+      employeeCode: employeeLink ? employeeLink.code : null,
+      reportingManager: employeeLink ? employeeLink.reportingManagerName : null,
     };
   }
 

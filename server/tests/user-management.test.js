@@ -61,6 +61,12 @@ function configureMockForCreate(existingEmail = null) {
         createdAt: new Date(),
       }]);
     }
+    if (sqlStr.includes('FROM employees WHERE employeeCode')) {
+      return Promise.resolve([{ id: 5, userId: null }]);
+    }
+    if (sqlStr.includes('FROM employees WHERE name')) {
+      return Promise.resolve([{ id: 9, name: 'Manager Name' }]);
+    }
     return Promise.resolve([]);
   };
   mockQueryRaw.mockImplementation(handler);
@@ -199,5 +205,44 @@ describe('UserManagementService.create() — role permissions', () => {
         role: 'INVALID_ROLE',
       })
     ).rejects.toMatchObject({ code: AppErrorCodes.FORBIDDEN, statusCode: 403 });
+  });
+
+  test('Employee code and reporting manager are saved and returned', async () => {
+    configureMockForCreate();
+    const actor = { id: 1, role: 'SUPER_ADMIN' };
+    const result = await UserManagementService.create(actor, {
+      name: 'Linked Employee',
+      email: 'linked@example.com',
+      password: 'TestPass123!',
+      role: 'EMPLOYEE',
+      employeeCode: 'EMP-1001',
+      reportingManager: 'Manager Name',
+    });
+    expect(result.employeeCode).toBe('EMP-1001');
+    expect(result.reportingManager).toBe('Manager Name');
+  });
+
+  test('Unknown employee code is rejected with 400', async () => {
+    configureMockForCreate();
+    // Override the employee lookup to return no rows.
+    const originalImpl = mockQueryRawUnsafe.getMockImplementation();
+    mockQueryRawUnsafe.mockImplementation((templateOrSql, ...bindings) => {
+      const sqlStr = Array.isArray(templateOrSql) ? templateOrSql.join('') : String(templateOrSql);
+      if (sqlStr.includes('FROM employees WHERE employeeCode')) {
+        return Promise.resolve([]);
+      }
+      if (originalImpl) return originalImpl(templateOrSql, ...bindings);
+      return Promise.resolve([]);
+    });
+    const actor = { id: 1, role: 'SUPER_ADMIN' };
+    await expect(
+      UserManagementService.create(actor, {
+        name: 'Orphan',
+        email: 'orphan@example.com',
+        password: 'TestPass123!',
+        role: 'EMPLOYEE',
+        employeeCode: 'EMP-9999',
+      })
+    ).rejects.toMatchObject({ statusCode: 400 });
   });
 });

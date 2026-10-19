@@ -20,12 +20,13 @@ interface NewAccount {
   name: string;
   email: string;
   password: string;
-  confirmPassword: string;
+  employeeCode: string;
+  reportingManager: string;
   role: 'HR_ADMIN' | 'EMPLOYEE';
 }
 
 const ROLE_OPTIONS: { value: NewAccount['role']; label: string }[] = [
-  { value: 'HR_ADMIN', label: 'HR Admin' },
+  { value: 'HR_ADMIN', label: 'HR Staff' },
   { value: 'EMPLOYEE', label: 'Employee' },
 ];
 
@@ -36,7 +37,7 @@ function getRoleOptions(userRole: string): { value: NewAccount['role']; label: s
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  HR_ADMIN: 'HR Admin',
+  HR_ADMIN: 'HR Staff',
   EMPLOYEE: 'Employee',
 };
 
@@ -53,7 +54,8 @@ export default function SuperAdminAdminsPage() {
     name: '',
     email: '',
     password: '',
-    confirmPassword: '',
+    employeeCode: '',
+    reportingManager: '',
     role: 'HR_ADMIN',
   });
 
@@ -106,10 +108,12 @@ export default function SuperAdminAdminsPage() {
         email: form.email,
         password: form.password || '',
         role: form.role,
+        employeeCode: form.employeeCode || '',
+        reportingManager: form.reportingManager || '',
       });
       toast.success(`Account created for ${form.email}.`);
       setShowForm(false);
-      setForm({ name: '', email: '', password: '', confirmPassword: '', role: 'HR_ADMIN' });
+      setForm({ name: '', email: '', password: '', employeeCode: '', reportingManager: '', role: 'HR_ADMIN' });
       load();
     } catch (err: unknown) {
       const message =
@@ -147,7 +151,7 @@ export default function SuperAdminAdminsPage() {
 
   return (
     <DashboardShell role={user?.role || 'SUPER_ADMIN'} userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
-      <Header title="HR Admin" subtitle="Provision and manage HR Admin and Employee accounts" />
+      <Header title="HR Staff" subtitle="Provision and manage HR Staff and Employee accounts" />
       <div className="p-8 max-w-6xl">
         {canManage && (
           <div className="mb-4">
@@ -192,34 +196,39 @@ export default function SuperAdminAdminsPage() {
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                {form.role === 'HR_ADMIN' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                      <input
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        type="password"
-                        value={form.password}
-                        onChange={(e) => setForm({ ...form, password: e.target.value })}
-                        placeholder="At least 8 characters"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Confirm Password</label>
-                      <input
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        type="password"
-                        value={form.confirmPassword}
-                        onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
-                        placeholder="Re-enter password"
-                        required
-                      />
-                    </div>
-                  </>
-                )}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Employee Code</label>
+                  <input
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={form.employeeCode}
+                    onChange={(e) => setForm({ ...form, employeeCode: e.target.value })}
+                    placeholder="EMP-1001"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Reporting Manager Name</label>
+                  <input
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={form.reportingManager}
+                    onChange={(e) => setForm({ ...form, reportingManager: e.target.value })}
+                    placeholder="Manager full name"
+                  />
+                </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
+                {form.role === 'HR_ADMIN' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                    <input
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      type="password"
+                      value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      placeholder="At least 8 characters"
+                      required
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
                   <select
