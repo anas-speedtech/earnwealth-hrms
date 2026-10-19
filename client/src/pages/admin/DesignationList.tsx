@@ -5,7 +5,7 @@ import { organizationService } from '../../services/organization.service';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Designation } from '../../services/organization.service';
 
-const ROLES_THAT_CAN_MANAGE = ['SUPER_ADMIN', 'ADMIN'];
+const ROLES_THAT_CAN_MANAGE = ['SUPER_ADMIN', 'HR_ADMIN'];
 
 export default function DesignationListPage() {
   const { user } = useAuth();

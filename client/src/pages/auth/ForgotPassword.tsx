@@ -1,10 +1,11 @@
 import { useState, FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { passwordService } from '../../services/auth.service';
 
 export default function ForgotPassword() {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -16,11 +17,21 @@ export default function ForgotPassword() {
     setError(null);
     try {
       await passwordService.requestReset(email.trim());
-      // Deliberately the same message either way, so an unknown address does
-      // not stand out to the caller.
+      // The message on screen is deliberately the same whether or not the
+      // address has an account. The email is carried to the next step so the
+      // user does not have to type it again.
       setSubmitted(true);
-    } catch {
-      setError('Unable to process your request. Please try again.');
+    } catch (err: unknown) {
+      // Surface the real reason when the server tells us reset email is not
+      // available, so the user is not told a code was sent when it was not.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 503) {
+        setError(
+          'Password reset by email is not available. Please contact your administrator to reset your password.',
+        );
+      } else {
+        setError('Unable to process your request. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -35,15 +46,15 @@ export default function ForgotPassword() {
           </div>
           <h1 className="text-2xl font-bold text-slate-900">Reset your password</h1>
           <p className="text-sm text-slate-500 mt-1">
-            We will email you a link to choose a new password.
+            Enter your email and we will send you a verification code.
           </p>
         </div>
 
         {submitted ? (
           <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg" role="status">
             <p className="text-sm text-green-700">
-              If an account exists for <strong>{email}</strong>, a reset link has been sent. It
-              expires in 1 hour. Please check your inbox.
+              If an account exists for <strong>{email}</strong>, a verification code has been sent.
+              It expires in <strong>5 minutes</strong>. Please check your inbox.
             </p>
           </div>
         ) : (
@@ -65,17 +76,24 @@ export default function ForgotPassword() {
                 disabled={isLoading}
               />
               <Button type="submit" className="w-full" isLoading={isLoading}>
-                Send reset link
+                Send verification code
               </Button>
             </form>
           </>
         )}
 
-        <p className="text-center text-sm mt-6">
-          <Link to="/login" className="text-primary-600 hover:text-primary-700 font-medium">
+        <div className="mt-6 flex flex-col gap-3 text-center text-sm">
+          <button
+            type="button"
+            onClick={() => navigate('/verify-otp', { state: { email } })}
+            className="text-primary-600 hover:text-primary-700 font-medium"
+          >
+            I have a code — enter it
+          </button>
+          <Link to="/login" className="text-slate-500 hover:text-slate-700">
             Back to sign in
           </Link>
-        </p>
+        </div>
       </div>
     </div>
   );

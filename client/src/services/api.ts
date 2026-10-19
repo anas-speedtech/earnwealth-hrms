@@ -57,7 +57,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (originalRequest.url?.includes('/auth/login') || originalRequest.url?.includes('/auth/refresh')) {
         clearSession();
-        window.location.href = '/';
+        window.location.href = '/login';
         return Promise.reject(error);
       }
 
@@ -101,7 +101,17 @@ api.interceptors.response.use(
         pendingRequests.forEach(({ reject }) => reject(new Error('Session expired')));
         pendingRequests = [];
         clearSession();
-        window.location.href = '/';
+        // A revoked refresh token means this session was ended elsewhere — most
+        // often a newer login for the same account. Say so on the login page
+        // rather than silently dropping the user there.
+        const reason = error.response?.data?.error?.message;
+        if (reason === 'Invalid or expired refresh token.') {
+          sessionStorage.setItem(
+            'ews_session_ended',
+            'You were signed out because your account was signed in somewhere else.',
+          );
+        }
+        window.location.href = '/login';
         return Promise.reject(error);
       } finally {
         isRefreshing = false;

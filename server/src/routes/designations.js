@@ -22,7 +22,7 @@ const updateSchema = z.object({
 
 router.use(authenticate);
 
-router.get('/designations', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/designations', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     // The actual schema has no designations table, so expose a truthful
     // empty list rather than calling a missing Prisma model.
@@ -32,19 +32,19 @@ router.get('/designations', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), as
   }
 });
 
-router.get('/designations/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/designations/:id', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   next(new AppError(AppErrorCodes.NOT_FOUND, 'Designations are not stored in the existing database schema.', 404));
 });
 
-router.post('/designations', authorize(Role.SUPER_ADMIN, Role.ADMIN), validateBody(createSchema), async (req, res, next) => {
+router.post('/designations', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(createSchema), async (req, res, next) => {
   next(new AppError(AppErrorCodes.INVALID_INPUT, 'Designations cannot be created because the existing schema has no designations table.', 501));
 });
 
-router.patch('/designations/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN), validateBody(updateSchema), async (req, res, next) => {
+router.patch('/designations/:id', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(updateSchema), async (req, res, next) => {
   next(new AppError(AppErrorCodes.INVALID_INPUT, 'Designations cannot be updated because the existing schema has no designations table.', 501));
 });
 
-router.delete('/designations/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN), async (req, res, next) => {
+router.delete('/designations/:id', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   next(new AppError(AppErrorCodes.INVALID_INPUT, 'Designations cannot be deleted because the existing schema has no designations table.', 501));
 });
 

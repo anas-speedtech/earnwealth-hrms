@@ -17,6 +17,10 @@ const env = {
   SMTP_SECURE: process.env.SMTP_SECURE === 'true',
   SMTP_USER: process.env.SMTP_USER,
   SMTP_PASS: process.env.SMTP_PASS,
+  // Password reset needs SMTP to deliver the link. Without it the token is
+  // created but unreachable, so the feature reports itself as unavailable
+  // instead of claiming the email went out.
+  PASSWORD_RESET_ENABLED: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
   EMAIL_FROM: process.env.EMAIL_FROM || 'EWS HRMS <noreply@example.com>',
   EMAIL_FROM_NAME: process.env.EMAIL_FROM_NAME || 'EWS HRMS',
   APP_NAME: process.env.APP_NAME || 'EWS HRMS',

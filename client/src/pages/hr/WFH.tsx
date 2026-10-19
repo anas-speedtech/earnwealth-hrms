@@ -77,8 +77,8 @@ export default function HrWFHPage() {
 
   return (
     <DashboardShell
-      role="HR"
-      userName={(user?.profile?.fullName as string) || user?.email || 'HR Manager'}
+      role="HR_ADMIN"
+      userName={(user?.profile?.fullName as string) || user?.email || 'HR Admin'}
       userEmail={user?.email || ''}
       onLogout={logout}
     >

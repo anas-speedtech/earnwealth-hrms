@@ -9,53 +9,42 @@ interface SidebarProps {
 }
 
 const roleNavigation: Record<string, { label: string; href: string }[]> = {
+  // Super Admin: every module, plus the system-level administration tabs.
   SUPER_ADMIN: [
     { label: 'Dashboard', href: '/super-admin/dashboard' },
     { label: 'Payroll Approval', href: '/super-admin/payroll-approval' },
-    { label: 'Admins', href: '/super-admin/admins' },
-    { label: 'HR Staff', href: '/super-admin/hrs' },
+    { label: 'HR Admin', href: '/super-admin/admins' },
     { label: 'Settings', href: '/super-admin/settings' },
     { label: 'Policies', href: '/super-admin/policies' },
     { label: 'Holidays', href: '/super-admin/holidays' },
+    { label: 'Attendance', href: '/super-admin/attendance' },
     { label: 'Audit Logs', href: '/super-admin/audit-logs' },
     { label: 'Reports', href: '/super-admin/reports' },
+    { label: 'Leaves', href: '/super-admin/leaves' },
+    { label: 'User Role', href: '/super-admin/user-roles' },
   ],
-  ADMIN: [
-    { label: 'Dashboard', href: '/admin/dashboard' },
-    { label: 'Employees', href: '/admin/employees' },
-    { label: 'Departments', href: '/admin/departments' },
-    { label: 'Designations', href: '/admin/designations' },
-    { label: 'Attendance', href: '/admin/attendance' },
-    { label: 'Reports', href: '/admin/reports' },
-  ],
-  HR: [
+  // HR Admin: modules accessible to HR Admin. Uses /hr/* routes where available,
+  // /super-admin/* routes where no /hr/* equivalent exists.
+  HR_ADMIN: [
     { label: 'Dashboard', href: '/hr/dashboard' },
+    { label: 'Payroll Approval', href: '/hr/payroll' },
+    { label: 'HR Admin', href: '/super-admin/admins' },
+    { label: 'Settings', href: '/super-admin/settings' },
+    { label: 'Policies', href: '/super-admin/policies' },
+    { label: 'Holidays', href: '/super-admin/holidays' },
     { label: 'Attendance', href: '/hr/attendance' },
-    { label: 'WFH', href: '/hr/wfh' },
-    { label: 'Leave Applications', href: '/hr/leaves' },
-    { label: 'Comp-Off', href: '/hr/comp-offs' },
-    { label: 'Payroll', href: '/hr/payroll' },
-    { label: 'Payslips', href: '/hr/payslips' },
+    { label: 'Audit Logs', href: '/super-admin/audit-logs' },
     { label: 'Reports', href: '/hr/reports' },
-  ],
-  // Legacy database value for the HR role — same navigation as HR.
-  HR_MANAGER: [
-    { label: 'Dashboard', href: '/hr/dashboard' },
-    { label: 'Attendance', href: '/hr/attendance' },
-    { label: 'WFH', href: '/hr/wfh' },
-    { label: 'Leave Applications', href: '/hr/leaves' },
-    { label: 'Comp-Off', href: '/hr/comp-offs' },
-    { label: 'Payroll', href: '/hr/payroll' },
-    { label: 'Payslips', href: '/hr/payslips' },
-    { label: 'Reports', href: '/hr/reports' },
+    { label: 'Leaves', href: '/hr/leaves' },
   ],
   EMPLOYEE: [
     { label: 'Dashboard', href: '/employee/dashboard' },
     { label: 'Profile', href: '/employee/profile' },
+    { label: 'Settings', href: '/super-admin/settings' },
+    { label: 'Policies', href: '/super-admin/policies' },
+    { label: 'Holidays', href: '/super-admin/holidays' },
     { label: 'Attendance', href: '/employee/attendance' },
-    { label: 'WFH', href: '/employee/wfh' },
     { label: 'Leaves', href: '/employee/leaves' },
-    { label: 'Comp-Off', href: '/employee/comp-offs' },
     { label: 'Payslips', href: '/employee/payslips' },
     { label: 'Notifications', href: '/employee/notifications' },
   ],
@@ -63,8 +52,7 @@ const roleNavigation: Record<string, { label: string; href: string }[]> = {
 
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: 'bg-purple-600',
-  ADMIN: 'bg-blue-600',
-  HR: 'bg-green-600',
+  HR_ADMIN: 'bg-green-600',
   EMPLOYEE: 'bg-slate-600',
 };
 

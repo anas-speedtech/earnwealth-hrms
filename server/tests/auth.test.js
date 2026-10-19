@@ -65,15 +65,15 @@ describe('Role-based Access', () => {
   });
 
   test('ADMIN token has correct role claim', () => {
-    const token = signAccessToken({ userId: 'a-1', role: Role.ADMIN, email: 'a@test.com' });
+    const token = signAccessToken({ userId: 'a-1', role: Role.HR_ADMIN, email: 'a@test.com' });
     const decoded = verifyAccessToken(token);
-    expect(decoded.role).toBe('ADMIN');
+    expect(decoded.role).toBe('HR_ADMIN');
   });
 
   test('HR token has correct role claim', () => {
-    const token = signAccessToken({ userId: 'h-1', role: Role.HR, email: 'h@test.com' });
+    const token = signAccessToken({ userId: 'h-1', role: Role.HR_ADMIN, email: 'h@test.com' });
     const decoded = verifyAccessToken(token);
-    expect(decoded.role).toBe('HR');
+    expect(decoded.role).toBe('HR_ADMIN');
   });
 
   test('EMPLOYEE token has correct role claim', () => {
@@ -83,8 +83,8 @@ describe('Role-based Access', () => {
   });
 
   test('all four roles are distinct', () => {
-    const roles = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.EMPLOYEE];
-    expect(new Set(roles).size).toBe(4);
+    const roles = [Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE];
+    expect(new Set(roles).size).toBe(3);
   });
 
   test('token contains all required claims', () => {

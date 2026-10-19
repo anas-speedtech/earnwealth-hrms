@@ -2,7 +2,6 @@ const { PrismaClient } = require('@prisma/client');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { Role } = require('../types/index');
 const { logger } = require('../utils/logger');
-const { getTodayIST, toISTDate, formatDateKey } = require('../utils/date-utils');
 
 let prismaInstance;
 function getPrisma() {
@@ -12,154 +11,149 @@ function getPrisma() {
   return prismaInstance;
 }
 
+// The live `leave_types` and `leave_policies` tables predate this schema file:
+// their primary keys are VARCHAR and there is no Prisma model, so — exactly as
+// for the legacy `users` table — they are read and written with raw SQL.
 class LeaveTypesService {
+  static canManage(reqUser) {
+    return (
+      reqUser.role === Role.SUPER_ADMIN ||
+      reqUser.role === Role.HR_ADMIN
+    );
+  }
+
+  static canView(reqUser) {
+    return this.canManage(reqUser);
+  }
+
   static async listActive() {
     const prismaClient = getPrisma();
-    const types = await prismaClient.leaveType.findMany({
-      where: { isActive: true },
-      orderBy: { displayName: 'asc' },
-      include: {
-        policies: {
-          where: {
-            isActive: true,
-            effectiveFrom: { lte: getTodayIST() },
-            OR: [{ effectiveTo: null }, { effectiveTo: { gte: getTodayIST() } }],
-          },
-        },
-      },
-    });
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT id, name, displayName, description, code, classification,
+              isHalfDayAllowed, isActive
+       FROM leave_types
+       ORDER BY displayName ASC`
+    );
 
-    return types.map((lt) => ({
-      id: lt.id,
+    return rows.map((lt) => ({
+      id: String(lt.id),
       name: lt.name,
       displayName: lt.displayName,
       description: lt.description,
       code: lt.code,
       classification: lt.classification,
-      isHalfDayAllowed: lt.isHalfDayAllowed,
-      policy: lt.policies[0] || null,
+      isHalfDayAllowed: Boolean(lt.isHalfDayAllowed),
+      isActive: Boolean(lt.isActive),
+      policy: null,
     }));
   }
 
   static async listAll(reqUser) {
-    if (![Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role)) {
+    if (!this.canManage(reqUser)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to manage leave types.', 403);
     }
 
     const prismaClient = getPrisma();
-    const types = await prismaClient.leaveType.findMany({
-      orderBy: { displayName: 'asc' },
-      include: {
-        policies: {
-          where: { isActive: true },
-        },
-      },
-    });
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT id, name, displayName, description, code, classification,
+              isHalfDayAllowed, isActive
+       FROM leave_types
+       ORDER BY displayName ASC`
+    );
 
-    return types.map((lt) => ({
-      id: lt.id,
+    return rows.map((lt) => ({
+      id: String(lt.id),
       name: lt.name,
       displayName: lt.displayName,
       description: lt.description,
       code: lt.code,
       classification: lt.classification,
-      isHalfDayAllowed: lt.isHalfDayAllowed,
-      isActive: lt.isActive,
-      policy: lt.policies[0] || null,
-      createdAt: lt.createdAt,
+      isHalfDayAllowed: Boolean(lt.isHalfDayAllowed),
+      isActive: Boolean(lt.isActive),
+      policy: null,
+      createdAt: null,
     }));
   }
 
   static async create(reqUser, data) {
-    if (![Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role)) {
+    if (!this.canManage(reqUser)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to create leave types.', 403);
     }
 
     const prismaClient = getPrisma();
 
-    // Check duplicate code
-    const existing = await prismaClient.leaveType.findFirst({
-      where: { OR: [{ code: data.code }, { name: data.name }] },
-    });
-    if (existing) {
+    const existing = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM leave_types WHERE code = ? OR name = ? LIMIT 1',
+      data.code,
+      data.name
+    );
+
+    if (existing.length) {
       throw new AppError(AppErrorCodes.DUPLICATE_ENTRY, 'A leave type with this code or name already exists.', 409);
     }
 
-    const result = await prismaClient.$transaction(async (tx) => {
-      const leaveType = await tx.leaveType.create({
-        data: {
-          name: data.name,
-          displayName: data.displayName,
-          description: data.description || null,
-          code: data.code,
-          classification: data.classification || 'PAID',
-          isHalfDayAllowed: data.isHalfDayAllowed ?? true,
-          isActive: data.isActive ?? true,
-        },
-      });
+    const now = new Date();
+    const created = await prismaClient.$queryRawUnsafe(
+      `INSERT INTO leave_types
+        (name, displayName, description, code, classification, isHalfDayAllowed, isActive, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      data.name,
+      data.displayName,
+      data.description || null,
+      data.code,
+      data.classification || 'PAID',
+      data.isHalfDayAllowed ?? true,
+      data.isActive ?? true,
+      now,
+      now
+    );
 
-      await tx.leavePolicy.create({
-        data: {
-          leaveTypeId: leaveType.id,
-          annualEntitlementDays: data.annualEntitlementDays || 0,
-          accrualFrequency: data.accrualFrequency || 'ANNUAL',
-          monthlyAccrualDays: data.monthlyAccrualDays || null,
-          carryForwardEnabled: data.carryForwardEnabled || false,
-          maxCarryForwardDays: data.maxCarryForwardDays || null,
-          minDaysBeforeApply: data.minDaysBeforeApply ?? 0,
-          maxConsecutiveDays: data.maxConsecutiveDays || null,
-          applicableTo: data.applicableTo || 'ALL',
-          departmentIds: data.departmentIds || null,
-          effectiveFrom: toISTDate(data.effectiveFrom || formatDateKey(getTodayIST())),
-        },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          actorId: reqUser.id,
-          actorRole: reqUser.role,
-          action: 'CREATE_LEAVE_TYPE',
-          entityType: 'LeaveType',
-          entityId: leaveType.id,
-        },
-      });
-
-      return leaveType;
+    await prismaClient.auditLog.create({
+      data: {
+        actorId: reqUser.id,
+        actorRole: reqUser.role,
+        action: 'CREATE_LEAVE_TYPE',
+        entityType: 'LeaveType',
+        entityId: String(created.insertId),
+      },
     });
 
-    logger.info('Leave type created', { leaveTypeId: result.id, actorId: reqUser.id });
+    logger.info('Leave type created', { leaveTypeId: created.insertId, actorId: reqUser.id });
 
     return {
-      id: result.id,
-      name: result.name,
-      displayName: result.displayName,
-      code: result.code,
+      id: String(created.insertId),
+      name: data.name,
+      displayName: data.displayName,
+      code: data.code,
     };
   }
 
   static async update(reqUser, leaveTypeId, data) {
-    if (![Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role)) {
+    if (!this.canManage(reqUser)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to update leave types.', 403);
     }
 
     const prismaClient = getPrisma();
-    const existing = await prismaClient.leaveType.findUnique({
-      where: { id: leaveTypeId },
-    });
-    if (!existing) {
+    const existing = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM leave_types WHERE id = ? LIMIT 1',
+      leaveTypeId
+    );
+
+    if (!existing.length) {
       throw new AppError(AppErrorCodes.NOT_FOUND, 'Leave type not found.', 404);
     }
 
-    const updated = await prismaClient.leaveType.update({
-      where: { id: leaveTypeId },
-      data: {
-        displayName: data.displayName ?? existing.displayName,
-        description: data.description !== undefined ? data.description : existing.description,
-        classification: data.classification ?? existing.classification,
-        isHalfDayAllowed: data.isHalfDayAllowed ?? existing.isHalfDayAllowed,
-        isActive: data.isActive ?? existing.isActive,
-      },
-    });
+    const updated = await prismaClient.$queryRawUnsafe(
+      `UPDATE leave_types
+        SET displayName = ?, description = ?, classification = ?, isHalfDayAllowed = ?, isActive = ?
+       WHERE id = ?`,
+      data.displayName !== undefined ? data.displayName : existing[0].displayName,
+      data.description !== undefined ? data.description : existing[0].description,
+      data.classification !== undefined ? data.classification : existing[0].classification,
+      data.isHalfDayAllowed !== undefined ? data.isHalfDayAllowed : existing[0].isHalfDayAllowed,
+      data.isActive !== undefined ? data.isActive : existing[0].isActive,
+      leaveTypeId
+    );
 
     await prismaClient.auditLog.create({
       data: {
@@ -171,12 +165,9 @@ class LeaveTypesService {
       },
     });
 
-    return {
-      id: updated.id,
-      name: updated.name,
-      displayName: updated.displayName,
-      code: updated.code,
-    };
+    logger.info('Leave type updated', { leaveTypeId });
+
+    return { id: String(leaveTypeId), displayName: data.displayName };
   }
 
   static async delete(reqUser, leaveTypeId) {
@@ -185,16 +176,16 @@ class LeaveTypesService {
     }
 
     const prismaClient = getPrisma();
-    const existing = await prismaClient.leaveType.findUnique({
-      where: { id: leaveTypeId },
-    });
-    if (!existing) {
+    const existing = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM leave_types WHERE id = ? LIMIT 1',
+      leaveTypeId
+    );
+
+    if (!existing.length) {
       throw new AppError(AppErrorCodes.NOT_FOUND, 'Leave type not found.', 404);
     }
 
-    await prismaClient.leaveType.delete({
-      where: { id: leaveTypeId },
-    });
+    await prismaClient.$executeRawUnsafe('DELETE FROM leave_types WHERE id = ?', [leaveTypeId]);
 
     await prismaClient.auditLog.create({
       data: {
@@ -206,6 +197,7 @@ class LeaveTypesService {
       },
     });
 
+    logger.info('Leave type deleted', { leaveTypeId });
     return { success: true };
   }
 }

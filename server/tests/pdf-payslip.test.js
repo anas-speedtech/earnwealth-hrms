@@ -206,7 +206,7 @@ describe('PDF Payslip', () => {
   });
 
   describe('HR role', () => {
-    const hrUser = { id: 'user-hr', role: Role.HR, email: 'hr@example.com' };
+    const hrUser = { id: 'user-hr', role: Role.HR_ADMIN, email: 'hr@example.com' };
 
     test('HR can download an approved payslip for any employee', async () => {
       mockPrisma.payslip.findUnique.mockResolvedValue(payslipFixture());
@@ -220,7 +220,7 @@ describe('PDF Payslip', () => {
   });
 
   describe('Admin role', () => {
-    const adminUser = { id: 'user-admin', role: Role.ADMIN, email: 'admin@example.com' };
+    const adminUser = { id: 'user-admin', role: Role.HR_ADMIN, email: 'admin@example.com' };
 
     test('Admin can download an approved payslip', async () => {
       mockPrisma.payslip.findUnique.mockResolvedValue(payslipFixture());

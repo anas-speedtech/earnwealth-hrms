@@ -74,7 +74,7 @@ const componentOverrideSchema = z.object({
 router.post(
   '/payroll/salary-structures',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
   validateBody(salaryStructureSchema),
   async (req, res, next) => {
     try {
@@ -89,7 +89,7 @@ router.post(
 router.get(
   '/payroll/salary-structures/:employeeId',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
   async (req, res, next) => {
     try {
       const result = await PayrollService.getSalaryStructure(req.user, req.params.employeeId);
@@ -103,7 +103,7 @@ router.get(
 router.put(
   '/payroll/salary-structures/:id',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
   validateBody(updateSalaryStructureSchema),
   async (req, res, next) => {
     try {
@@ -118,7 +118,7 @@ router.put(
 router.get(
   '/payroll/salary-structures',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
   validateQuery(payrollFilterSchema),
   async (req, res, next) => {
     try {
@@ -135,7 +135,7 @@ router.get(
 router.post(
   '/payroll/records',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
   validateBody(createPayrollSchema),
   async (req, res, next) => {
     try {
@@ -150,7 +150,7 @@ router.post(
 router.post(
   '/payroll/records/bulk',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
   validateBody(bulkPayrollSchema),
   async (req, res, next) => {
     try {
@@ -173,7 +173,7 @@ router.post(
 router.put(
   '/payroll/records/:id/components',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
   validateBody(z.object({ overrides: z.array(componentOverrideSchema) })),
   async (req, res, next) => {
     try {
@@ -192,7 +192,7 @@ router.put(
 router.post(
   '/payroll/records/:id/submit',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
   async (req, res, next) => {
     try {
       const result = await PayrollService.submitForApproval(req.user, req.params.id);
@@ -236,7 +236,7 @@ router.post(
 router.get(
   '/payroll/records/:id',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.EMPLOYEE]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE),
   async (req, res, next) => {
     try {
       const result = await PayrollService.getPayroll(req.user, req.params.id);
@@ -250,7 +250,7 @@ router.get(
 router.get(
   '/payroll/records',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.EMPLOYEE]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE),
   validateQuery(payrollFilterSchema),
   async (req, res, next) => {
     try {
@@ -281,7 +281,7 @@ function sendPdfResponse(res, buffer, filename) {
 router.get(
   '/payroll/payslips/:id/pdf',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.EMPLOYEE]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE),
   async (req, res, next) => {
     try {
       const result = await PayrollService.getPayslipPDF(req.user, req.params.id);
@@ -295,7 +295,7 @@ router.get(
 router.post(
   '/payroll/payslips/:payrollId',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
   async (req, res, next) => {
     try {
       const result = await PayrollService.generatePayslip(req.user, req.params.payrollId);
@@ -309,7 +309,7 @@ router.post(
 router.get(
   '/payroll/payslips/:id',
   authenticate,
-  authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.EMPLOYEE]),
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE),
   async (req, res, next) => {
     try {
       const result = await PayrollService.getPayslip(req.user, req.params.id);
@@ -323,7 +323,7 @@ router.get(
 router.get(
   '/payroll/my-payslip',
   authenticate,
-  authorize([Role.EMPLOYEE]),
+  authorize(Role.EMPLOYEE),
   async (req, res, next) => {
     try {
       const { month, year } = req.query;
@@ -344,7 +344,7 @@ router.get(
 router.get(
   '/payroll/my-payslips',
   authenticate,
-  authorize([Role.EMPLOYEE]),
+  authorize(Role.EMPLOYEE),
   async (req, res, next) => {
     try {
       const result = await PayrollService.listMyPayslips(req.user);
@@ -357,7 +357,7 @@ router.get(
 
 // ============ STATS ============
 
-router.get('/payroll/stats', authenticate, authorize([Role.SUPER_ADMIN, Role.ADMIN, Role.HR]), async (req, res, next) => {
+router.get('/payroll/stats', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const result = await PayrollService.getDashboardStats(req.user);
     res.json({ data: result });
@@ -366,7 +366,7 @@ router.get('/payroll/stats', authenticate, authorize([Role.SUPER_ADMIN, Role.ADM
   }
 });
 
-router.get('/payroll/my-summary', authenticate, authorize([Role.EMPLOYEE]), async (req, res, next) => {
+router.get('/payroll/my-summary', authenticate, authorize(Role.EMPLOYEE), async (req, res, next) => {
   try {
     const result = await PayrollService.getMyPayrollSummary(req.user);
     res.json({ data: result });

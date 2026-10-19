@@ -58,7 +58,7 @@ router.post('/wfh/requests/:id/cancel', authenticate, async (req, res, next) => 
 });
 
 // List all pending WFH requests (HR, ADMIN, SUPER_ADMIN)
-router.get('/wfh/requests/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/wfh/requests/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const requests = await WFHService.listPending(req.user);
     res.json({ requests });
@@ -68,7 +68,7 @@ router.get('/wfh/requests/pending', authenticate, authorize(Role.SUPER_ADMIN, Ro
 });
 
 // List all WFH requests (HR, ADMIN, SUPER_ADMIN)
-router.get('/wfh/requests', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateQuery(listAllSchema), async (req, res, next) => {
+router.get('/wfh/requests', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateQuery(listAllSchema), async (req, res, next) => {
   try {
     const result = await WFHService.listAll(req.user, {
       page: parseInt(req.query.page) || 1,
@@ -81,7 +81,7 @@ router.get('/wfh/requests', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN
 });
 
 // Approve WFH request
-router.post('/wfh/requests/:id/approve', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(reviewSchema), async (req, res, next) => {
+router.post('/wfh/requests/:id/approve', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(reviewSchema), async (req, res, next) => {
   try {
     const result = await WFHService.approve(req.user, req.params.id, req.body.reviewComment);
     res.json(result);
@@ -91,7 +91,7 @@ router.post('/wfh/requests/:id/approve', authenticate, authorize(Role.SUPER_ADMI
 });
 
 // Reject WFH request
-router.post('/wfh/requests/:id/reject', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(reviewSchema), async (req, res, next) => {
+router.post('/wfh/requests/:id/reject', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(reviewSchema), async (req, res, next) => {
   try {
     const result = await WFHService.reject(req.user, req.params.id, req.body.reviewComment);
     res.json(result);

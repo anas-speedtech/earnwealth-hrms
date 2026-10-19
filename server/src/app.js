@@ -13,7 +13,10 @@ const correctionRoutes = require('./routes/attendance-corrections');
 const wfhRoutes = require('./routes/wfh');
 const leaveRoutes = require('./routes/leaves');
 const payrollRoutes = require('./routes/payroll');
+const auditLogRoutes = require('./routes/audit-logs');
 const compOffRoutes = require('./routes/compoff');
+const userRoutes = require('./routes/users');
+const holidayRoutes = require('./routes/holidays');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -39,7 +42,10 @@ app.use('/api', correctionRoutes);
 app.use('/api', wfhRoutes);
 app.use('/api', leaveRoutes);
 app.use('/api', payrollRoutes);
+app.use('/api', auditLogRoutes);
 app.use('/api', compOffRoutes);
+app.use('/api', userRoutes);
+app.use('/api', holidayRoutes);
 
 // Global error handler (must be last)
 app.use(errorHandler);

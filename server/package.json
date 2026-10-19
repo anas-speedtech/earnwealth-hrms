@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.js",
     "build": "tsc",
     "start": "node dist/src/index.js",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.js"
+    "test": "node --experimental-vm-modules ../node_modules/jest/bin/jest.js --config jest.config.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",

@@ -130,7 +130,7 @@ export const payrollService = {
   }): Promise<SalaryStructureItem> {
     const session = getSession();
     const { data } = await axios.post<{ data: SalaryStructureItem }>(
-      `${API_BASE_URL}/api/payroll/salary-structures`,
+      `${API_BASE_URL}/payroll/salary-structures`,
       payload,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
@@ -140,7 +140,7 @@ export const payrollService = {
   async getSalaryStructure(employeeId: string): Promise<SalaryStructureItem> {
     const session = getSession();
     const { data } = await axios.get<{ data: SalaryStructureItem }>(
-      `${API_BASE_URL}/api/payroll/salary-structures/${employeeId}`,
+      `${API_BASE_URL}/payroll/salary-structures/${employeeId}`,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
     return data.data;
@@ -155,7 +155,7 @@ export const payrollService = {
   }): Promise<SalaryStructureItem> {
     const session = getSession();
     const { data } = await axios.put<{ data: SalaryStructureItem }>(
-      `${API_BASE_URL}/api/payroll/salary-structures/${structureId}`,
+      `${API_BASE_URL}/payroll/salary-structures/${structureId}`,
       payload,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
@@ -169,7 +169,7 @@ export const payrollService = {
   } = {}): Promise<PaginatedSalaryStructures> {
     const session = getSession();
     const { data } = await axios.get<{ data: PaginatedSalaryStructures }>(
-      `${API_BASE_URL}/api/payroll/salary-structures`,
+      `${API_BASE_URL}/payroll/salary-structures`,
       {
         headers: { Authorization: `Bearer ${session?.accessToken}` },
         params,
@@ -183,7 +183,7 @@ export const payrollService = {
   async createPayroll(payload: { employeeId: string; month: number; year: number }): Promise<PayrollRecordItem> {
     const session = getSession();
     const { data } = await axios.post<{ data: PayrollRecordItem }>(
-      `${API_BASE_URL}/api/payroll/records`,
+      `${API_BASE_URL}/payroll/records`,
       payload,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
@@ -198,7 +198,7 @@ export const payrollService = {
   }): Promise<PayrollRecordItem[]> {
     const session = getSession();
     const { data } = await axios.post<{ data: PayrollRecordItem[] }>(
-      `${API_BASE_URL}/api/payroll/records/bulk`,
+      `${API_BASE_URL}/payroll/records/bulk`,
       payload,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
@@ -211,7 +211,7 @@ export const payrollService = {
   ): Promise<PayrollRecordItem> {
     const session = getSession();
     const { data } = await axios.put<{ data: PayrollRecordItem }>(
-      `${API_BASE_URL}/api/payroll/records/${payrollId}/components`,
+      `${API_BASE_URL}/payroll/records/${payrollId}/components`,
       { overrides },
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
@@ -221,7 +221,7 @@ export const payrollService = {
   async submitForApproval(payrollId: string): Promise<PayrollRecordItem> {
     const session = getSession();
     const { data } = await axios.post<{ data: PayrollRecordItem }>(
-      `${API_BASE_URL}/api/payroll/records/${payrollId}/submit`,
+      `${API_BASE_URL}/payroll/records/${payrollId}/submit`,
       {},
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
@@ -231,7 +231,7 @@ export const payrollService = {
   async approvePayroll(payrollId: string, comment = ''): Promise<PayrollRecordItem> {
     const session = getSession();
     const { data } = await axios.post<{ data: PayrollRecordItem }>(
-      `${API_BASE_URL}/api/payroll/records/${payrollId}/approve`,
+      `${API_BASE_URL}/payroll/records/${payrollId}/approve`,
       { comment },
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
@@ -241,7 +241,7 @@ export const payrollService = {
   async rejectPayroll(payrollId: string, reason: string): Promise<PayrollRecordItem> {
     const session = getSession();
     const { data } = await axios.post<{ data: PayrollRecordItem }>(
-      `${API_BASE_URL}/api/payroll/records/${payrollId}/reject`,
+      `${API_BASE_URL}/payroll/records/${payrollId}/reject`,
       { comment: reason },
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
@@ -251,7 +251,7 @@ export const payrollService = {
   async getPayroll(payrollId: string): Promise<PayrollRecordItem> {
     const session = getSession();
     const { data } = await axios.get<{ data: PayrollRecordItem }>(
-      `${API_BASE_URL}/api/payroll/records/${payrollId}`,
+      `${API_BASE_URL}/payroll/records/${payrollId}`,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
     return data.data;
@@ -268,7 +268,7 @@ export const payrollService = {
   } = {}): Promise<PaginatedPayrollRecords> {
     const session = getSession();
     const { data } = await axios.get<{ data: PaginatedPayrollRecords }>(
-      `${API_BASE_URL}/api/payroll/records`,
+      `${API_BASE_URL}/payroll/records`,
       {
         headers: { Authorization: `Bearer ${session?.accessToken}` },
         params,
@@ -282,7 +282,7 @@ export const payrollService = {
   async generatePayslip(payrollId: string): Promise<PayslipItem> {
     const session = getSession();
     const { data } = await axios.post<{ data: PayslipItem }>(
-      `${API_BASE_URL}/api/payroll/payslips/${payrollId}`,
+      `${API_BASE_URL}/payroll/payslips/${payrollId}`,
       {},
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
@@ -292,7 +292,7 @@ export const payrollService = {
   async getPayslip(payslipId: string): Promise<PayslipItem> {
     const session = getSession();
     const { data } = await axios.get<{ data: PayslipItem }>(
-      `${API_BASE_URL}/api/payroll/payslips/${payslipId}`,
+      `${API_BASE_URL}/payroll/payslips/${payslipId}`,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
     return data.data;
@@ -301,7 +301,7 @@ export const payrollService = {
   async getMyPayslip(month: number, year: number): Promise<PayslipItem> {
     const session = getSession();
     const { data } = await axios.get<{ data: PayslipItem }>(
-      `${API_BASE_URL}/api/payroll/my-payslip`,
+      `${API_BASE_URL}/payroll/my-payslip`,
       {
         headers: { Authorization: `Bearer ${session?.accessToken}` },
         params: { month, year },
@@ -313,7 +313,7 @@ export const payrollService = {
   async listMyPayslips(): Promise<{ payslips: PayslipItem[] }> {
     const session = getSession();
     const { data } = await axios.get<{ data: { payslips: PayslipItem[] } }>(
-      `${API_BASE_URL}/api/payroll/my-payslips`,
+      `${API_BASE_URL}/payroll/my-payslips`,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
     return data.data;
@@ -323,7 +323,7 @@ export const payrollService = {
 
   async downloadPayslipPDF(payslipId: string, filename: string): Promise<void> {
     const session = getSession();
-    await axios.get(`${API_BASE_URL}/api/payroll/payslips/${payslipId}/pdf`, {
+    await axios.get(`${API_BASE_URL}/payroll/payslips/${payslipId}/pdf`, {
       headers: { Authorization: `Bearer ${session?.accessToken}` },
       responseType: 'blob',
     }).then((response) => {
@@ -348,7 +348,7 @@ export const payrollService = {
   async getDashboardStats(): Promise<PayrollDashboardStats> {
     const session = getSession();
     const { data } = await axios.get<{ data: PayrollDashboardStats }>(
-      `${API_BASE_URL}/api/payroll/stats`,
+      `${API_BASE_URL}/payroll/stats`,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
     return data.data;
@@ -357,7 +357,7 @@ export const payrollService = {
   async getMyPayrollSummary(): Promise<PayrollSummary | null> {
     const session = getSession();
     const { data } = await axios.get<{ data: PayrollSummary | null }>(
-      `${API_BASE_URL}/api/payroll/my-summary`,
+      `${API_BASE_URL}/payroll/my-summary`,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
     return data.data;

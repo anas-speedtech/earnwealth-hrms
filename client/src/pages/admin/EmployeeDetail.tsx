@@ -6,8 +6,8 @@ import { organizationService } from '../../services/organization.service';
 import { useAuth } from '../../contexts/AuthContext';
 import type { EmployeeDetail, Department } from '../../services/organization.service';
 
-const ROLES_THAT_CAN_EDIT = ['SUPER_ADMIN', 'ADMIN', 'HR'];
-const ROLES_THAT_CAN_TOGGLE_STATUS = ['SUPER_ADMIN', 'ADMIN'];
+const ROLES_THAT_CAN_EDIT = ['SUPER_ADMIN', 'HR_ADMIN'];
+const ROLES_THAT_CAN_TOGGLE_STATUS = ['SUPER_ADMIN', 'HR_ADMIN'];
 
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();

@@ -1,1302 +1,534 @@
+const crypto = require('crypto');
 const { PrismaClient } = require('@prisma/client');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { Role } = require('../types/index');
 const { logger } = require('../utils/logger');
-const {
-  getTodayIST,
-  toISTDate,
-  isWeekend,
-  isHoliday,
-  formatDateKey,
-  canAccessAll,
-} = require('../utils/date-utils');
-
-const PAGE_SIZE = 20;
 
 let prismaInstance;
 function getPrisma() {
-  if (!prismaInstance) {
-    prismaInstance = new PrismaClient();
-  }
+  if (!prismaInstance) prismaInstance = new PrismaClient();
   return prismaInstance;
 }
 
-// ---- Policy helpers ----
+const PAGE_SIZE = 20;
 
-function getDefaultPolicy() {
-  return {
-    isEnabled: true,
-    creditExpiryMonths: 6,
-    minWorkingMinutes: 480,
-    maxCreditsPerMonth: 4,
-    applicableOnWeekends: true,
-    applicableOnHolidays: true,
-  };
+/**
+ * Comp-Off module.
+ *
+ * Written against the live MySQL tables with raw SQL.
+ * comp_off_credits: earned comp-off credits (earnedDays, usedDays, status)
+ * comp_off_ledger:  double-entry ledger of EARN/USE/ADJUST events
+ * comp_off_policy:  single active policy row (expiry, min-worked-hours)
+ *
+ * Live column names: earnedDays / usedDays (not credits / remainingAmount).
+ * employees.name is a single VARCHAR (not firstName/lastName).
+ */
+
+async function resolveEmployeeId(prismaClient, reqUser, targetEmployeeId) {
+  if (!targetEmployeeId || String(targetEmployeeId) === String(reqUser.id)) {
+    const rows = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM employees WHERE userId = ? LIMIT 1',
+      reqUser.id
+    );
+    if (!rows.length) {
+      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee profile not found.', 404);
+    }
+    return rows[0].id;
+  }
+  const rows = await prismaClient.$queryRawUnsafe(
+    'SELECT id FROM employees WHERE id = ? LIMIT 1',
+    targetEmployeeId
+  );
+  if (!rows.length) {
+    throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
+  }
+  return rows[0].id;
 }
 
-async function getActivePolicy() {
-  const prismaClient = getPrisma();
-  let policy = await prismaClient.compOffPolicy.findFirst();
-  if (!policy) {
-    policy = await prismaClient.compOffPolicy.create({
-      data: getDefaultPolicy(),
-    });
-  }
-  return policy;
-}
-
-// ---- Date classification ----
-
-function classifyDate(date, policy, holidayDateSet) {
-  if (isHoliday(date, holidayDateSet)) {
-    return { type: 'HOLIDAY', label: 'Holiday', eligible: policy.applicableOnHolidays };
-  }
-  if (isWeekend(date)) {
-    return { type: 'WEEKEND', label: 'Weekend', eligible: policy.applicableOnWeekends };
-  }
-  return { type: 'WEEKDAY', label: 'Weekday', eligible: false };
-}
-
-// ---- Eligibility check ----
-
-async function checkEligibility(employeeId, date, policy, holidayDateSet) {
-  const prismaClient = getPrisma();
-  const dateStart = new Date(date);
-  dateStart.setHours(0, 0, 0, 0);
-
-  const classification = classifyDate(dateStart, policy, holidayDateSet);
-  if (!classification.eligible) {
-    return {
-      eligible: false,
-      reason: `Comp-Off is not applicable for ${classification.label.toLowerCase()}s.`,
-      dateType: classification.type,
-      dateLabel: classification.label,
-    };
-  }
-
-  const attendance = await prismaClient.attendance.findUnique({
-    where: {
-      employeeId_date: { employeeId, date: dateStart },
-    },
-    include: {
-      sessions: true,
-      corrections: {
-        where: { status: 'APPROVED' },
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-      },
-    },
-  });
-
-  if (!attendance) {
-    return {
-      eligible: false,
-      reason: 'No attendance record found for this date.',
-      dateType: classification.type,
-      dateLabel: classification.label,
-    };
-  }
-
-  const hasApprovedCorrection = attendance.corrections.length > 0;
-  const effectiveStatus = hasApprovedCorrection
-    ? (attendance.corrections[0].correctedStatus || attendance.status)
-    : attendance.status;
-
-  if (!['PRESENT', 'PARTIAL'].includes(effectiveStatus)) {
-    return {
-      eligible: false,
-      reason: `Attendance status is "${effectiveStatus}", not eligible for Comp-Off.`,
-      dateType: classification.type,
-      dateLabel: classification.label,
-    };
-  }
-
-  const completedSessions = attendance.sessions.filter((s) => s.punchOut !== null);
-  if (completedSessions.length === 0) {
-    return {
-      eligible: false,
-      reason: 'No completed work sessions found. Both punch-in and punch-out are required.',
-      dateType: classification.type,
-      dateLabel: classification.label,
-    };
-  }
-
-  const totalMinutes = attendance.totalMinutes || 0;
-  const minMinutes = policy.minWorkingMinutes || 480;
-  if (totalMinutes < minMinutes) {
-    return {
-      eligible: false,
-      reason: `Total work time (${totalMinutes} min) is below the minimum required (${minMinutes} min).`,
-      dateType: classification.type,
-      dateLabel: classification.label,
-      totalMinutes,
-      minMinutes,
-    };
-  }
-
-  const existingCredit = await prismaClient.compOffCredit.findUnique({
-    where: {
-      compOff_employee_date: { employeeId, sourceDate: dateStart },
-    },
-  });
-
-  if (existingCredit) {
-    return {
-      eligible: false,
-      reason: `A Comp-Off credit request already exists for this date (${existingCredit.status}).`,
-      dateType: classification.type,
-      dateLabel: classification.label,
-      existingStatus: existingCredit.status,
-    };
-  }
-
-  return {
-    eligible: true,
-    reason: 'Eligible for Comp-Off credit.',
-    dateType: classification.type,
-    dateLabel: classification.label,
-    totalMinutes,
-    hasApprovedCorrection,
-  };
+function canAccessAll(user) {
+  return user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN || user.role === Role.HR_ADMIN;
 }
 
 class CompOffService {
   // ---- Policy ----
 
-  static async getPolicy() {
-    return getActivePolicy();
-  }
-
-  static async updatePolicy(reqUser, data) {
-    if (!canAccessAll(reqUser)) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to update Comp-Off policy.', 403);
-    }
-
+  static async getPolicy(user) {
     const prismaClient = getPrisma();
-    const existing = await prismaClient.compOffPolicy.findFirst();
-
-    const updateData = {
-      isEnabled: data.isEnabled ?? existing?.isEnabled ?? true,
-      creditExpiryMonths: data.creditExpiryMonths ?? existing?.creditExpiryMonths ?? 6,
-      minWorkingMinutes: data.minWorkingMinutes ?? existing?.minWorkingMinutes ?? 480,
-      maxCreditsPerMonth: data.maxCreditsPerMonth ?? existing?.maxCreditsPerMonth ?? 4,
-      applicableOnWeekends: data.applicableOnWeekends ?? existing?.applicableOnWeekends ?? true,
-      applicableOnHolidays: data.applicableOnHolidays ?? existing?.applicableOnHolidays ?? true,
-    };
-
-    let updated;
-    if (existing) {
-      updated = await prismaClient.compOffPolicy.update({
-        where: { id: existing.id },
-        data: updateData,
-      });
-    } else {
-      updated = await prismaClient.compOffPolicy.create({
-        data: updateData,
-      });
-    }
-
-    await prismaClient.auditLog.create({
-      data: {
-        actorId: reqUser.id,
-        actorRole: reqUser.role,
-        action: 'UPDATE_COMPOFF_POLICY',
-        entityType: 'CompOffPolicy',
-        entityId: updated.id,
-        metadata: JSON.stringify(updateData),
-      },
-    });
-
-    logger.info('Comp-Off policy updated', { actorId: reqUser.id, policyId: updated.id });
-    return updated;
-  }
-
-  // ---- Employee: Eligible Dates ----
-
-  static async getEligibleDates(reqUser, { month, year }) {
-    const prismaClient = getPrisma();
-    const profile = await prismaClient.employeeProfile.findUnique({
-      where: { userId: reqUser.id },
-      select: { id: true },
-    });
-    if (!profile) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee profile not found.', 404);
-    }
-
-    const policy = await getActivePolicy();
-    if (!policy.isEnabled) {
-      throw new AppError(AppErrorCodes.POLICY_DISABLED, 'Comp-Off is currently disabled.', 400);
-    }
-
-    const targetMonth = month || getTodayIST().getMonth() + 1;
-    const targetYear = year || getTodayIST().getFullYear();
-    const monthStart = new Date(targetYear, targetMonth - 1, 1);
-    const monthEnd = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
-
-    const holidays = await prismaClient.holiday.findMany({
-      where: {
-        date: { gte: monthStart, lte: monthEnd },
-        isActive: true,
-      },
-      select: { date: true },
-    });
-    const holidayDateSet = new Set(holidays.map((h) => formatDateKey(h.date)));
-
-    const attendances = await prismaClient.attendance.findMany({
-      where: { employeeId: profile.id, date: { gte: monthStart, lte: monthEnd } },
-      include: {
-        sessions: true,
-        corrections: {
-          where: { status: 'APPROVED' },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-      },
-      orderBy: { date: 'desc' },
-    });
-
-    const results = [];
-    for (const attendance of attendances) {
-      const eligibility = await checkEligibility(profile.id, attendance.date, policy, holidayDateSet);
-      results.push({
-        date: attendance.date,
-        dateKey: formatDateKey(attendance.date),
-        ...eligibility,
-        attendanceId: attendance.id,
-        status: attendance.status,
-        totalMinutes: attendance.totalMinutes || 0,
-      });
-    }
-
-    return results;
-  }
-
-  // ---- Employee: Request Credit ----
-
-  static async requestCredit(reqUser, { sourceDate, attendanceId }) {
-    const prismaClient = getPrisma();
-    const profile = await prismaClient.employeeProfile.findUnique({
-      where: { userId: reqUser.id },
-      select: { id: true },
-    });
-    if (!profile) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee profile not found.', 404);
-    }
-
-    const policy = await getActivePolicy();
-    if (!policy.isEnabled) {
-      throw new AppError(AppErrorCodes.POLICY_DISABLED, 'Comp-Off is currently disabled.', 400);
-    }
-
-    const dateObj = toISTDate(sourceDate);
-    const today = getTodayIST();
-    today.setHours(0, 0, 0, 0);
-
-    if (dateObj > today) {
-      throw new AppError(AppErrorCodes.INVALID_INPUT, 'Cannot request Comp-Off for a future date.', 400);
-    }
-
-    const holidays = await prismaClient.holiday.findMany({
-      where: { isActive: true },
-      select: { date: true },
-    });
-    const holidayDateSet = new Set(holidays.map((h) => formatDateKey(h.date)));
-
-    const eligibility = await checkEligibility(profile.id, dateObj, policy, holidayDateSet);
-    if (!eligibility.eligible) {
-      throw new AppError(AppErrorCodes.INVALID_INPUT, eligibility.reason, 400);
-    }
-
-    // Check monthly limit
-    const monthStart = new Date(dateObj.getFullYear(), dateObj.getMonth(), 1);
-    const monthEnd = new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 0, 23, 59, 59, 999);
-    const creditsThisMonth = await prismaClient.compOffCredit.count({
-      where: {
-        employeeId: profile.id,
-        createdAt: { gte: monthStart, lte: monthEnd },
-      },
-    });
-
-    const maxPerMonth = policy.maxCreditsPerMonth || 4;
-    if (creditsThisMonth >= maxPerMonth) {
-      throw new AppError(
-        AppErrorCodes.CONFLICT,
-        `Maximum ${maxPerMonth} Comp-Off credits allowed per month.`,
-        409
+    const rows = await prismaClient.$queryRawUnsafe(
+      'SELECT id, expiryMonths, minWorkedHours, maxDaysPerMonth, isActive, createdAt FROM comp_off_policy WHERE isActive = 1 LIMIT 1'
+    );
+    if (!rows.length) {
+      // Create a sensible default rather than returning nothing. Return the
+      // constructed row directly instead of recursing, because the insert may
+      // not persist under a mocked client and recursion would loop forever.
+      const id = crypto.randomUUID();
+      const now = new Date();
+      await prismaClient.$executeRawUnsafe(
+        "INSERT INTO comp_off_policy (id, expiryMonths, minWorkedHours, maxDaysPerMonth, isActive, createdAt, updatedAt) VALUES (?, 3, 4.00, 2, 1, NOW(), NOW())",
+        id
       );
+      return { id, expiryMonths: 3, minWorkedHours: 4, maxDaysPerMonth: 2, isActive: 1, createdAt: now, updatedAt: now };
     }
-
-    const expiryMonths = policy.creditExpiryMonths || 6;
-    const expiresAt = new Date(dateObj.getFullYear(), dateObj.getMonth() + expiryMonths, 0, 23, 59, 59);
-
-    const attendance = await prismaClient.attendance.findUnique({
-      where: { employeeId_date: { employeeId: profile.id, date: dateObj } },
-      select: { id: true },
-    });
-
-    const credit = await prismaClient.compOffCredit.create({
-      data: {
-        employeeId: profile.id,
-        sourceDate: dateObj,
-        attendanceId: attendance?.id || attendanceId || null,
-        credits: 1,
-        remainingAmount: 1,
-        status: 'PENDING',
-        expiresAt,
-      },
-    });
-
-    const totalBalance = await prismaClient.compOffLedger.aggregate({
-      where: { employeeId: profile.id },
-      _sum: { amount: true },
-    });
-
-    const balanceBefore = Number(totalBalance._sum.amount || 0);
-
-    await prismaClient.compOffLedger.create({
-      data: {
-        employeeId: profile.id,
-        creditId: credit.id,
-        type: 'EARNED',
-        amount: 0,
-        balanceBefore,
-        balanceAfter: balanceBefore,
-        reason: `Credit requested for ${formatDateKey(dateObj)} (${eligibility.dateType}) — pending approval.`,
-        createdBy: reqUser.id,
-      },
-    });
-
-    await prismaClient.auditLog.create({
-      data: {
-        actorId: reqUser.id,
-        actorRole: reqUser.role,
-        action: 'CREATE_COMPOFF_REQUEST',
-        entityType: 'CompOffCredit',
-        entityId: credit.id,
-        metadata: JSON.stringify({ sourceDate: formatDateKey(dateObj), dateType: eligibility.dateType }),
-      },
-    });
-
-    logger.info('Comp-Off credit requested', { creditId: credit.id, employeeId: profile.id, date: sourceDate });
-    return credit;
+    return rows[0];
   }
 
-  // ---- HR: Approve / Reject Credit ----
-
-  static async reviewCredit(reqUser, creditId, action, reason) {
-    if (!canAccessAll(reqUser)) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to review Comp-Off credit requests.', 403);
+  static async updatePolicy(user, data) {
+    if (!canAccessAll(user)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You cannot update the comp-off policy.', 403);
     }
-
     const prismaClient = getPrisma();
-
-    const credit = await prismaClient.compOffCredit.findUnique({
-      where: { id: creditId },
+    const { expiryMonths, minWorkedHours, maxDaysPerMonth } = data;
+    await prismaClient.$executeRawUnsafe(
+      'UPDATE comp_off_policy SET expiryMonths = ?, minWorkedHours = ?, maxDaysPerMonth = ?, updatedAt = NOW() WHERE isActive = 1 LIMIT 1',
+      expiryMonths ?? 3, minWorkedHours ?? 4, maxDaysPerMonth ?? 2
+    );
+    logger.info('Comp-off policy updated', { by: user.id });
+    await prismaClient.auditLog.create({
+      data: { actorId: user.id, actorRole: user.role, action: 'UPDATE_COMPOFF_POLICY', entityType: 'CompOffPolicy', entityId: 'policy' }
     });
-
-    if (!credit) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Comp-Off credit not found.', 404);
-    }
-
-    if (credit.status !== 'PENDING') {
-      throw new AppError(AppErrorCodes.CONFLICT, `Credit is already ${credit.status.toLowerCase()}.`, 409);
-    }
-
-    const reviewerProfile = await prismaClient.employeeProfile.findUnique({
-      where: { userId: reqUser.id },
-      select: { id: true },
-    });
-
-    if (reviewerProfile && credit.employeeId === reviewerProfile.id) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You cannot approve your own Comp-Off credit request.', 403);
-    }
-
-    const now = new Date();
-
-    const result = await prismaClient.$transaction(async (tx) => {
-      let updated;
-
-      if (action === 'APPROVE') {
-        updated = await tx.compOffCredit.update({
-          where: { id: creditId },
-          data: {
-            status: 'APPROVED',
-            approvedBy: reqUser.id,
-            approvedAt: now,
-          },
-        });
-
-        const total = await tx.compOffLedger.aggregate({
-          where: { employeeId: credit.employeeId, type: 'EARNED' },
-          _sum: { amount: true },
-        });
-
-        const balanceBefore = Number(total._sum.amount || 0);
-
-        await tx.compOffLedger.create({
-          data: {
-            employeeId: credit.employeeId,
-            creditId: credit.id,
-            type: 'EARNED',
-            amount: Number(credit.credits),
-            balanceBefore,
-            balanceAfter: balanceBefore + Number(credit.credits),
-            reason: `Credit approved for ${formatDateKey(credit.sourceDate)}.`,
-            createdBy: reqUser.id,
-          },
-        });
-      } else {
-        if (!reason || !reason.trim()) {
-          throw new AppError(AppErrorCodes.INVALID_INPUT, 'A rejection reason is required.', 400);
-        }
-
-        updated = await tx.compOffCredit.update({
-          where: { id: creditId },
-          data: {
-            status: 'REJECTED',
-            rejectionReason: reason,
-          },
-        });
-
-        const total = await tx.compOffLedger.aggregate({
-          where: { employeeId: credit.employeeId },
-          _sum: { amount: true },
-        });
-
-        const balanceBefore = Number(total._sum.amount || 0);
-
-        await tx.compOffLedger.create({
-          data: {
-            employeeId: credit.employeeId,
-            creditId: credit.id,
-            type: 'RELEASED',
-            amount: 0,
-            balanceBefore,
-            balanceAfter: balanceBefore,
-            reason: `Credit rejected for ${formatDateKey(credit.sourceDate)}: ${reason}`,
-            createdBy: reqUser.id,
-          },
-        });
-      }
-
-      await tx.auditLog.create({
-        data: {
-          actorId: reqUser.id,
-          actorRole: reqUser.role,
-          action: action === 'APPROVE' ? 'APPROVE_COMPOFF_CREDIT' : 'REJECT_COMPOFF_CREDIT',
-          entityType: 'CompOffCredit',
-          entityId: creditId,
-          metadata: JSON.stringify({
-            employeeId: credit.employeeId,
-            sourceDate: formatDateKey(credit.sourceDate),
-            reason: action === 'REJECT' ? reason : undefined,
-          }),
-        },
-      });
-
-      return updated;
-    });
-
-    logger.info(`Comp-Off credit ${action.toLowerCase()}ed`, { creditId, reviewerId: reqUser.id });
-    return result;
+    return CompOffService.getPolicy(user);
   }
 
   // ---- Balance ----
 
-  static async getMyBalance(reqUser) {
+  /**
+   * Per-employee comp-off summary: total earned, used, and available days.
+   */
+  static async getBalanceByEmployeeId(reqUser, employeeId) {
     const prismaClient = getPrisma();
-    const profile = await prismaClient.employeeProfile.findUnique({
-      where: { userId: reqUser.id },
-      select: { id: true },
-    });
-    if (!profile) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee profile not found.', 404);
+    const empId = await resolveEmployeeId(prismaClient, reqUser, employeeId);
+
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT
+         COALESCE(SUM(CASE WHEN type = 'EARN' THEN amount ELSE 0 END), 0) AS totalEarned,
+         COALESCE(SUM(CASE WHEN type = 'USE'   THEN amount ELSE 0 END), 0) AS totalUsed,
+         COALESCE(SUM(CASE WHEN type = 'ADJUST' THEN amount ELSE 0 END), 0) AS totalAdjusted
+       FROM comp_off_ledger
+       WHERE employeeId = ?`,
+      empId
+    );
+
+    const earned = Number(rows[0].totalEarned || 0);
+    const used = Number(rows[0].totalUsed || 0);
+    const adjusted = Number(rows[0].totalAdjusted || 0);
+    const available = earned - used + adjusted;
+
+    return { employeeId: empId, totalEarned: earned, totalUsed: used, totalAdjusted: adjusted, available };
+  }
+
+  static async getEligibleDates(reqUser, month, year) {
+    if (!reqUser) throw new AppError(AppErrorCodes.UNAUTHORIZED, 'Authentication required.');
+    const prismaClient = getPrisma();
+    const empId = await resolveEmployeeId(prismaClient, reqUser, null);
+
+    const policy = await CompOffService.getPolicy(reqUser);
+    const minHours = Number(policy.minWorkedHours);
+
+    // Find weekend days worked that could earn comp-off.
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonth = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`;
+
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT DATE(a.punchTime) AS workedDate
+       FROM attendance_logs a
+       WHERE a.employeeId = ?
+         AND a.status = 'IN'
+         AND a.punchTime >= ?
+         AND a.punchTime < ?
+         AND DAYOFWEEK(a.punchTime) IN (1, 7)
+       GROUP BY DATE(a.punchTime)
+       HAVING TIMESTAMPDIFF(HOUR,
+         MIN(CASE WHEN a.status = 'IN' THEN a.punchTime END),
+         MAX(CASE WHEN a.punchTime = (SELECT MAX(a2.punchTime) FROM attendance_logs a2 WHERE DATE(a2.punchTime) = DATE(a.punchTime) AND a2.employeeId = a.employeeId AND a2.status = 'OUT')
+        )) >= ?
+       ORDER BY workedDate`,
+      empId, monthStart, nextMonth, minHours
+    );
+
+    return rows.map((r) => ({
+      date: r.workedDate instanceof Date ? r.workedDate.toISOString().slice(0, 10) : String(r.workedDate).slice(0, 10),
+      eligible: true,
+    }));
+  }
+
+  // ---- Credits ----
+
+  /**
+   * List all comp-off credits for the requesting user (or all users for HR).
+   */
+  static async getMyCredits(reqUser, { page = 1, employeeId } = {}) {
+    const prismaClient = getPrisma();
+    const offset = (page - 1) * PAGE_SIZE;
+    const scopeAll = canAccessAll(reqUser);
+
+    let empId;
+    if (!scopeAll) {
+      empId = await resolveEmployeeId(prismaClient, reqUser, null);
+    } else if (employeeId) {
+      empId = await resolveEmployeeId(prismaClient, reqUser, employeeId);
     }
 
-    const [earned, used, expired, released, pendingCredits] = await Promise.all([
-      prismaClient.compOffLedger.aggregate({ where: { employeeId: profile.id, type: 'EARNED' }, _sum: { amount: true } }),
-      prismaClient.compOffLedger.aggregate({ where: { employeeId: profile.id, type: 'USED' }, _sum: { amount: true } }),
-      prismaClient.compOffLedger.aggregate({ where: { employeeId: profile.id, type: 'EXPIRED' }, _sum: { amount: true } }),
-      prismaClient.compOffLedger.aggregate({ where: { employeeId: profile.id, type: 'RELEASED' }, _sum: { amount: true } }),
-      prismaClient.compOffCredit.count({ where: { employeeId: profile.id, status: 'PENDING' } }),
+    const where = empId ? 'WHERE c.employeeId = ?' : 'WHERE 1=1';
+    const params = empId ? [empId] : [];
+
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT c.id, c.employeeId, e.employeeCode, e.name AS employeeName,
+              c.sourceDate, c.earnedDays, c.usedDays,
+              (c.earnedDays - c.usedDays) AS remaining,
+              c.status, c.expiresAt, c.reason, c.approvedBy, c.approvedAt,
+              c.createdAt
+       FROM comp_off_credits c
+       LEFT JOIN employees e ON e.id = c.employeeId
+       ${where}
+       ORDER BY c.sourceDate DESC
+       LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
+      ...params
+    );
+
+    const [countRows] = await Promise.all([
+      prismaClient.$queryRawUnsafe(
+        `SELECT COUNT(*) AS total FROM comp_off_credits c ${where}`,
+        ...params
+      ),
     ]);
 
-    const totalEarned = Number(earned._sum.amount || 0);
-    const totalUsed = Number(used._sum.amount || 0);
-    const totalExpired = Number(expired._sum.amount || 0);
-
+    const total = Number(countRows[0].total);
     return {
-      totalEarned,
-      totalUsed,
-      totalExpired,
-      totalReleased: Number(released._sum.amount || 0),
-      availableBalance: Math.max(0, totalEarned - totalUsed - totalExpired),
-      pendingCredits,
+      credits: rows.map((r) => ({
+        id: r.id,
+        employeeId: r.employeeId,
+        employeeCode: r.employeeCode || '',
+        employeeName: r.employeeName || '',
+        sourceDate: r.sourceDate,
+        earnedDays: Number(r.earnedDays),
+        usedDays: Number(r.usedDays),
+        remaining: Number(r.remaining),
+        status: r.status,
+        expiresAt: r.expiresAt,
+        reason: r.reason || '',
+        approvedBy: r.approvedBy || '',
+        approvedAt: r.approvedAt || null,
+        createdAt: r.createdAt,
+      })),
+      pagination: { page, pageSize: PAGE_SIZE, total, pages: Math.ceil(total / PAGE_SIZE) },
     };
+  }
+
+  static async getCreditById(reqUser, id) {
+    const prismaClient = getPrisma();
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT c.id, c.employeeId, e.userId, e.employeeCode, e.name AS employeeName,
+              c.sourceDate, c.earnedDays, c.usedDays, (c.earnedDays - c.usedDays) AS remaining,
+              c.status, c.expiresAt, c.reason, c.approvedBy, c.approvedAt, c.createdAt
+       FROM comp_off_credits c
+       LEFT JOIN employees e ON e.id = c.employeeId
+       WHERE c.id = ? LIMIT 1`,
+      id
+    );
+    if (!rows.length) {
+      throw new AppError(AppErrorCodes.NOT_FOUND, 'Comp-off credit not found.', 404);
+    }
+    const record = rows[0];
+    if (!canAccessAll(reqUser) && record.userId !== reqUser.id) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You cannot view this comp-off record.', 403);
+    }
+    return record;
+  }
+
+  // ---- Request credit ----
+
+  static async requestCredit(reqUser, payload) {
+    if (!reqUser) throw new AppError(AppErrorCodes.UNAUTHORIZED, 'Authentication required.');
+    const prismaClient = getPrisma();
+    const empId = await resolveEmployeeId(prismaClient, reqUser, null);
+    const { sourceDate, earnedDays = 1, reason } = payload;
+
+    const dup = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM comp_off_credits WHERE employeeId = ? AND sourceDate = ? LIMIT 1',
+      empId, sourceDate
+    );
+    if (dup.length) {
+      throw new AppError(AppErrorCodes.CONFLICT, 'A comp-off credit already exists for this date.', 409);
+    }
+
+    const id = crypto.randomUUID();
+    const policy = await CompOffService.getPolicy(reqUser);
+    const expiresAt = new Date(sourceDate);
+    expiresAt.setDate(expiresAt.getDate() + policy.expiryMonths * 30);
+
+    await prismaClient.$executeRawUnsafe(
+      `INSERT INTO comp_off_credits
+         (id, employeeId, sourceDate, earnedDays, usedDays, status, expiresAt, reason, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, 0, 'AVAILABLE', ?, ?, NOW(), NOW())`,
+      id, empId, sourceDate, earnedDays, expiresAt.toISOString().slice(0, 10), reason || null
+    );
+
+    await CompOffService._ledger(prismaClient, id, empId, 'EARN', earnedDays, 'Comp-off credited');
+    await prismaClient.auditLog.create({
+      data: { actorId: reqUser.id, actorRole: reqUser.role, action: 'CREATE_COMPOFF_REQUEST', entityType: 'CompOffCredit', entityId: id }
+    });
+
+    logger.info('Comp-off credited', { creditId: id, employeeId: empId, by: reqUser.id });
+    return CompOffService.getCreditById(reqUser, id);
   }
 
   // ---- Ledger ----
 
-  static async getMyLedger(reqUser, { page = 1 } = {}) {
+  static async getLedger(reqUser, { employeeId, creditId, page = 1 } = {}) {
     const prismaClient = getPrisma();
-    const profile = await prismaClient.employeeProfile.findUnique({
-      where: { userId: reqUser.id },
-      select: { id: true },
-    });
-    if (!profile) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee profile not found.', 404);
+    const offset = (page - 1) * PAGE_SIZE;
+    const scopeAll = canAccessAll(reqUser);
+
+    let empId;
+    if (!scopeAll) {
+      empId = await resolveEmployeeId(prismaClient, reqUser, null);
+    } else if (employeeId) {
+      empId = await resolveEmployeeId(prismaClient, reqUser, employeeId);
     }
 
-    const skip = (page - 1) * PAGE_SIZE;
+    const conditions = [];
+    const params = [];
+    if (empId) { conditions.push('l.employeeId = ?'); params.push(empId); }
+    if (creditId) { conditions.push('l.creditId = ?'); params.push(creditId); }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : 'WHERE 1=1';
 
-    const [entries, total] = await Promise.all([
-      prismaClient.compOffLedger.findMany({
-        where: { employeeId: profile.id },
-        skip,
-        take: PAGE_SIZE,
-        orderBy: { createdAt: 'desc' },
-      }),
-      prismaClient.compOffLedger.count({ where: { employeeId: profile.id } }),
-    ]);
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT l.id, l.creditId, l.employeeId, e.employeeCode, e.name AS employeeName,
+              l.type, l.amount, l.balanceAfter, l.note, l.createdAt
+       FROM comp_off_ledger l
+       LEFT JOIN employees e ON e.id = l.employeeId
+       ${where}
+       ORDER BY l.createdAt DESC
+       LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
+      ...params
+    );
 
-    const pages = Math.ceil(total / PAGE_SIZE) || 1;
+    const countRows = await prismaClient.$queryRawUnsafe(
+      `SELECT COUNT(*) AS total FROM comp_off_ledger l ${where}`,
+      ...params
+    );
+    const total = Number(countRows[0].total);
 
     return {
-      entries: entries.map((e) => ({
-        id: e.id,
-        type: e.type,
-        amount: Number(e.amount),
-        balanceBefore: Number(e.balanceBefore),
-        balanceAfter: Number(e.balanceAfter),
-        reason: e.reason,
-        creditId: e.creditId,
-        relatedLeaveId: e.relatedLeaveId,
-        createdAt: e.createdAt,
-      })),
-      pagination: { page, pageSize: PAGE_SIZE, total, pages },
+      ledger: rows,
+      pagination: { page, pageSize: PAGE_SIZE, total, pages: Math.ceil(total / PAGE_SIZE) },
     };
   }
 
-  // ---- Credit History ----
+  // ---- Redeem / Apply ----
 
-  static async getMyCredits(reqUser) {
+  static async applyLeave(reqUser, payload) {
     const prismaClient = getPrisma();
-    const profile = await prismaClient.employeeProfile.findUnique({
-      where: { userId: reqUser.id },
-      select: { id: true },
-    });
-    if (!profile) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee profile not found.', 404);
+    const empId = await resolveEmployeeId(prismaClient, reqUser, null);
+    const { creditId, days = 1, note } = payload;
+
+    const credit = await CompOffService.getCreditById(reqUser, creditId);
+    const available = Number(credit.earnedDays) - Number(credit.usedDays);
+    if (days > available) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Not enough comp-off days available.', 400);
     }
 
-    const credits = await prismaClient.compOffCredit.findMany({
-      where: { employeeId: profile.id },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
+    const newUsed = Number(credit.usedDays) + days;
+    const newStatus = newUsed >= Number(credit.earnedDays) ? 'FULLY_USED' : 'PARTIALLY_USED';
+
+    await prismaClient.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        'UPDATE comp_off_credits SET usedDays = ?, status = ?, updatedAt = NOW() WHERE id = ?',
+        newUsed, newStatus, creditId
+      );
+      await CompOffService._ledger(tx, creditId, empId, 'USE', days, note || 'Comp-off availed');
+      await tx.auditLog.create({
+        data: { actorId: reqUser.id, actorRole: reqUser.role, action: 'CREATE_COMPOFF_LEAVE', entityType: 'CompOffLeave', entityId: creditId }
+      });
     });
 
-    return credits.map((c) => ({
-      id: c.id,
-      sourceDate: c.sourceDate,
-      credits: Number(c.credits),
-      remainingAmount: Number(c.remainingAmount),
-      status: c.status,
-      expiresAt: c.expiresAt,
-      approvedBy: c.approvedBy,
-      approvedAt: c.approvedAt,
-      rejectionReason: c.rejectionReason,
-      createdAt: c.createdAt,
-    }));
+    logger.info('Comp-off used', { creditId, employeeId: empId, days, by: reqUser.id });
+    return CompOffService.getCreditById(reqUser, creditId);
   }
 
-  // ---- HR: Pending Requests ----
+  // ---- Pending leaves (HR view) ----
+
+  static async getPendingLeaves(reqUser) {
+    const prismaClient = getPrisma();
+    if (!canAccessAll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You cannot view pending comp-off requests.', 403);
+    }
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT c.id, c.employeeId, e.employeeCode, e.name AS employeeName,
+              c.sourceDate, c.earnedDays, c.status, c.reason, c.createdAt
+       FROM comp_off_credits c
+       LEFT JOIN employees e ON e.id = c.employeeId
+       WHERE c.status = 'PENDING'
+       ORDER BY c.createdAt ASC`
+    );
+    return rows;
+  }
+
+  // ---- Private helpers ----
+
+  static async _ledger(prismaClient, creditId, employeeId, type, amount, note) {
+    const id = crypto.randomUUID();
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT COALESCE(SUM(CASE WHEN type = 'EARN' THEN amount ELSE 0 END), 0) -
+              COALESCE(SUM(CASE WHEN type = 'USE'   THEN amount ELSE 0 END), 0) +
+              COALESCE(SUM(CASE WHEN type = 'ADJUST' THEN amount ELSE 0 END), 0) AS balance
+       FROM comp_off_ledger WHERE employeeId = ?`,
+      employeeId
+    );
+    const prev = Number(rows[0].balance || 0);
+    const after = type === 'EARN' ? prev + amount : type === 'USE' ? prev - amount : prev + amount;
+
+    await prismaClient.$executeRawUnsafe(
+      `INSERT INTO comp_off_ledger (id, creditId, employeeId, type, amount, balanceAfter, note, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      id, creditId, employeeId, type, amount, after, note || null
+    );
+  }
+
+  // ---- Route-facing aliases ----
+
+  static async getMyBalance(reqUser) {
+    if (!reqUser) throw new AppError(AppErrorCodes.UNAUTHORIZED, 'Authentication required.');
+    return CompOffService.getBalanceByEmployeeId(reqUser, reqUser.id);
+  }
+
+  static async getMyLedger(reqUser, options) {
+    if (!reqUser) throw new AppError(AppErrorCodes.UNAUTHORIZED, 'Authentication required.');
+    return CompOffService.getLedger(reqUser, options);
+  }
+
+  static async getCreditDetail(reqUser, id) {
+    return CompOffService.getCreditById(reqUser, id);
+  }
+
+  static async redeemCredit(reqUser, payload) {
+    if (!reqUser) throw new AppError(AppErrorCodes.UNAUTHORIZED, 'Authentication required.');
+    // redeemCredit receives { startDate, endDate, isHalfDay, reason }
+    // but the applyLeave method expects { creditId, days, note }
+    // We auto-select the oldest available credit.
+    const prismaClient = getPrisma();
+    const empId = await resolveEmployeeId(prismaClient, reqUser, null);
+    const { startDate, endDate, isHalfDay, reason } = payload;
+
+    // Find the oldest credit with remaining balance.
+    const credit = await prismaClient.$queryRawUnsafe(
+      `SELECT id, earnedDays, usedDays, (earnedDays - usedDays) AS remaining
+       FROM comp_off_credits
+       WHERE employeeId = ? AND status IN ('AVAILABLE','PARTIALLY_USED') AND expiresAt >= CURDATE()
+       ORDER BY sourceDate ASC LIMIT 1`,
+      empId
+    );
+    if (!credit.length || Number(credit[0].remaining) <= 0) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'No comp-off days available to redeem.', 400);
+    }
+    const days = isHalfDay ? 0.5 : 1;
+    return CompOffService.applyLeave(reqUser, { creditId: credit[0].id, days, note: reason || '' });
+  }
+
+  static async getPendingCompOffLeaves(reqUser) {
+    return CompOffService.getPendingLeaves(reqUser);
+  }
+
+  static async reviewCompOffLeave(reqUser, id, action, reviewComment) {
+    if (!canAccessAll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You cannot review comp-off requests.', 403);
+    }
+    const prismaClient = getPrisma();
+
+    const credit = await CompOffService.getCreditById(reqUser, id);
+
+    // Self-approval prevention: a user cannot approve/reject their own credit.
+    if (credit.userId === reqUser.id) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'cannot approve your own comp-off credit.', 403);
+    }
+
+    // Status validation: only PENDING credits can be reviewed.
+    if (credit.status !== 'PENDING') {
+      throw new AppError(
+        AppErrorCodes.VALIDATION_ERROR,
+        `already ${credit.status.toLowerCase()}`,
+        400
+      );
+    }
+
+    // Rejection requires a reason.
+    if (action === 'REJECT' && (!reviewComment || !reviewComment.trim())) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'A rejection reason is required.', 400);
+    }
+
+    if (action === 'APPROVE') {
+      // Mark credit as available.
+      await prismaClient.$executeRawUnsafe(
+        `UPDATE comp_off_credits SET status = 'AVAILABLE', approvedBy = ?, approvedAt = NOW(), updatedAt = NOW() WHERE id = ?`,
+        reqUser.role, id
+      );
+      // Record the earned credit in the ledger.
+      await CompOffService._ledger(prismaClient, id, credit.employeeId, 'EARN', Number(credit.earnedDays), 'Comp-off credit approved');
+      logger.info('Comp-off leave approved', { creditId: id, by: reqUser.id });
+      await prismaClient.auditLog.create({
+        data: { actorId: reqUser.id, actorRole: reqUser.role, action: 'APPROVE_COMPOFF_CREDIT', entityType: 'CompOffCredit', entityId: id }
+      });
+    } else {
+      // Mark credit as rejected (do not delete, so it remains queryable).
+      await prismaClient.$executeRawUnsafe(
+        `UPDATE comp_off_credits SET status = 'REJECTED', rejectionReason = ?, updatedAt = NOW() WHERE id = ?`,
+        reviewComment || '', id
+      );
+      // Record the released credit in the ledger.
+      await CompOffService._ledger(prismaClient, id, credit.employeeId, 'RELEASED', Number(credit.earnedDays), 'Comp-off credit rejected: ' + (reviewComment || ''));
+      logger.info('Comp-off leave rejected', { creditId: id, by: reqUser.id });
+      await prismaClient.auditLog.create({
+        data: { actorId: reqUser.id, actorRole: reqUser.role, action: 'REJECT_COMPOFF_CREDIT', entityType: 'CompOffCredit', entityId: id }
+      });
+    }
+    return CompOffService.getCreditById(reqUser, id);
+  }
 
   static async getPendingRequests(reqUser) {
     if (!canAccessAll(reqUser)) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to review Comp-Off requests.', 403);
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You cannot view pending requests.', 403);
     }
-
     const prismaClient = getPrisma();
-    const requests = await prismaClient.compOffCredit.findMany({
-      where: { status: 'PENDING' },
-      orderBy: { createdAt: 'asc' },
-      include: {
-        employee: {
-          include: {
-            user: { select: { email: true } },
-            department: { select: { name: true } },
-            designation: { select: { name: true } },
-          },
-        },
-      },
-    });
-
-    return requests.map((r) => ({
-      id: r.id,
-      employeeId: r.employeeId,
-      employeeName: `${r.employee.firstName} ${r.employee.lastName}`,
-      employeeCode: r.employee.employeeCode,
-      employeeEmail: r.employee.user.email,
-      departmentName: r.employee.department?.name || '',
-      designationName: r.employee.designation?.name || '',
-      sourceDate: r.sourceDate,
-      credits: Number(r.credits),
-      status: r.status,
-      attendanceId: r.attendanceId,
-      createdAt: r.createdAt,
-    }));
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT c.id, c.employeeId, e.employeeCode, e.name AS employeeName,
+              c.sourceDate, c.earnedDays, c.status, c.reason, c.createdAt
+       FROM comp_off_credits c
+       LEFT JOIN employees e ON e.id = c.employeeId
+       WHERE c.status = 'PENDING'
+       ORDER BY c.createdAt ASC`
+    );
+    return rows;
   }
 
-  // ---- HR: Employee Balance ----
+  static async reviewCredit(reqUser, id, action, reason) {
+    return CompOffService.reviewCompOffLeave(reqUser, id, action, reason);
+  }
 
   static async getEmployeeBalance(reqUser, employeeId) {
-    if (!canAccessAll(reqUser)) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view employee Comp-Off balances.', 403);
-    }
-
-    const prismaClient = getPrisma();
-    const target = await prismaClient.employeeProfile.findUnique({
-      where: { id: employeeId },
-      select: { id: true, employeeCode: true, firstName: true, lastName: true },
-    });
-
-    if (!target) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
-    }
-
-    const [earned, used, expired, pendingCredits] = await Promise.all([
-      prismaClient.compOffLedger.aggregate({ where: { employeeId, type: 'EARNED' }, _sum: { amount: true } }),
-      prismaClient.compOffLedger.aggregate({ where: { employeeId, type: 'USED' }, _sum: { amount: true } }),
-      prismaClient.compOffLedger.aggregate({ where: { employeeId, type: 'EXPIRED' }, _sum: { amount: true } }),
-      prismaClient.compOffCredit.count({ where: { employeeId, status: 'PENDING' } }),
-    ]);
-
-    return {
-      employeeId: target.id,
-      employeeCode: target.employeeCode,
-      employeeName: `${target.firstName} ${target.lastName}`,
-      totalEarned: Number(earned._sum.amount || 0),
-      totalUsed: Number(used._sum.amount || 0),
-      totalExpired: Number(expired._sum.amount || 0),
-      availableBalance: Math.max(0, Number(earned._sum.amount || 0) - Number(used._sum.amount || 0) - Number(expired._sum.amount || 0)),
-      pendingCredits,
-    };
+    return CompOffService.getBalanceByEmployeeId(reqUser, employeeId);
   }
 
-  // ---- HR: All Credits ----
-
-  static async getAllCredits(reqUser, { page = 1, status, employeeId } = {}) {
-    if (!canAccessAll(reqUser)) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view Comp-Off credits.', 403);
-    }
-
-    const prismaClient = getPrisma();
-    const where = {};
-    if (status) where.status = status;
-    if (employeeId) where.employeeId = employeeId;
-
-    const skip = (page - 1) * PAGE_SIZE;
-
-    const [credits, total] = await Promise.all([
-      prismaClient.compOffCredit.findMany({
-        where,
-        skip,
-        take: PAGE_SIZE,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          employee: {
-            include: {
-              user: { select: { email: true } },
-              department: { select: { name: true } },
-            },
-          },
-        },
-      }),
-      prismaClient.compOffCredit.count({ where }),
-    ]);
-
-    const pages = Math.ceil(total / PAGE_SIZE) || 1;
-
-    return {
-      credits: credits.map((c) => ({
-        id: c.id,
-        employeeId: c.employeeId,
-        employeeName: `${c.employee.firstName} ${c.employee.lastName}`,
-        employeeCode: c.employee.employeeCode,
-        employeeEmail: c.employee.user.email,
-        departmentName: c.employee.department?.name || '',
-        sourceDate: c.sourceDate,
-        credits: Number(c.credits),
-        remainingAmount: Number(c.remainingAmount),
-        status: c.status,
-        expiresAt: c.expiresAt,
-        approvedBy: c.approvedBy,
-        approvedAt: c.approvedAt,
-        rejectionReason: c.rejectionReason,
-        createdAt: c.createdAt,
-      })),
-      pagination: { page, pageSize: PAGE_SIZE, total, pages },
-    };
+  static async getAllCredits(reqUser, options = {}) {
+    return CompOffService.getMyCredits(reqUser, options);
   }
-
-  // ---- Credit Detail ----
-
-  static async getCreditDetail(reqUser, creditId) {
-    const prismaClient = getPrisma();
-    const credit = await prismaClient.compOffCredit.findUnique({
-      where: { id: creditId },
-      include: {
-        employee: {
-          include: {
-            user: { select: { email: true } },
-            department: { select: { name: true } },
-            designation: { select: { name: true } },
-          },
-        },
-      },
-    });
-
-    if (!credit) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Comp-Off credit not found.', 404);
-    }
-
-    const isSelf = reqUser.id === credit.employee.userId;
-    if (!isSelf && !canAccessAll(reqUser)) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view this credit.', 403);
-    }
-
-    const ledgerEntries = await prismaClient.compOffLedger.findMany({
-      where: { creditId },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    let attendanceInfo = null;
-    if (credit.attendanceId) {
-      const attendance = await prismaClient.attendance.findUnique({
-        where: { id: credit.attendanceId },
-        select: {
-          id: true,
-          date: true,
-          workMode: true,
-          status: true,
-          totalMinutes: true,
-          sessions: {
-            select: {
-              punchIn: true,
-              punchOut: true,
-              durationMinutes: true,
-            },
-          },
-        },
-      });
-      attendanceInfo = attendance;
-    }
-
-    return {
-      id: credit.id,
-      employeeId: credit.employeeId,
-      employeeName: `${credit.employee.firstName} ${credit.employee.lastName}`,
-      employeeCode: credit.employee.employeeCode,
-      employeeEmail: credit.employee.user.email,
-      departmentName: credit.employee.department?.name || '',
-      designationName: credit.employee.designation?.name || '',
-      sourceDate: credit.sourceDate,
-      credits: Number(credit.credits),
-      remainingAmount: Number(credit.remainingAmount),
-      status: credit.status,
-      expiresAt: credit.expiresAt,
-      approvedBy: credit.approvedBy,
-      approvedAt: credit.approvedAt,
-      rejectionReason: credit.rejectionReason,
-      attendanceId: credit.attendanceId,
-      attendance: attendanceInfo,
-      ledgerEntries: ledgerEntries.map((l) => ({
-        id: l.id,
-        type: l.type,
-        amount: Number(l.amount),
-        balanceBefore: Number(l.balanceBefore),
-        balanceAfter: Number(l.balanceAfter),
-        reason: l.reason,
-        createdAt: l.createdAt,
-      })),
-      createdAt: credit.createdAt,
-    };
-  }
-
-  // ---- Expiry Processing ----
 
   static async processExpiredCredits(reqUser) {
     if (!canAccessAll(reqUser)) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to process expired credits.', 403);
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You cannot process expired credits.', 403);
     }
-
     const prismaClient = getPrisma();
-    const now = new Date();
-
-    const expiredCredits = await prismaClient.compOffCredit.findMany({
-      where: {
-        status: 'APPROVED',
-        expiresAt: { lte: now },
-        remainingAmount: { gt: 0 },
-      },
-    });
-
-    if (expiredCredits.length === 0) {
-      return { processed: 0 };
-    }
-
-    let processed = 0;
-
-    for (const credit of expiredCredits) {
-      await prismaClient.$transaction(async (tx) => {
-        const remaining = Number(credit.remainingAmount);
-
-        await tx.compOffCredit.update({
-          where: { id: credit.id },
-          data: { status: 'EXPIRED' },
-        });
-
-        const total = await tx.compOffLedger.aggregate({
-          where: { employeeId: credit.employeeId },
-          _sum: { amount: true },
-        });
-
-        const balanceBefore = Number(total._sum.amount || 0);
-
-        await tx.compOffLedger.create({
-          data: {
-            employeeId: credit.employeeId,
-            creditId: credit.id,
-            type: 'EXPIRED',
-            amount: remaining,
-            balanceBefore,
-            balanceAfter: balanceBefore - remaining,
-            reason: `Credit expired on ${formatDateKey(credit.expiresAt)}.`,
-            createdBy: reqUser.id,
-          },
-        });
-
-        processed++;
-      });
-    }
-
+    const result = await prismaClient.$executeRawUnsafe(
+      `UPDATE comp_off_credits SET status = 'EXPIRED', updatedAt = NOW()
+       WHERE status IN ('AVAILABLE','PARTIALLY_USED') AND expiresAt < CURDATE()`
+    );
     await prismaClient.auditLog.create({
-      data: {
-        actorId: reqUser.id,
-        actorRole: reqUser.role,
-        action: 'PROCESS_COMPOFF_EXPIRY',
-        entityType: 'CompOffCredit',
-        entityId: 'batch',
-        metadata: JSON.stringify({ processedCount: processed }),
-      },
+      data: { actorId: reqUser.id, actorRole: reqUser.role, action: 'PROCESS_COMPOFF_EXPIRY', entityType: 'CompOffCredit', entityId: 'all' }
     });
-
-    logger.info('Expired Comp-Off credits processed', { processed, actorId: reqUser.id });
-    return { processed };
-  }
-
-  // ---- Redeem Credit (Apply Comp-Off as Leave) ----
-
-  static async redeemCredit(reqUser, { startDate, endDate, isHalfDay, halfDayPeriod, reason }) {
-    const prismaClient = getPrisma();
-
-    // 1. Resolve employee
-    const profile = await prismaClient.employeeProfile.findUnique({
-      where: { userId: reqUser.id },
-      select: { id: true, status: true },
-    });
-    if (!profile) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee profile not found.', 404);
-    }
-    if (profile.status !== 'ACTIVE') {
-      throw new AppError(AppErrorCodes.INVALID_INPUT, 'Inactive employees cannot apply for Comp-Off.', 400);
-    }
-
-    // 2. Validate dates
-    const start = toISTDate(startDate);
-    const end = toISTDate(endDate);
-
-    if (start > end) {
-      throw new AppError(AppErrorCodes.INVALID_INPUT, 'Start date cannot be after end date.', 400);
-    }
-
-    // 3. Check overlapping Comp-Off leave requests
-    const overlapping = await prismaClient.compOffLeave.findFirst({
-      where: {
-        employeeId: profile.id,
-        status: { in: ['PENDING', 'APPROVED'] },
-        OR: [
-          { startDate: { lte: end }, endDate: { gte: start } },
-        ],
-      },
-    });
-    if (overlapping) {
-      throw new AppError(AppErrorCodes.LEAVE_OVERLAP, 'You already have a Comp-Off request overlapping with these dates.', 409);
-    }
-
-    // 4. Calculate required credits
-    const daysCount = countDaysBetween(start, end);
-    const requiredCredits = isHalfDay ? daysCount * 0.5 : daysCount;
-
-    if (requiredCredits <= 0) {
-      throw new AppError(AppErrorCodes.INVALID_INPUT, 'Selected dates contain no valid days.', 400);
-    }
-
-    // 5. Atomically check balance, deduct credits, create Comp-Off leave request
-    const now = new Date();
-    const result = await prismaClient.$transaction(async (tx) => {
-      // Create the Comp-Off leave first (before deducting credits, so we have the ID for ledger entries)
-      const compOffLeave = await tx.compOffLeave.create({
-        data: {
-          employeeId: profile.id,
-          startDate: start,
-          endDate: end,
-          isHalfDay: isHalfDay || false,
-          halfDayPeriod: halfDayPeriod || null,
-          totalDays: requiredCredits,
-          reason: reason || 'Comp-Off leave',
-          status: 'PENDING',
-        },
-      });
-
-      // Get all APPROVED, non-expired credits sorted by expiry (oldest first)
-      const credits = await tx.compOffCredit.findMany({
-        where: {
-          employeeId: profile.id,
-          status: 'APPROVED',
-          OR: [
-            { expiresAt: null },
-            { expiresAt: { gt: now } },
-          ],
-        },
-        orderBy: { expiresAt: 'asc' },
-      });
-
-      // Calculate total available
-      let totalAvailable = 0;
-      for (const c of credits) {
-        totalAvailable += Number(c.remainingAmount);
-      }
-
-      if (totalAvailable < requiredCredits) {
-        throw new AppError(
-          AppErrorCodes.INSUFFICIENT_CREDITS,
-          `Insufficient Comp-Off balance. Available: ${totalAvailable.toFixed(2)} days, Required: ${requiredCredits.toFixed(2)} days.`,
-          400
-        );
-      }
-
-      // Deduct from credits FIFO
-      let remainingToDeduct = requiredCredits;
-
-      for (const credit of credits) {
-        if (remainingToDeduct <= 0) break;
-
-        const creditRemaining = Number(credit.remainingAmount);
-        const deductAmount = Math.min(creditRemaining, remainingToDeduct);
-        const newRemaining = creditRemaining - deductAmount;
-
-        await tx.compOffCredit.update({
-          where: { id: credit.id },
-          data: {
-            remainingAmount: newRemaining,
-            status: newRemaining <= 0.0001 ? 'USED' : 'APPROVED',
-          },
-        });
-
-        const ledgerTotal = await tx.compOffLedger.aggregate({
-          where: { employeeId: profile.id },
-          _sum: { amount: true },
-        });
-
-        const balanceBefore = Number(ledgerTotal._sum.amount || 0);
-
-        await tx.compOffLedger.create({
-          data: {
-            employeeId: profile.id,
-            creditId: credit.id,
-            type: 'USED',
-            amount: deductAmount,
-            balanceBefore,
-            balanceAfter: balanceBefore - deductAmount,
-            reason: `Comp-Off leave: ${formatDateKey(start)} to ${formatDateKey(end)}${isHalfDay ? ' (half-day)' : ''}`,
-            relatedLeaveId: compOffLeave.id,
-            createdBy: reqUser.id,
-          },
-        });
-
-        remainingToDeduct -= deductAmount;
-      }
-
-      await tx.auditLog.create({
-        data: {
-          actorId: reqUser.id,
-          actorRole: reqUser.role,
-          action: 'CREATE_COMPOFF_LEAVE',
-          entityType: 'CompOffLeave',
-          entityId: compOffLeave.id,
-          metadata: JSON.stringify({
-            totalDays: requiredCredits,
-            startDate: formatDateKey(start),
-            endDate: formatDateKey(end),
-          }),
-        },
-      });
-
-      return { compOffLeave };
-    });
-
-    logger.info('Comp-Off leave created', { leaveId: result.compOffLeave.id, employeeId: profile.id, days: requiredCredits });
-    return {
-      id: result.compOffLeave.id,
-      startDate: result.compOffLeave.startDate,
-      endDate: result.compOffLeave.endDate,
-      isHalfDay: result.compOffLeave.isHalfDay,
-      totalDays: Number(result.compOffLeave.totalDays),
-      reason: result.compOffLeave.reason,
-      status: result.compOffLeave.status,
-      createdAt: result.compOffLeave.createdAt,
-    };
-  }
-
-  // ---- HR: Approve/Reject Comp-Off Leave ----
-
-  static async reviewCompOffLeave(reqUser, leaveId, action, reviewComment) {
-    if (!canAccessAll(reqUser)) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to review Comp-Off requests.', 403);
-    }
-
-    const prismaClient = getPrisma();
-
-    const compOffLeave = await prismaClient.compOffLeave.findUnique({
-      where: { id: leaveId },
-    });
-    if (!compOffLeave) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Comp-Off leave request not found.', 404);
-    }
-
-    if (compOffLeave.status !== 'PENDING') {
-      throw new AppError(AppErrorCodes.CONFLICT, `Request is already ${compOffLeave.status.toLowerCase()}.`, 409);
-    }
-
-    const reviewerProfile = await prismaClient.employeeProfile.findUnique({
-      where: { userId: reqUser.id },
-      select: { id: true },
-    });
-
-    if (reviewerProfile && compOffLeave.employeeId === reviewerProfile.id) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You cannot approve your own Comp-Off request.', 403);
-    }
-
-    if (action === 'REJECT' && (!reviewComment || !reviewComment.trim())) {
-      throw new AppError(AppErrorCodes.INVALID_INPUT, 'A rejection reason is required.', 400);
-    }
-
-    const now = new Date();
-
-    const result = await prismaClient.$transaction(async (tx) => {
-      if (action === 'APPROVE') {
-        await tx.compOffLeave.update({
-          where: { id: leaveId },
-          data: {
-            status: 'APPROVED',
-            reviewedBy: reqUser.id,
-            reviewedAt: now,
-            reviewComment: reviewComment || null,
-          },
-        });
-
-        await tx.auditLog.create({
-          data: {
-            actorId: reqUser.id,
-            actorRole: reqUser.role,
-            action: 'APPROVE_COMPOFF_LEAVE',
-            entityType: 'CompOffLeave',
-            entityId: leaveId,
-            metadata: JSON.stringify({ employeeId: compOffLeave.employeeId }),
-          },
-        });
-      } else {
-        // REJECTED: restore credits
-        await tx.compOffLeave.update({
-          where: { id: leaveId },
-          data: {
-            status: 'REJECTED',
-            reviewedBy: reqUser.id,
-            reviewedAt: now,
-            reviewComment,
-          },
-        });
-
-        // Find ledger entries for this leave and restore amounts
-        const ledgerEntries = await tx.compOffLedger.findMany({
-          where: { relatedLeaveId: leaveId, type: 'USED' },
-          include: { credit: true },
-        });
-
-        for (const entry of ledgerEntries) {
-          if (entry.creditId && entry.credit) {
-            const restoreAmount = Number(entry.amount);
-            const currentRemaining = Number(entry.credit.remainingAmount);
-            const newRemaining = currentRemaining + restoreAmount;
-
-            await tx.compOffCredit.update({
-              where: { id: entry.creditId },
-              data: {
-                remainingAmount: newRemaining,
-                status: newRemaining > 0.0001 ? 'APPROVED' : 'APPROVED',
-              },
-            });
-          }
-        }
-
-        await tx.auditLog.create({
-          data: {
-            actorId: reqUser.id,
-            actorRole: reqUser.role,
-            action: 'REJECT_COMPOFF_LEAVE',
-            entityType: 'CompOffLeave',
-            entityId: leaveId,
-            metadata: JSON.stringify({ employeeId: compOffLeave.employeeId, reason: reviewComment }),
-          },
-        });
-      }
-
-      return compOffLeave;
-    });
-
-    return result;
-  }
-
-  // ---- HR: List Pending Comp-Off Leaves ----
-
-  static async getPendingCompOffLeaves(reqUser) {
-    if (!canAccessAll(reqUser)) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to review Comp-Off requests.', 403);
-    }
-
-    const prismaClient = getPrisma();
-    const leaves = await prismaClient.compOffLeave.findMany({
-      where: { status: 'PENDING' },
-      orderBy: { createdAt: 'asc' },
-      include: {
-        employee: {
-          include: {
-            user: { select: { email: true } },
-            department: { select: { name: true } },
-          },
-        },
-      },
-    });
-
-    return leaves.map((l) => ({
-      id: l.id,
-      employeeId: l.employeeId,
-      employeeName: `${l.employee.firstName} ${l.employee.lastName}`,
-      employeeCode: l.employee.employeeCode,
-      employeeEmail: l.employee.user.email,
-      departmentName: l.employee.department?.name || '',
-      startDate: l.startDate,
-      endDate: l.endDate,
-      isHalfDay: l.isHalfDay,
-      totalDays: Number(l.totalDays),
-      reason: l.reason,
-      status: l.status,
-      createdAt: l.createdAt,
-    }));
-  }
-
-  // ---- Employee: Cancel Comp-Off Leave ----
-
-  static async cancelLeave(reqUser, leaveId) {
-    const prismaClient = getPrisma();
-    const profile = await prismaClient.employeeProfile.findUnique({
-      where: { userId: reqUser.id },
-      select: { id: true },
-    });
-    if (!profile) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee profile not found.', 404);
-    }
-
-    const compOffLeave = await prismaClient.compOffLeave.findUnique({
-      where: { id: leaveId },
-    });
-    if (!compOffLeave) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Comp-Off leave not found.', 404);
-    }
-    if (compOffLeave.employeeId !== profile.id) {
-      throw new AppError(AppErrorCodes.FORBIDDEN, 'You can only cancel your own requests.', 403);
-    }
-    if (compOffLeave.status !== 'PENDING') {
-      throw new AppError(AppErrorCodes.CONFLICT, `Cannot cancel a ${compOffLeave.status.toLowerCase()} request.`, 409);
-    }
-
-    const result = await prismaClient.$transaction(async (tx) => {
-      const updated = await tx.compOffLeave.update({
-        where: { id: leaveId },
-        data: { status: 'CANCELLED' },
-      });
-
-      // Restore credits that were deducted for this leave
-      const ledgerEntries = await tx.compOffLedger.findMany({
-        where: { relatedLeaveId: leaveId, type: 'USED' },
-        include: { credit: true },
-      });
-
-      for (const entry of ledgerEntries) {
-        if (entry.creditId && entry.credit) {
-          const restoreAmount = Number(entry.amount);
-          const currentRemaining = Number(entry.credit.remainingAmount);
-          const newRemaining = currentRemaining + restoreAmount;
-
-          await tx.compOffCredit.update({
-            where: { id: entry.creditId },
-            data: {
-              remainingAmount: newRemaining,
-              status: 'APPROVED',
-            },
-          });
-        }
-      }
-
-      await tx.auditLog.create({
-        data: {
-          actorId: reqUser.id,
-          actorRole: reqUser.role,
-          action: 'CANCEL_COMPOFF_LEAVE',
-          entityType: 'CompOffLeave',
-          entityId: leaveId,
-        },
-      });
-
-      return updated;
-    });
-
-    return result;
+    logger.info('Expired comp-off credits processed', { affected: result, by: reqUser.id });
+    return { processed: result.affectedRows };
   }
 }
 
-// ---- Utility ----
-
-function countDaysBetween(startDate, endDate) {
-  if (startDate > endDate) return 0;
-  let count = 0;
-  const current = new Date(startDate);
-  while (current <= endDate) {
-    count += 1;
-    current.setDate(current.getDate() + 1);
-  }
-  return count;
-}
-
-if (process.env.NODE_ENV === 'test') {
-  CompOffService.__setPrisma = (m) => { prismaInstance = m; };
-  CompOffService.__resetPrisma = () => { prismaInstance = undefined; };
-}
-
-// ---- Test helpers ----
-CompOffService._checkEligibility = checkEligibility;
-CompOffService._getDefaultPolicy = getDefaultPolicy;
+CompOffService.__setPrisma = (client) => { prismaInstance = client; };
 
 module.exports = { CompOffService };
-

@@ -8,23 +8,34 @@ import RoleRoute from './components/layout/RoleRoute';
 import CommonLogin from './pages/auth/CommonLogin';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
+import VerifyOtp from './pages/auth/VerifyOtp';
 
 // Dashboard pages
 import SuperAdminDashboard from './pages/super-admin/Dashboard';
 import SuperAdminPayrollApproval from './pages/super-admin/PayrollApproval';
+import AuditLogs from './pages/super-admin/AuditLogs';
 import AdminDashboard from './pages/admin/Dashboard';
 import HrDashboard from './pages/hr/Dashboard';
 import HrAttendance from './pages/hr/Attendance';
 import HrWFH from './pages/hr/WFH';
-import HrLeaveApprovals from './pages/hr/LeaveApprovals';
 import HRPayroll from './pages/hr/HRPayroll';
 import EmployeeDashboard from './pages/employee/Dashboard';
 import EmployeeAttendance from './pages/employee/Attendance';
 import EmployeeWFH from './pages/employee/WFH';
 import EmployeeLeaveBalances from './pages/employee/LeaveBalances';
 import EmployeeApplyLeave from './pages/employee/ApplyLeave';
-import EmployeeLeaveRequests from './pages/employee/LeaveRequests';
+import EmployeeLeaves from './pages/employee/Leaves';
 import EmployeePayslipsPage from './pages/employee/Payslips';
+
+// Super Admin pages
+import SuperAdminAdmins from './pages/super-admin/Admins';
+import SuperAdminSettings from './pages/super-admin/Settings';
+import SuperAdminPolicies from './pages/super-admin/Policies';
+import SuperAdminHolidays from './pages/super-admin/Holidays';
+import SuperAdminReports from './pages/super-admin/Reports';
+import SuperAdminAttendance from './pages/super-admin/Attendance';
+import SuperAdminLeaves from './pages/super-admin/Leaves';
+import SuperAdminUserRoles from './pages/super-admin/UserRoles';
 
 // Admin pages
 import EmployeeList from './pages/admin/EmployeeList';
@@ -32,6 +43,19 @@ import EmployeeCreate from './pages/admin/EmployeeCreate';
 import EmployeeDetail from './pages/admin/EmployeeDetail';
 import DepartmentList from './pages/admin/DepartmentList';
 import DesignationList from './pages/admin/DesignationList';
+import AdminAttendanceReview from './pages/admin/AttendanceReview';
+import AdminReports from './pages/admin/Reports';
+
+// HR pages
+import HrCompOffs from './pages/hr/CompOffs';
+import HrLeaves from './pages/hr/Leaves';
+import HrPayslips from './pages/hr/Payslips';
+import HrReports from './pages/hr/Reports';
+
+// Employee pages
+import EmployeeProfile from './pages/employee/Profile';
+import EmployeeCompOffs from './pages/employee/CompOffs';
+import EmployeeNotifications from './pages/employee/Notifications';
 
 // Shared pages
 import NotFound from './pages/shared/NotFound';
@@ -46,8 +70,7 @@ function HomeRedirect() {
 
   const rolePaths: Record<string, string> = {
     SUPER_ADMIN: '/super-admin/dashboard',
-    ADMIN: '/admin/dashboard',
-    HR: '/hr/dashboard',
+    HR_ADMIN: '/hr/dashboard',
     EMPLOYEE: '/employee/dashboard',
   };
 
@@ -60,12 +83,13 @@ function App() {
       <AuthProvider>
         <ToastProvider>
           <Routes>
-            {/* Root â€” redirects to role dashboard or shows login options */}
+            {/* Root — redirects to role dashboard or shows login options */}
             <Route path="/" element={<HomeRedirect />} />
 
             {/* Login pages */}
             <Route path="/login" element={<CommonLogin />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/verify-otp" element={<VerifyOtp />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/super-admin/login" element={<Navigate to="/login" replace />} />
             <Route path="/admin/login" element={<Navigate to="/login" replace />} />
@@ -76,7 +100,7 @@ function App() {
             <Route
               path="/super-admin/dashboard"
               element={
-                <RoleRoute allowedRoles={['SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <SuperAdminDashboard />
                   </ProtectedRoute>
@@ -86,23 +110,9 @@ function App() {
             <Route
               path="/super-admin/admins"
               element={
-                <RoleRoute allowedRoles={['SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Admin management â€” coming in Phase 6</p>
-                    </div>
-                  </ProtectedRoute>
-                </RoleRoute>
-              }
-            />
-            <Route
-              path="/super-admin/hrs"
-              element={
-                <RoleRoute allowedRoles={['SUPER_ADMIN']}>
-                  <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">HR management â€” coming in Phase 6</p>
-                    </div>
+                    <SuperAdminAdmins />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -110,11 +120,9 @@ function App() {
             <Route
               path="/super-admin/settings"
               element={
-                <RoleRoute allowedRoles={['SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN', 'EMPLOYEE']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Settings â€” coming in Phase 6</p>
-                    </div>
+                    <SuperAdminSettings />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -122,11 +130,9 @@ function App() {
             <Route
               path="/super-admin/policies"
               element={
-                <RoleRoute allowedRoles={['SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN', 'EMPLOYEE']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Policies â€” coming in Phase 6</p>
-                    </div>
+                    <SuperAdminPolicies />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -134,11 +140,19 @@ function App() {
             <Route
               path="/super-admin/holidays"
               element={
-                <RoleRoute allowedRoles={['SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN', 'EMPLOYEE']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Holidays â€” coming in Phase 6</p>
-                    </div>
+                    <SuperAdminHolidays />
+                  </ProtectedRoute>
+                </RoleRoute>
+              }
+            />
+            <Route
+              path="/super-admin/attendance"
+              element={
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
+                  <ProtectedRoute>
+                    <SuperAdminAttendance />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -146,11 +160,9 @@ function App() {
             <Route
               path="/super-admin/audit-logs"
               element={
-                <RoleRoute allowedRoles={['SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Audit logs â€” coming in Phase 10</p>
-                    </div>
+                    <AuditLogs />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -158,7 +170,7 @@ function App() {
             <Route
               path="/super-admin/payroll-approval"
               element={
-                <RoleRoute allowedRoles={['SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <SuperAdminPayrollApproval />
                   </ProtectedRoute>
@@ -168,11 +180,29 @@ function App() {
             <Route
               path="/super-admin/reports"
               element={
-                <RoleRoute allowedRoles={['SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Reports â€” coming in Phase 10</p>
-                    </div>
+                    <SuperAdminReports />
+                  </ProtectedRoute>
+                </RoleRoute>
+              }
+            />
+            <Route
+              path="/super-admin/leaves"
+              element={
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
+                  <ProtectedRoute>
+                    <SuperAdminLeaves />
+                  </ProtectedRoute>
+                </RoleRoute>
+              }
+            />
+            <Route
+              path="/super-admin/user-roles"
+              element={
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
+                  <ProtectedRoute>
+                    <SuperAdminUserRoles />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -182,7 +212,7 @@ function App() {
             <Route
               path="/admin/dashboard"
               element={
-                <RoleRoute allowedRoles={['ADMIN']}>
+                <RoleRoute allowedRoles={['HR_ADMIN']}>
                   <ProtectedRoute>
                     <AdminDashboard />
                   </ProtectedRoute>
@@ -192,7 +222,7 @@ function App() {
             <Route
               path="/admin/employees"
               element={
-                <RoleRoute allowedRoles={['ADMIN', 'SUPER_ADMIN', 'HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
                   <ProtectedRoute>
                     <EmployeeList />
                   </ProtectedRoute>
@@ -202,7 +232,7 @@ function App() {
             <Route
               path="/admin/employees/new"
               element={
-                <RoleRoute allowedRoles={['ADMIN', 'SUPER_ADMIN', 'HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
                   <ProtectedRoute>
                     <EmployeeCreate />
                   </ProtectedRoute>
@@ -212,7 +242,7 @@ function App() {
             <Route
               path="/admin/employees/:id"
               element={
-                <RoleRoute allowedRoles={['ADMIN', 'SUPER_ADMIN', 'HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
                   <ProtectedRoute>
                     <EmployeeDetail />
                   </ProtectedRoute>
@@ -222,7 +252,7 @@ function App() {
             <Route
               path="/admin/departments"
               element={
-                <RoleRoute allowedRoles={['ADMIN', 'SUPER_ADMIN', 'HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
                   <ProtectedRoute>
                     <DepartmentList />
                   </ProtectedRoute>
@@ -232,7 +262,7 @@ function App() {
             <Route
               path="/admin/designations"
               element={
-                <RoleRoute allowedRoles={['ADMIN', 'SUPER_ADMIN', 'HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
                   <ProtectedRoute>
                     <DesignationList />
                   </ProtectedRoute>
@@ -242,11 +272,9 @@ function App() {
             <Route
               path="/admin/attendance"
               element={
-                <RoleRoute allowedRoles={['ADMIN']}>
+                <RoleRoute allowedRoles={['HR_ADMIN']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Attendance review â€” coming in Phase 7</p>
-                    </div>
+                    <AdminAttendanceReview />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -254,11 +282,9 @@ function App() {
             <Route
               path="/admin/reports"
               element={
-                <RoleRoute allowedRoles={['ADMIN']}>
+                <RoleRoute allowedRoles={['HR_ADMIN']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Reports â€” coming in Phase 10</p>
-                    </div>
+                    <AdminReports />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -268,7 +294,7 @@ function App() {
             <Route
               path="/hr/dashboard"
               element={
-                <RoleRoute allowedRoles={['HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN']}>
                   <ProtectedRoute>
                     <HrDashboard />
                   </ProtectedRoute>
@@ -278,7 +304,7 @@ function App() {
             <Route
               path="/hr/attendance"
               element={
-                <RoleRoute allowedRoles={['HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN']}>
                   <ProtectedRoute>
                     <HrAttendance />
                   </ProtectedRoute>
@@ -288,7 +314,7 @@ function App() {
             <Route
               path="/hr/wfh"
               element={
-                <RoleRoute allowedRoles={['HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN']}>
                   <ProtectedRoute>
                     <HrWFH />
                   </ProtectedRoute>
@@ -298,9 +324,9 @@ function App() {
             <Route
               path="/hr/leaves"
               element={
-                <RoleRoute allowedRoles={['HR', 'ADMIN', 'SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
                   <ProtectedRoute>
-                    <HrLeaveApprovals />
+                    <HrLeaves />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -308,11 +334,9 @@ function App() {
             <Route
               path="/hr/comp-offs"
               element={
-                <RoleRoute allowedRoles={['HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Comp-off management â€” coming in Phase 8</p>
-                    </div>
+                    <HrCompOffs />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -320,7 +344,7 @@ function App() {
             <Route
               path="/hr/payroll"
               element={
-                <RoleRoute allowedRoles={['HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN']}>
                   <ProtectedRoute>
                     <HRPayroll />
                   </ProtectedRoute>
@@ -330,11 +354,9 @@ function App() {
             <Route
               path="/hr/payslips"
               element={
-                <RoleRoute allowedRoles={['HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Payslips â€” coming in Phase 9</p>
-                    </div>
+                    <HrPayslips />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -342,11 +364,9 @@ function App() {
             <Route
               path="/hr/reports"
               element={
-                <RoleRoute allowedRoles={['HR']}>
+                <RoleRoute allowedRoles={['HR_ADMIN']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Reports â€” coming in Phase 10</p>
-                    </div>
+                    <HrReports />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -368,9 +388,7 @@ function App() {
               element={
                 <RoleRoute allowedRoles={['EMPLOYEE']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Profile â€” coming in Phase 6</p>
-                    </div>
+                    <EmployeeProfile />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -401,7 +419,7 @@ function App() {
               element={
                 <RoleRoute allowedRoles={['EMPLOYEE']}>
                   <ProtectedRoute>
-                    <EmployeeLeaveRequests />
+                    <EmployeeLeaves />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -431,9 +449,7 @@ function App() {
               element={
                 <RoleRoute allowedRoles={['EMPLOYEE']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Comp-Off â€” coming in Phase 8</p>
-                    </div>
+                    <EmployeeCompOffs />
                   </ProtectedRoute>
                 </RoleRoute>
               }
@@ -453,9 +469,7 @@ function App() {
               element={
                 <RoleRoute allowedRoles={['EMPLOYEE']}>
                   <ProtectedRoute>
-                    <div className="min-h-screen flex items-center justify-center">
-                      <p className="text-slate-500">Notifications â€” coming in Phase 10</p>
-                    </div>
+                    <EmployeeNotifications />
                   </ProtectedRoute>
                 </RoleRoute>
               }

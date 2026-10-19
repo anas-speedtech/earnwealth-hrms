@@ -33,11 +33,11 @@ describe('PayrollService', () => {
     });
 
     test('ADMIN can manage payroll', () => {
-      expect(PayrollService.canManagePayroll({ role: Role.ADMIN })).toBe(true);
+      expect(PayrollService.canManagePayroll({ role: Role.HR_ADMIN })).toBe(true);
     });
 
     test('HR can manage payroll', () => {
-      expect(PayrollService.canManagePayroll({ role: Role.HR })).toBe(true);
+      expect(PayrollService.canManagePayroll({ role: Role.HR_ADMIN })).toBe(true);
     });
 
     test('EMPLOYEE cannot manage payroll', () => {
@@ -54,13 +54,13 @@ describe('PayrollService', () => {
 
     test('ADMIN is authorized', () => {
       expect(() => {
-        PayrollService.authorizePayrollAccess({ role: Role.ADMIN }, { employeeId: 'any' });
+        PayrollService.authorizePayrollAccess({ role: Role.HR_ADMIN }, { employeeId: 'any' });
       }).not.toThrow();
     });
 
     test('HR is authorized', () => {
       expect(() => {
-        PayrollService.authorizePayrollAccess({ role: Role.HR }, { employeeId: 'any' });
+        PayrollService.authorizePayrollAccess({ role: Role.HR_ADMIN }, { employeeId: 'any' });
       }).not.toThrow();
     });
 
@@ -143,8 +143,8 @@ describe('PayrollService', () => {
 
   describe('Role enforcement - service methods require proper role', () => {
     const reqUserEmployee = { id: 'e-1', role: Role.EMPLOYEE, email: 'e@test.com' };
-    const reqUserHR = { id: 'h-1', role: Role.HR, email: 'h@test.com' };
-    const reqUserAdmin = { id: 'a-1', role: Role.ADMIN, email: 'a@test.com' };
+    const reqUserHR = { id: 'h-1', role: Role.HR_ADMIN, email: 'h@test.com' };
+    const reqUserAdmin = { id: 'a-1', role: Role.HR_ADMIN, email: 'a@test.com' };
     const reqUserSuperAdmin = { id: 'sa-1', role: Role.SUPER_ADMIN, email: 'sa@test.com' };
 
     test('createSalaryStructure rejects EMPLOYEE', async () => {
@@ -234,28 +234,28 @@ describe('PayrollService', () => {
 
   describe('Input validation', () => {
     test('createPayroll rejects invalid month', async () => {
-      const hrUser = { id: 'h-1', role: Role.HR, email: 'h@test.com' };
+      const hrUser = { id: 'h-1', role: Role.HR_ADMIN, email: 'h@test.com' };
       await expect(
         PayrollService.createPayroll(hrUser, { employeeId: 'emp-1', month: 13, year: 2025 })
       ).rejects.toThrow(AppError);
     });
 
     test('createPayroll rejects invalid year', async () => {
-      const hrUser = { id: 'h-1', role: Role.HR, email: 'h@test.com' };
+      const hrUser = { id: 'h-1', role: Role.HR_ADMIN, email: 'h@test.com' };
       await expect(
         PayrollService.createPayroll(hrUser, { employeeId: 'emp-1', month: 1, year: 1999 })
       ).rejects.toThrow(AppError);
     });
 
     test('rejectPayroll requires reason', async () => {
-      const adminUser = { id: 'a-1', role: Role.ADMIN, email: 'a@test.com' };
+      const adminUser = { id: 'a-1', role: Role.HR_ADMIN, email: 'a@test.com' };
       await expect(
         PayrollService.rejectPayroll(adminUser, 'pay-1', '')
       ).rejects.toThrow(AppError);
     });
 
     test('rejectPayroll accepts whitespace-only reason as invalid', async () => {
-      const adminUser = { id: 'a-1', role: Role.ADMIN, email: 'a@test.com' };
+      const adminUser = { id: 'a-1', role: Role.HR_ADMIN, email: 'a@test.com' };
       await expect(
         PayrollService.rejectPayroll(adminUser, 'pay-1', '   ')
       ).rejects.toThrow(AppError);

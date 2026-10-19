@@ -15,11 +15,11 @@ function getPrisma() {
 
 class DepartmentService {
   static canManage(reqUser) {
-    return reqUser.role === Role.SUPER_ADMIN || reqUser.role === Role.ADMIN;
+    return reqUser.role === Role.SUPER_ADMIN || reqUser.role === Role.HR_ADMIN;
   }
 
   static canView(reqUser) {
-    return [Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role);
+    return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role);
   }
 
   static async list(reqUser) {
@@ -57,8 +57,9 @@ class DepartmentService {
     }
 
     const prismaClient = getPrisma();
+    const deptId = Number(departmentId);
     const dept = await prismaClient.department.findUnique({
-      where: { id: departmentId },
+      where: { id: deptId },
     });
 
     if (!dept) {
@@ -68,7 +69,7 @@ class DepartmentService {
     const countRows = await prismaClient.$queryRaw`
       SELECT COUNT(*) AS count
       FROM employees
-      WHERE departmentId = ${departmentId}
+      WHERE departmentId = ${deptId}
     `;
     const employeeCount = countRows && countRows[0] ? Number(countRows[0].count) : 0;
 
@@ -128,7 +129,9 @@ class DepartmentService {
     }
 
     const prismaClient = getPrisma();
-    const existing = await prismaClient.department.findUnique({ where: { id: departmentId } });
+    const existing = await prismaClient.department.findUnique({
+      where: { id: Number(departmentId) },
+    });
 
     if (!existing) {
       throw new AppError(AppErrorCodes.NOT_FOUND, 'Department not found.', 404);
@@ -145,7 +148,7 @@ class DepartmentService {
     }
 
     const updated = await prismaClient.department.update({
-      where: { id: departmentId },
+      where: { id: Number(departmentId) },
       data: {
         name: data.name,
         description: data.description,
@@ -178,8 +181,9 @@ class DepartmentService {
     }
 
     const prismaClient = getPrisma();
+    const deptId = Number(departmentId);
     const dept = await prismaClient.department.findUnique({
-      where: { id: departmentId },
+      where: { id: deptId },
     });
 
     if (!dept) {
@@ -189,7 +193,7 @@ class DepartmentService {
     const countRows = await prismaClient.$queryRaw`
       SELECT COUNT(*) AS count
       FROM employees
-      WHERE departmentId = ${departmentId}
+      WHERE departmentId = ${deptId}
     `;
     const employeeCount = countRows && countRows[0] ? Number(countRows[0].count) : 0;
 
@@ -197,7 +201,7 @@ class DepartmentService {
       throw new AppError(AppErrorCodes.CONFLICT, 'Cannot delete department with assigned employees. Deactivate it instead.', 409);
     }
 
-    await prismaClient.department.delete({ where: { id: departmentId } });
+    await prismaClient.department.delete({ where: { id: Number(departmentId) } });
 
     try {
       await prismaClient.auditLog.create({

@@ -14,7 +14,7 @@ const STATUS_OPTIONS = [
   { value: 'ON_LEAVE', label: 'On Leave' },
 ];
 
-const ROLES_THAT_CAN_CREATE = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+const ROLES_THAT_CAN_CREATE = ['SUPER_ADMIN', 'HR_ADMIN'];
 
 export default function EmployeeListPage() {
   const { user } = useAuth();

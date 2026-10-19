@@ -90,7 +90,7 @@ class WFHService {
     const profile = await this.resolveEmployee(reqUser);
 
     const request = await prismaClient.wFHRequest.findUnique({
-      where: { id: requestId },
+      where: { id: Number(requestId) },
     });
 
     if (!request) {
@@ -106,7 +106,7 @@ class WFHService {
     }
 
     const updated = await prismaClient.wFHRequest.update({
-      where: { id: requestId },
+      where: { id: Number(requestId) },
       data: { status: 'CANCELLED' },
     });
 
@@ -150,7 +150,7 @@ class WFHService {
   }
 
   static async listPending(reqUser) {
-    if (![Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role)) {
+    if (![Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to review WFH requests.', 403);
     }
 
@@ -180,7 +180,7 @@ class WFHService {
   }
 
   static async listAll(reqUser, { page = 1, status }) {
-    if (![Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role)) {
+    if (![Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view WFH requests.', 403);
     }
 
@@ -202,10 +202,6 @@ class WFHService {
         include: {
           employee: {
             include: { user: { select: { email: true } } },
-          },
-          reviewer: {
-            select: { email: true },
-            relationName: 'user',
           },
         },
       }),
@@ -233,14 +229,14 @@ class WFHService {
   }
 
   static async approve(reqUser, requestId, reviewComment) {
-    if (![Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role)) {
+    if (![Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to approve WFH requests.', 403);
     }
 
     const prismaClient = getPrisma();
 
     const request = await prismaClient.wFHRequest.findUnique({
-      where: { id: requestId },
+      where: { id: Number(requestId) },
     });
 
     if (!request) {
@@ -261,7 +257,7 @@ class WFHService {
 
     const updated = await prismaClient.$transaction(async (tx) => {
       const wfh = await tx.wFHRequest.update({
-        where: { id: requestId },
+        where: { id: Number(requestId) },
         data: {
           status: 'APPROVED',
           reviewedBy: reqUser.id,
@@ -290,14 +286,14 @@ class WFHService {
   }
 
   static async reject(reqUser, requestId, reviewComment) {
-    if (![Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role)) {
+    if (![Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to reject WFH requests.', 403);
     }
 
     const prismaClient = getPrisma();
 
     const request = await prismaClient.wFHRequest.findUnique({
-      where: { id: requestId },
+      where: { id: Number(requestId) },
     });
 
     if (!request) {
@@ -317,7 +313,7 @@ class WFHService {
     const now = new Date();
 
     const updated = await prismaClient.wFHRequest.update({
-      where: { id: requestId },
+      where: { id: Number(requestId) },
       data: {
         status: 'REJECTED',
         reviewedBy: reqUser.id,

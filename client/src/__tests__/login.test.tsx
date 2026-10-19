@@ -56,7 +56,7 @@ describe('CommonLogin — single login page, role decided by the server', () => 
 
     // No role picker, and no role name advertised on the page.
     expect(screen.queryByRole('combobox')).toBeNull();
-    ['Super Admin', 'Admin', 'HR', 'Employee'].forEach((label) => {
+    ['Super Admin', 'HR Admin', 'Employee'].forEach((label) => {
       expect(screen.queryByText(new RegExp(`^${label}$`, 'i'))).toBeNull();
     });
   });
@@ -80,7 +80,7 @@ describe('CommonLogin — single login page, role decided by the server', () => 
     expect(mockLogin).toHaveBeenCalledWith('SUPER_ADMIN', 'a@x.com', 'a', 'r');
   });
 
-  it('maps the legacy HR_MANAGER role to the HR dashboard', async () => {
+  it('maps the legacy HR_MANAGER role to the HR Admin dashboard', async () => {
     mockAuthLogin.mockResolvedValue({
       user: { id: '2', email: 'hr@x.com', role: 'HR_MANAGER' },
       accessToken: 'a',
@@ -142,6 +142,19 @@ describe('CommonLogin — single login page, role decided by the server', () => 
     await waitFor(() => expect(screen.getByText(/already signed in/i)).toBeDefined());
     // The login request must not even be sent.
     expect(mockAuthLogin).not.toHaveBeenCalled();
+  });
+
+  it('explains that the session was ended by a login elsewhere', () => {
+    sessionStorage.setItem(
+      'ews_session_ended',
+      'You were signed out because your account was signed in somewhere else.',
+    );
+    renderLogin();
+    expect(
+      screen.getByText(/signed out because your account was signed in somewhere else/i),
+    ).toBeDefined();
+    // The message is one-shot: it must not reappear on the next render.
+    expect(sessionStorage.getItem('ews_session_ended')).toBeNull();
   });
 
   it('toggles password visibility', async () => {

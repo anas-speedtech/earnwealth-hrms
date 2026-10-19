@@ -1,11 +1,45 @@
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const { env } = require('../config/env');
 const { hashPassword, comparePassword } = require('../utils/password');
-const { signAccessToken, signRefreshToken, Role } = require('../utils/jwt');
+const {
+  signAccessToken,
+  signRefreshToken,
+  signPasswordResetVerifyToken,
+  verifyPasswordResetVerifyToken,
+  Role,
+} = require('../utils/jwt');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { logger } = require('../utils/logger');
+
+// Password reset OTP settings.
+const OTP_EXPIRY_MINUTES = 5;
+
+/**
+ * A 6-digit one-time code, generated with a cryptographic source so it cannot
+ * be predicted from previous codes.
+ */
+function generateOtp() {
+  const value = crypto.randomInt(0, 1000000);
+  return String(value).padStart(6, '0');
+}
+
+/**
+ * Some role profile rows predate the current schema and are optional: a user
+ * must still be able to accept an invitation even when the profile row cannot
+ * be created, so failures are logged and ignored.
+ */
+async function createOptionalProfile(create) {
+  try {
+    await create();
+  } catch (err) {
+    logger.warn('Optional role profile not created', {
+      error: err.message,
+    });
+  }
+}
 
 let _prisma;
 
@@ -51,10 +85,10 @@ async function findUserByEmail(prismaClient, email) {
   if (!rows || rows.length === 0) return null;
   const row = rows[0];
   return {
-    id: String(row.id),
+    id: Number(row.id), // live table: INT auto-increment
     email: row.email,
     passwordHash: row.passwordHash,
-    role: row.role === 'HR_MANAGER' ? 'HR' : row.role,
+    role: row.role === 'HR_ADMIN' ? 'HR_ADMIN' : row.role,
     status: row.isActive ? 'ACTIVE' : 'INACTIVE',
     name: row.name || null,
   };
@@ -65,13 +99,17 @@ async function findUserByEmail(prismaClient, email) {
  * The refresh_tokens table may not exist in all deployments.
  * Failure is logged but does not break login — the access token is still issued.
  */
-async function safeCreateRefreshToken(prismaClient, userId, tokenHash, expiresAt) {
+async function safeCreateRefreshToken(prismaClient, userId, tokenId, tokenHash, expiresAt) {
   try {
     // Raw SQL: the live users.id is an INT auto-increment, so the Prisma
     // model's String userId does not match this deployment.
+    //
+    // The id MUST be the tokenId embedded in the refresh JWT. Generating a
+    // separate id here (UUID()) would make the row unfindable on refresh,
+    // since refresh() looks it up by that tokenId.
     await prismaClient.$executeRaw`
       INSERT INTO refresh_tokens (id, userId, tokenHash, expiresAt)
-      VALUES (UUID(), ${Number(userId)}, ${tokenHash}, ${expiresAt})
+      VALUES (${tokenId}, ${Number(userId)}, ${tokenHash}, ${expiresAt})
     `;
   } catch (err) {
     logger.warn('Refresh token persistence unavailable', { error: err.message });
@@ -84,8 +122,9 @@ async function safeCreateRefreshToken(prismaClient, userId, tokenHash, expiresAt
  */
 async function safeRevokeExistingSessions(prismaClient, userId) {
   try {
+    const now = new Date();
     const result = await prismaClient.$executeRaw`
-      UPDATE refresh_tokens SET revokedAt = NOW()
+      UPDATE refresh_tokens SET revokedAt = ${now}
       WHERE userId = ${Number(userId)} AND revokedAt IS NULL
     `;
     if (result > 0) {
@@ -106,7 +145,7 @@ async function safeRevokeExistingSessions(prismaClient, userId) {
 async function safeUpdateLastLogin(prismaClient, userId) {
   try {
     await prismaClient.user.update({
-      where: { id: userId },
+      where: { id: Number(userId) },
       data: { updatedAt: new Date() },
     });
   } catch (err) {
@@ -120,14 +159,20 @@ async function safeUpdateLastLogin(prismaClient, userId) {
  */
 async function safeAuditLog(prismaClient, actorId, actorRole, action, entityType, entityId) {
   try {
-    await prismaClient.auditLog.create({ data: { actorId, actorRole, action, entityType, entityId } });
+    await prismaClient.auditLog.create({
+      data: {
+        actorId: actorId === null || actorId === undefined ? null : String(actorId),
+        actorRole, action, entityType,
+        entityId: entityId === null || entityId === undefined ? null : String(entityId),
+      },
+    });
   } catch (err) {
     logger.warn('Audit log write failed', { action, error: err.message });
   }
 }
 
 class AuthService {
-  static async login({ email, password }) {
+  static async login({ email, password, expectedRole }) {
     const prismaClient = getPrisma();
 
     // Step 1: Look up user using schema-compatible raw query
@@ -145,6 +190,23 @@ class AuthService {
     if (user.status === 'INACTIVE') {
       logger.warn('Login failed: account inactive', { userId: user.id });
       throw new AppError(AppErrorCodes.ACCOUNT_INACTIVE, 'Your account is inactive.', 403);
+    }
+
+    // Step 2b: Reject an account signing in through the wrong role's login
+    // page. The role always comes from the database record, never from the
+    // request, so changing the URL or the request body cannot change it. The
+    // message is deliberately generic: it must not reveal that the account
+    // exists under a different role.
+    // Normalize both sides so 'HR_ADMIN' is treated as equivalent.
+    // user.role is already mapped by findUserByEmail; normalize expectedRole too.
+    const normalizedExpected = expectedRole === 'HR_ADMIN' ? 'HR_ADMIN' : expectedRole;
+    if (expectedRole && user.role !== normalizedExpected) {
+      logger.warn('Login blocked: role mismatch', { userId: user.id, expectedRole });
+      throw new AppError(
+        AppErrorCodes.INVALID_CREDENTIALS,
+        'Invalid credentials. This account cannot sign in from this page.',
+        401
+      );
     }
 
     // Step 3: Verify password hash — never bypassed
@@ -173,7 +235,13 @@ class AuthService {
     await safeRevokeExistingSessions(prismaClient, user.id);
 
     // Step 6: Persist the new refresh token
-    await safeCreateRefreshToken(prismaClient, user.id, refreshTokenHash, expiresAt);
+    await safeCreateRefreshToken(
+      prismaClient,
+      user.id,
+      tokenId,
+      refreshTokenHash,
+      expiresAt,
+    );
 
     // Step 7: Update last login timestamp (column may not exist — non-blocking)
     await safeUpdateLastLogin(prismaClient, user.id);
@@ -209,11 +277,16 @@ class AuthService {
     // Raw SQL: users.id is INT in this deployment, so the Prisma model's
     // String-typed userId does not match. revokedAt is honoured here, which is
     // what makes the one-session-per-account policy effective.
+    //
+    // The expiry is compared against a value supplied by the application, not
+    // MySQL's NOW(): the database session timezone differs from the machine's,
+    // so NOW() would make freshly issued tokens look expired.
+    const now = new Date();
     const rows = await prismaClient.$queryRaw`
       SELECT id, userId, tokenHash FROM refresh_tokens
       WHERE id = ${tokenId}
         AND revokedAt IS NULL
-        AND expiresAt > NOW()
+        AND expiresAt > ${now}
       LIMIT 1
     `;
 
@@ -236,16 +309,17 @@ class AuthService {
       throw new AppError(AppErrorCodes.NOT_FOUND, 'User not found.', 404);
     }
     const user = userRows[0];
-    user.role = user.role === 'HR_MANAGER' ? 'HR' : user.role;
+    user.role = user.role === 'HR_ADMIN' ? 'HR_ADMIN' : user.role;
 
     if (!user.isActive) {
       throw new AppError(AppErrorCodes.ACCOUNT_INACTIVE, 'Your account is no longer active.', 403);
     }
 
-    await prismaClient.refreshToken.update({
-      where: { id: storedToken.id },
-      data: { revokedAt: new Date() },
-    });
+    // Rotate: revoke the used token, then issue a fresh pair. Raw SQL so the
+    // lookup matches the live schema.
+    await prismaClient.$executeRaw`
+      UPDATE refresh_tokens SET revokedAt = NOW(3) WHERE id = ${storedToken.id}
+    `;
 
     const newTokenId = uuidv4();
     const accessToken = signAccessToken({
@@ -265,13 +339,13 @@ class AuthService {
       : parseInt(env.JWT_REFRESH_EXPIRY) * 1000;
     expiresAt.setMilliseconds(expiresAt.getMilliseconds() + expiryMs);
 
-    await prismaClient.refreshToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: newRefreshTokenHash,
-        expiresAt,
-      },
-    });
+    await safeCreateRefreshToken(
+      prismaClient,
+      user.id,
+      newTokenId,
+      newRefreshTokenHash,
+      expiresAt,
+    );
 
     logger.info('Token refreshed', { userId: user.id });
 
@@ -282,8 +356,9 @@ class AuthService {
     const prismaClient = getPrisma();
     try {
       // Raw SQL: matches the live schema, where users.id is INT.
+      const now = new Date();
       await prismaClient.$executeRaw`
-        UPDATE refresh_tokens SET revokedAt = NOW()
+        UPDATE refresh_tokens SET revokedAt = ${now}
         WHERE id = ${tokenId} AND revokedAt IS NULL
       `;
     } catch (err) {
@@ -299,10 +374,10 @@ class AuthService {
       SELECT COUNT(*) AS count FROM employees WHERE isActive = 1
     `;
     const activeAdminsRows = await prismaClient.$queryRaw`
-      SELECT COUNT(*) AS count FROM users WHERE role = 'ADMIN' AND isActive = 1
+      SELECT COUNT(*) AS count FROM users WHERE role = 'SUPER_ADMIN' AND isActive = 1
     `;
     const hrStaffRows = await prismaClient.$queryRaw`
-      SELECT COUNT(*) AS count FROM users WHERE role = 'HR_MANAGER' AND isActive = 1
+      SELECT COUNT(*) AS count FROM users WHERE role = 'HR_ADMIN' AND isActive = 1
     `;
     const pendingApprovalsRows = await prismaClient.$queryRaw`
       SELECT COUNT(*) AS count FROM leaves WHERE status = 'PENDING'
@@ -330,7 +405,7 @@ class AuthService {
     }
     const user = rows[0];
 
-    user.role = user.role === 'HR_MANAGER' ? 'HR' : user.role;
+    user.role = user.role === 'HR_ADMIN' ? 'HR_ADMIN' : user.role;
 
     const profile = {
       name: user.name || '',
@@ -345,82 +420,184 @@ class AuthService {
     };
   }
 
+  /**
+   * Step 1 of password reset: issues a 6-digit OTP and emails it.
+   *
+   * Returns the same message whether or not the address exists, so this
+   * endpoint cannot be used to discover which accounts are real.
+   */
   static async requestPasswordReset(email) {
     const prismaClient = getPrisma();
     const user = await findUserByEmail(prismaClient, email);
     // Always return the same message so the endpoint cannot be used to
     // discover which email addresses have accounts.
     if (!user) {
-      return { message: 'If an account exists, a reset link will be sent.' };
+      return { message: 'If an account exists, a code has been sent.' };
     }
 
-    const rawToken = uuidv4();
-    const tokenHash = await hashPassword(rawToken);
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 1);
+    // Without SMTP the code cannot be delivered, so do not create one that
+    // nobody can use. Reporting the outage honestly is better than telling
+    // the user an email was sent when it was not.
+    if (!env.PASSWORD_RESET_ENABLED) {
+      logger.error('Password reset requested but SMTP is not configured', { userId: user.id });
+      throw new AppError(
+        AppErrorCodes.INTERNAL_ERROR,
+        'Password reset by email is not available. Please contact your administrator to reset your password.',
+        503,
+      );
+    }
 
+    const otp = generateOtp();
+    const otpHash = await hashPassword(otp);
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + OTP_EXPIRY_MINUTES);
+
+    const now = new Date();
     try {
+      // A new request invalidates any earlier code for this account, so only
+      // the most recently sent OTP can ever be used.
+      await prismaClient.$executeRaw`
+        UPDATE password_reset_tokens
+        SET used = 1, usedAt = ${now}
+        WHERE userId = ${Number(user.id)} AND used = 0
+      `;
+
       await prismaClient.$executeRaw`
         INSERT INTO password_reset_tokens (id, userId, tokenHash, expiresAt, used, createdAt)
-        VALUES (UUID(), ${user.id}, ${tokenHash}, ${expiresAt}, 0, NOW())
+        VALUES (UUID(), ${Number(user.id)}, ${otpHash}, ${expiresAt}, 0, ${now})
       `;
     } catch (err) {
-      // The table is absent in the deployed database. Log it and still return the
-      // generic message rather than leaking the failure to the caller.
-      logger.error('Failed to persist password reset token', { error: err.message });
-      return { message: 'If an account exists, a reset link will be sent.' };
+      logger.error('Failed to persist password reset OTP', { error: err.message });
+      throw new AppError(
+        AppErrorCodes.INTERNAL_ERROR,
+        'Password reset is temporarily unavailable. Please try again shortly.',
+        503,
+      );
     }
 
-    const { sendPasswordResetEmail } = require('./email.service');
-    await sendPasswordResetEmail(user.email, rawToken);
+    const { sendPasswordResetOtp } = require('./email.service');
+    await sendPasswordResetOtp(user.email, otp, OTP_EXPIRY_MINUTES);
 
-    logger.info('Password reset token generated', { userId: user.id });
-    return { message: 'If an account exists, a reset link will be sent.' };
+    logger.info('Password reset OTP generated', { userId: user.id });
+    return { message: 'If an account exists, a code has been sent.' };
   }
 
-  static async resetPassword(rawToken, newPassword) {
+  /**
+   * Step 2: verifies the OTP and, if correct, returns a short-lived
+   * verification token that authorises the password change in step 3.
+   *
+   * The token is deliberately useless on its own: it carries no user id, so
+   * it cannot be replayed against another account.
+   */
+  static async verifyPasswordResetOtp(email, otp) {
     const prismaClient = getPrisma();
+    const user = await findUserByEmail(prismaClient, email);
 
-    let tokens;
-    try {
-      tokens = await prismaClient.$queryRaw`
-        SELECT id, userId, tokenHash FROM password_reset_tokens
-        WHERE used = 0 AND expiresAt > NOW()
-      `;
-    } catch (err) {
-      logger.error('Failed to read password reset tokens', { error: err.message });
-      throw new AppError(AppErrorCodes.INVALID_CREDENTIALS, 'Invalid or expired reset token.', 400);
+    // Same error either way, so this endpoint cannot confirm which
+    // addresses have accounts.
+    if (!user) {
+      throw new AppError(AppErrorCodes.INVALID_CREDENTIALS, 'That code is not valid.', 400);
     }
 
-    let matchedToken = null;
-    for (const token of tokens) {
-      if (await comparePassword(rawToken, String(token.tokenHash))) {
-        matchedToken = token;
+    // Expiry is compared against a value supplied by the application rather
+    // than MySQL's NOW(): the database session timezone differs from the
+    // machine's, so NOW() makes a just-issued code look already expired.
+    const now = new Date();
+    let candidates;
+    try {
+      candidates = await prismaClient.$queryRaw`
+        SELECT id, tokenHash FROM password_reset_tokens
+        WHERE userId = ${Number(user.id)} AND used = 0 AND expiresAt > ${now}
+        ORDER BY createdAt DESC
+      `;
+    } catch (err) {
+      logger.error('Failed to read password reset OTP', { error: err.message });
+      throw new AppError(AppErrorCodes.INVALID_CREDENTIALS, 'That code is not valid.', 400);
+    }
+
+    // The OTP is stored as a bcrypt hash, so each candidate must be compared
+    // rather than looked up directly.
+    let matched = null;
+    for (const row of candidates) {
+      if (await comparePassword(otp, String(row.tokenHash))) {
+        matched = row;
         break;
       }
     }
 
-    if (!matchedToken) {
-      throw new AppError(AppErrorCodes.INVALID_CREDENTIALS, 'Invalid or expired reset token.', 400);
+    if (!matched) {
+      throw new AppError(AppErrorCodes.INVALID_CREDENTIALS, 'That code is not valid.', 400);
+    }
+
+    // Burn the OTP immediately: single use, so it cannot be replayed even
+    // though the verification token remains valid for a short window.
+    await prismaClient.$executeRaw`
+      UPDATE password_reset_tokens
+      SET used = 1, usedAt = ${now}
+      WHERE id = ${matched.id}
+    `;
+
+    const verifyToken = signPasswordResetVerifyToken({
+      userId: user.id,
+      resetId: matched.id,
+    });
+
+    logger.info('Password reset OTP verified', { userId: user.id });
+    return { verifyToken };
+  }
+
+  /**
+   * Step 3: sets the new password using the verification token from step 2.
+   */
+  static async resetPassword(verifyToken, newPassword) {
+    const prismaClient = getPrisma();
+
+    let decoded;
+    try {
+      decoded = verifyPasswordResetVerifyToken(verifyToken);
+    } catch {
+      throw new AppError(
+        AppErrorCodes.INVALID_CREDENTIALS,
+        'Your verification has expired. Please start the reset again.',
+        400,
+      );
+    }
+
+    // The OTP must have been consumed for this account, which is what proves
+    // the user owns the inbox.
+    const rows = await prismaClient.$queryRaw`
+      SELECT id, userId FROM password_reset_tokens
+      WHERE id = ${decoded.resetId} AND userId = ${Number(decoded.userId)} AND used = 1
+      LIMIT 1
+    `;
+
+    if (!rows || rows.length === 0) {
+      throw new AppError(
+        AppErrorCodes.INVALID_CREDENTIALS,
+        'Your verification is no longer valid. Please start the reset again.',
+        400,
+      );
     }
 
     const passwordHash = await hashPassword(newPassword);
 
+    const now = new Date();
     await prismaClient.$transaction([
       prismaClient.$executeRaw`
-        UPDATE users SET passwordHash = ${passwordHash}, updatedAt = NOW() WHERE id = ${matchedToken.userId}
-      `,
-      prismaClient.$executeRaw`
-        UPDATE password_reset_tokens SET used = 1, usedAt = NOW() WHERE id = ${matchedToken.id}
+        UPDATE users SET passwordHash = ${passwordHash}, updatedAt = ${now} WHERE id = ${Number(decoded.userId)}
       `,
     ]);
 
-    await AuthService.logAudit(String(matchedToken.userId), 'SYSTEM', 'PASSWORD_RESET', 'User', String(matchedToken.userId));
-    logger.info('Password reset successful', { userId: matchedToken.userId });
+    // The password changed, so every existing session must end. Otherwise a
+    // stolen refresh token would keep working after the reset.
+    await safeRevokeExistingSessions(prismaClient, decoded.userId);
+
+    await AuthService.logAudit(String(decoded.userId), 'SYSTEM', 'PASSWORD_RESET', 'User', String(decoded.userId));
+    logger.info('Password reset successful', { userId: decoded.userId });
     return { message: 'Password reset successful.' };
   }
 
-  static async createInvitation(email, role, invitedBy) {
+  static async createInvitation(email, role, invitedBy, name) {
     const prismaClient = getPrisma();
 
     const existing = await prismaClient.user.findUnique({ where: { email } });
@@ -434,84 +611,127 @@ class AuthService {
     expiresAt.setDate(expiresAt.getDate() + 7);
 
     await prismaClient.invitationToken.create({
-      data: { email, tokenHash, role, expiresAt },
+      data: { email, name, tokenHash, role, expiresAt },
     });
 
     await AuthService.logAudit(invitedBy, 'SYSTEM', 'CREATE_INVITATION', 'InvitationToken', email);
-    logger.info('Invitation created', { email, role, invitedBy });
 
-    return { token: rawToken };
+    // Deliver the invitation to the exact email saved on the new account. A
+    // delivery problem must never fail the invitation itself.
+    let invitationEmailSent = false;
+    try {
+      const { sendInvitationEmail } = require('./email.service');
+      const emailResult = await sendInvitationEmail(email, rawToken, role);
+      invitationEmailSent = emailResult.sent === true;
+    } catch (emailErr) {
+      logger.warn('Invitation email delivery failed', {
+        error: emailErr.message,
+        email,
+        role,
+      });
+    }
+
+    logger.info('Invitation created', {
+      email,
+      role,
+      invitedBy,
+      emailSent: invitationEmailSent,
+    });
+
+    return { token: rawToken, sent: invitationEmailSent };
   }
 
   static async acceptInvitation(rawToken, password) {
-    const prismaClient = getPrisma();
+    try {
+      const prismaClient = getPrisma();
 
-    const tokens = await prismaClient.invitationToken.findMany({
-      where: { used: false, expiresAt: { gt: new Date() } },
-    });
-
-    let matchedToken = null;
-    for (const token of tokens) {
-      if (await comparePassword(rawToken, token.tokenHash)) {
-        matchedToken = token;
-        break;
-      }
-    }
-
-    if (!matchedToken) {
-      throw new AppError(AppErrorCodes.INVALID_CREDENTIALS, 'Invalid or expired invitation.', 400);
-    }
-
-    const passwordHash = await hashPassword(password);
-
-    const result = await prismaClient.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: { email: matchedToken.email, passwordHash, role: matchedToken.role, status: 'ACTIVE' },
+      const tokens = await prismaClient.invitationToken.findMany({
+        where: { used: false, expiresAt: { gt: new Date() } },
       });
 
-      switch (matchedToken.role) {
-        case Role.SUPER_ADMIN:
-          await tx.superAdminProfile.create({ data: { userId: user.id, fullName: user.email.split('@')[0] } });
+      let matchedToken = null;
+      for (const token of tokens) {
+        if (await comparePassword(rawToken, token.tokenHash)) {
+          matchedToken = token;
           break;
-        case Role.ADMIN:
-          await tx.adminProfile.create({ data: { userId: user.id, fullName: user.email.split('@')[0] } });
-          break;
-        case Role.HR:
-          await tx.hrProfile.create({ data: { userId: user.id, fullName: user.email.split('@')[0] } });
-          break;
-        case Role.EMPLOYEE:
-          await tx.employeeProfile.create({
-            data: {
-              userId: user.id,
-              employeeCode: `EMP-${Date.now().toString(36).toUpperCase()}`,
-              firstName: '',
-              lastName: '',
-              employmentType: 'FULL_TIME',
-            },
-          });
-          break;
+        }
       }
 
-      await tx.invitationToken.update({
-        where: { id: matchedToken.id },
-        data: { used: true, usedAt: new Date() },
+      if (!matchedToken) {
+        throw new AppError(AppErrorCodes.INVALID_CREDENTIALS, 'Invalid or expired invitation.', 400);
+      }
+
+      const passwordHash = await hashPassword(password);
+
+      const result = await prismaClient.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email: matchedToken.email,
+            name: matchedToken.name || matchedToken.email.split('@')[0],
+            passwordHash,
+            role: matchedToken.role,
+            isActive: true,
+          },
+        });
+
+        switch (matchedToken.role) {
+          case Role.SUPER_ADMIN:
+            await createOptionalProfile(() =>
+              tx.superAdminProfile.create({
+                data: { userId: user.id, fullName: user.email.split('@')[0] },
+              })
+            );
+            break;
+          case Role.HR_ADMIN:
+            await createOptionalProfile(() =>
+              tx.adminProfile.create({
+                data: { userId: user.id, fullName: user.email.split('@')[0] },
+              })
+            );
+            break;
+          case Role.EMPLOYEE:
+            await tx.employeeProfile.create({
+              data: {
+                userId: user.id,
+                employeeCode: `EMP-${Date.now().toString(36).toUpperCase()}`,
+                firstName: '',
+                lastName: '',
+                employmentType: 'FULL_TIME',
+              },
+            });
+            break;
+        }
+
+        await tx.invitationToken.update({
+          where: { id: matchedToken.id },
+          data: { used: true, usedAt: new Date() },
+        });
+
+        return user;
       });
 
-      return user;
-    });
-
-    logger.info('Invitation accepted', { userId: result.id, email: result.email, role: result.role });
-    return { message: 'Account created successfully.' };
+      logger.info('Invitation accepted', { userId: result.id, email: result.email, role: result.role });
+      return { message: 'Account created successfully.' };
+    } catch (err) {
+      logger.error('acceptInvitation failed:', { error: err.message, stack: err.stack });
+      throw err;
+    }
   }
 
   static async logAudit(actorId, actorRole, action, entityType, entityId) {
     try {
       const prismaClient = getPrisma();
-      await prismaClient.auditLog.create({ data: { actorId, actorRole, action, entityType, entityId } });
+      await prismaClient.auditLog.create({
+      data: {
+        actorId: actorId === null || actorId === undefined ? null : String(actorId),
+        actorRole, action, entityType,
+        entityId: entityId === null || entityId === undefined ? null : String(entityId),
+      },
+    });
     } catch {
       logger.error('Failed to write audit log', { action, entityType, entityId });
     }
   }
 }
 
-module.exports = { AuthService, setupTestPrisma, resetPrisma };
+module.exports = { AuthService, getPrisma, setupTestPrisma, resetPrisma };

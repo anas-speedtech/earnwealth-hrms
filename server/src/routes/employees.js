@@ -50,7 +50,7 @@ const updateSchema = z.object({
 router.use(authenticate);
 
 // List employees — SUPER_ADMIN, ADMIN, HR
-router.get('/employees', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/employees', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const query = {
       page: parseInt(req.query.page) || 1,
@@ -67,7 +67,7 @@ router.get('/employees', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async
 });
 
 // Get single employee
-router.get('/employees/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.EMPLOYEE), async (req, res, next) => {
+router.get('/employees/:id', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN, Role.EMPLOYEE), async (req, res, next) => {
   try {
     const result = await EmployeeService.getById(req.user, req.params.id);
     res.json(result);
@@ -77,7 +77,7 @@ router.get('/employees/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Ro
 });
 
 // Create employee — SUPER_ADMIN, ADMIN, HR
-router.post('/employees', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(createSchema), async (req, res, next) => {
+router.post('/employees', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(createSchema), async (req, res, next) => {
   try {
     const result = await EmployeeService.create(req.user, req.body);
     res.status(201).json(result);
@@ -87,7 +87,7 @@ router.post('/employees', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), vali
 });
 
 // Update employee — SUPER_ADMIN, ADMIN, HR
-router.patch('/employees/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(updateSchema), async (req, res, next) => {
+router.patch('/employees/:id', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(updateSchema), async (req, res, next) => {
   try {
     const result = await EmployeeService.update(req.user, req.params.id, req.body);
     res.json(result);
@@ -97,7 +97,7 @@ router.patch('/employees/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
 });
 
 // Deactivate employee — SUPER_ADMIN, ADMIN
-router.post('/employees/:id/deactivate', authorize(Role.SUPER_ADMIN, Role.ADMIN), async (req, res, next) => {
+router.post('/employees/:id/deactivate', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const result = await EmployeeService.deactivate(req.user, req.params.id);
     res.json(result);
@@ -107,7 +107,7 @@ router.post('/employees/:id/deactivate', authorize(Role.SUPER_ADMIN, Role.ADMIN)
 });
 
 // Activate employee — SUPER_ADMIN, ADMIN
-router.post('/employees/:id/activate', authorize(Role.SUPER_ADMIN, Role.ADMIN), async (req, res, next) => {
+router.post('/employees/:id/activate', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const result = await EmployeeService.activate(req.user, req.params.id);
     res.json(result);

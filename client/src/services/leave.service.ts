@@ -21,15 +21,18 @@ export interface LeaveTypeItem {
 export interface LeaveBalanceItem {
   id: string;
   leaveTypeId: string;
-  leaveTypeName: string;
-  leaveTypeCode: string;
+  name: string;
+  displayName: string;
+  code: string;
   classification: string;
   openingBalance: number;
   accruedBalance: number;
   usedBalance: number;
   reservedBalance: number;
   availableBalance: number;
-  year: number;
+  // Legacy aliases for compatibility
+  leaveTypeName?: string;
+  leaveTypeCode?: string;
 }
 
 export interface LeaveRequestItem {

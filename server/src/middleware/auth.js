@@ -16,7 +16,7 @@ function authenticate(req, _res, next) {
     const decoded = verifyAccessToken(token);
     req.user = {
       id: decoded.userId,
-      role: decoded.role === 'HR_MANAGER' ? 'HR' : decoded.role,
+      role: decoded.role === 'HR_ADMIN' ? 'HR_ADMIN' : decoded.role,
       email: decoded.email,
     };
     next();

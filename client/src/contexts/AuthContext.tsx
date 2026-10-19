@@ -4,7 +4,7 @@ import { authService } from '../services/auth.service';
 export interface User {
   id: string;
   email: string;
-  role: 'SUPER_ADMIN' | 'ADMIN' | 'HR' | 'HR_MANAGER' | 'EMPLOYEE';
+  role: 'SUPER_ADMIN' | 'HR_ADMIN' | 'EMPLOYEE';
   profile: Record<string, unknown>;
 }
 

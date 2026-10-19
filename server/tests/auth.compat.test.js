@@ -117,7 +117,10 @@ describe('AuthService.login — legacy schema compatibility', () => {
     expect(result).toBeDefined();
     expect(result.accessToken).toBeDefined();
     expect(result.refreshToken).toBeDefined();
-    expect(result.user.id).toBe('1');
+    // users.id is an INT auto-increment; findUserByEmail() normalizes it to a
+    // number, and every downstream caller (JWT sign, refresh_tokens.userId,
+    // lastLogin update, audit log) passes it straight to SQL as a number.
+    expect(result.user.id).toBe(1);
     expect(result.user.email).toBe('admin@earnwealth.com');
     expect(result.user.role).toBe('SUPER_ADMIN');
   });
@@ -240,5 +243,93 @@ describe('SQL injection protection', () => {
     expect(userLookupCall).toBeDefined();
     // Prisma $queryRaw tagged template: arg[0] = TemplateStringsArray, arg[1] = first param
     expect(userLookupCall[1]).toBe(maliciousEmail);
+  });
+});
+
+// ── Login role gate ───────────────────────────────────────────────────────
+// Each login page (/super-admin/login, /admin/login, /hr/login,
+// /employee/login) posts the role of its own page as expectedRole. The
+// backend compares that against the role stored in the users table and
+// refuses the login when they differ, so a URL or request-body change cannot
+// grant a role.
+
+let PASSWORD_HASH;
+
+describe('Login role gate', () => {
+  const employeeUser = {
+    id: 7,
+    name: 'Vikram Iyer',
+    email: 'emp-1005@earnwealth.com',
+    passwordHash: '',
+    role: 'EMPLOYEE',
+    isActive: 1,
+  };
+
+  beforeAll(async () => {
+    employeeUser.passwordHash = await hashPassword('Employee@123');
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupTestPrisma(mockPrismaInstance);
+    mockQueryRaw.mockImplementation((sql, ...bindings) => {
+      const sqlStr = Array.isArray(sql) ? sql.join('') : String(sql);
+      if (sqlStr.includes('FROM users') && sqlStr.includes('email')) {
+        return Promise.resolve(employeeUser.email === bindings[0] ? [{ ...employeeUser }] : []);
+      }
+      return Promise.resolve([]);
+    });
+  });
+
+  test('accepts the account when expectedRole matches the stored role', async () => {
+    const res = await AuthService.login({
+      email: employeeUser.email, password: 'Employee@123', expectedRole: 'EMPLOYEE',
+    });
+    expect(res).toHaveProperty('accessToken');
+    expect(res.user.role).toBe('EMPLOYEE');
+  });
+
+  test('rejects an EMPLOYEE account signing in through the ADMIN page', async () => {
+    await expect(AuthService.login({
+      email: employeeUser.email, password: 'Employee@123', expectedRole: 'HR_ADMIN',
+    })).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
+  });
+
+  test('rejects through the SUPER_ADMIN and HR pages too', async () => {
+    for (const role of ['SUPER_ADMIN', 'HR_ADMIN']) {
+      await expect(AuthService.login({
+        email: employeeUser.email, password: 'Employee@123', expectedRole: role,
+      })).rejects.toThrow(/cannot sign in from this page/i);
+    }
+  });
+
+  test('the rejection does not reveal the account exists or its real role', async () => {
+    try {
+      await AuthService.login({
+        email: employeeUser.email, password: 'Employee@123', expectedRole: 'HR_ADMIN',
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      const msg = err.message.toLowerCase();
+      expect(msg).not.toContain('employee');
+      expect(msg).not.toContain('role mismatch');
+      expect(msg).toContain('invalid credentials');
+    }
+  });
+
+  test('no accessToken is issued on a rejected role', async () => {
+    let issued = false;
+    try {
+      const res = await AuthService.login({
+        email: employeeUser.email, password: 'Employee@123', expectedRole: 'HR_ADMIN',
+      });
+      issued = Boolean(res.accessToken);
+    } catch { /* expected */ }
+    expect(issued).toBe(false);
+  });
+
+  test('login still works when expectedRole is not supplied', async () => {
+    const res = await AuthService.login({ email: employeeUser.email, password: 'Employee@123' });
+    expect(res).toHaveProperty('accessToken');
   });
 });

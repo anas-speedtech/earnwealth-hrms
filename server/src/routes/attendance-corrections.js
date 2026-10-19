@@ -46,7 +46,7 @@ router.post('/attendance/corrections', authenticate, validateBody(createCorrecti
 });
 
 // List pending corrections (HR, ADMIN, SUPER_ADMIN)
-router.get('/attendance/corrections/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/attendance/corrections/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const corrections = await AttendanceCorrectionService.listPending(req.user);
     res.json({ corrections });
@@ -56,7 +56,7 @@ router.get('/attendance/corrections/pending', authenticate, authorize(Role.SUPER
 });
 
 // Approve correction
-router.post('/attendance/corrections/:id/approve', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(reviewSchema), async (req, res, next) => {
+router.post('/attendance/corrections/:id/approve', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(reviewSchema), async (req, res, next) => {
   try {
     const result = await AttendanceCorrectionService.approve(req.user, req.params.id, req.body.reviewComment);
     res.json(result);
@@ -66,7 +66,7 @@ router.post('/attendance/corrections/:id/approve', authenticate, authorize(Role.
 });
 
 // Reject correction
-router.post('/attendance/corrections/:id/reject', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(reviewSchema), async (req, res, next) => {
+router.post('/attendance/corrections/:id/reject', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(reviewSchema), async (req, res, next) => {
   try {
     const result = await AttendanceCorrectionService.reject(req.user, req.params.id, req.body.reviewComment);
     res.json(result);

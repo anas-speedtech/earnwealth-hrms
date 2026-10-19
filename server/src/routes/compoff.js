@@ -143,7 +143,8 @@ router.get('/compoff/my-leaves', authenticate, validateQuery(z.object({
 })), async (req, res, next) => {
   try {
     const prismaClient = getPrisma();
-    const profile = prismaClient.employeeProfile.findUnique({
+    // employees.userId is the relation key; employeeProfile is not a model.
+    const profile = await prismaClient.employee.findUnique({
       where: { userId: req.user.id },
       select: { id: true },
     });
@@ -182,7 +183,7 @@ router.get('/compoff/my-leaves', authenticate, validateQuery(z.object({
 });
 
 // Get pending Comp-Off leave requests (HR)
-router.get('/compoff/leaves/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/compoff/leaves/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const result = await CompOffService.getPendingCompOffLeaves(req.user);
     res.json(result);
@@ -192,7 +193,7 @@ router.get('/compoff/leaves/pending', authenticate, authorize(Role.SUPER_ADMIN, 
 });
 
 // Review a Comp-Off leave request (HR approve/reject)
-router.post('/compoff/leaves/:id/review', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(z.object({
+router.post('/compoff/leaves/:id/review', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(z.object({
   action: z.enum(['APPROVE', 'REJECT']),
   reviewComment: z.string().optional().nullable(),
 })), async (req, res, next) => {
@@ -224,7 +225,7 @@ router.get('/compoff/leaves/:id', authenticate, async (req, res, next) => {
       return res.status(404).json({ message: 'Comp-Off leave not found.' });
     }
     const isSelf = req.user.id === leave.employee.userId;
-    const isHR = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(req.user.role);
+    const isHR = [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(req.user.role);
     if (!isSelf && !isHR) {
       return res.status(403).json({ message: 'You do not have permission to view this leave.' });
     }
@@ -324,7 +325,7 @@ router.post('/compoff/leaves/:id/cancel', authenticate, async (req, res, next) =
 // ============ HR / ADMIN / SUPER_ADMIN ENDPOINTS ============
 
 // Get pending Comp-Off requests
-router.get('/compoff/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/compoff/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const result = await CompOffService.getPendingRequests(req.user);
     res.json(result);
@@ -334,7 +335,7 @@ router.get('/compoff/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.AD
 });
 
 // Review a Comp-Off credit request
-router.post('/compoff/credits/:id/review', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(reviewSchema), async (req, res, next) => {
+router.post('/compoff/credits/:id/review', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(reviewSchema), async (req, res, next) => {
   try {
     const { action, reason } = req.body;
     const result = await CompOffService.reviewCredit(req.user, req.params.id, action, reason);
@@ -345,7 +346,7 @@ router.post('/compoff/credits/:id/review', authenticate, authorize(Role.SUPER_AD
 });
 
 // Get employee Comp-Off balance (HR view)
-router.get('/compoff/employees/:id/balance', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/compoff/employees/:id/balance', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const result = await CompOffService.getEmployeeBalance(req.user, req.params.id);
     res.json(result);
@@ -355,7 +356,7 @@ router.get('/compoff/employees/:id/balance', authenticate, authorize(Role.SUPER_
 });
 
 // List all Comp-Off credits (HR view)
-router.get('/compoff/credits', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateQuery(paginationSchema), async (req, res, next) => {
+router.get('/compoff/credits', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateQuery(paginationSchema), async (req, res, next) => {
   try {
     const result = await CompOffService.getAllCredits(req.user, {
       page: parseInt(req.query.page) || 1,
@@ -369,7 +370,7 @@ router.get('/compoff/credits', authenticate, authorize(Role.SUPER_ADMIN, Role.AD
 });
 
 // Process expired credits (HR/Admin/SA)
-router.post('/compoff/process-expiry', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.post('/compoff/process-expiry', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const result = await CompOffService.processExpiredCredits(req.user);
     res.json(result);
@@ -379,7 +380,7 @@ router.post('/compoff/process-expiry', authenticate, authorize(Role.SUPER_ADMIN,
 });
 
 // Update policy (Admin/SA only)
-router.put('/compoff/policy', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN), validateBody(updatePolicySchema), async (req, res, next) => {
+router.put('/compoff/policy', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(updatePolicySchema), async (req, res, next) => {
   try {
     const result = await CompOffService.updatePolicy(req.user, req.body);
     res.json(result);

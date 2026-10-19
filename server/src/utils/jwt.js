@@ -22,4 +22,25 @@ function verifyRefreshToken(token) {
   return jwt.verify(token, env.JWT_REFRESH_SECRET);
 }
 
-module.exports = { Role, signAccessToken, signRefreshToken, verifyAccessToken, verifyRefreshToken };
+/**
+ * Password reset has a third step: the OTP proves inbox ownership, then a
+ * short-lived token authorises the password change itself. It carries no
+ * role and cannot be used as an access token.
+ */
+function signPasswordResetVerifyToken(payload) {
+  return jwt.sign(payload, env.JWT_ACCESS_SECRET, { expiresIn: '10m' });
+}
+
+function verifyPasswordResetVerifyToken(token) {
+  return jwt.verify(token, env.JWT_ACCESS_SECRET);
+}
+
+module.exports = {
+  Role,
+  signAccessToken,
+  signRefreshToken,
+  verifyAccessToken,
+  verifyRefreshToken,
+  signPasswordResetVerifyToken,
+  verifyPasswordResetVerifyToken,
+};

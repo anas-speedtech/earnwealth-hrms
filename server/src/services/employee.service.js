@@ -17,7 +17,7 @@ const PAGE_SIZE = 20;
 
 class EmployeeService {
   static canAccessAll(reqUser) {
-    return reqUser.role === Role.SUPER_ADMIN || reqUser.role === Role.ADMIN || reqUser.role === Role.HR;
+    return reqUser.role === Role.SUPER_ADMIN || reqUser.role === Role.HR_ADMIN || reqUser.role === Role.HR_ADMIN;
   }
 
   static async list(reqUser, { page = 1, search = '', departmentId = '', designationId = '', status = '' }) {

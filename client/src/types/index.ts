@@ -1,4 +1,4 @@
-export type Role = 'SUPER_ADMIN' | 'ADMIN' | 'HR' | 'EMPLOYEE';
+export type Role = 'SUPER_ADMIN' | 'HR_ADMIN' | 'EMPLOYEE';
 
 export interface AuthState {
   user: { id: string; email: string; role: Role } | null;

@@ -96,16 +96,6 @@ router.post('/leaves/:id/cancel', authenticate, async (req, res, next) => {
   }
 });
 
-// Get leave request detail
-router.get('/leaves/:id', authenticate, async (req, res, next) => {
-  try {
-    const result = await LeaveService.getRequestDetail(req.user, req.params.id);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-});
-
 // List active leave types (for dropdown)
 router.get('/leaves/types', authenticate, async (req, res, next) => {
   try {
@@ -119,7 +109,7 @@ router.get('/leaves/types', authenticate, async (req, res, next) => {
 // ============ HR / ADMIN / SUPER_ADMIN ENDPOINTS ============
 
 // Get pending leave requests
-router.get('/leaves/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/leaves/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const requests = await LeaveService.getPendingRequests(req.user);
     res.json(requests);
@@ -129,7 +119,7 @@ router.get('/leaves/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.ADM
 });
 
 // Get all leave requests (with filters)
-router.get('/leaves/all', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateQuery(z.object({
+router.get('/leaves/all', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateQuery(z.object({
   page: z.coerce.number().int().positive().default(1),
   status: z.string().optional(),
   employeeId: z.string().uuid().optional(),
@@ -146,8 +136,20 @@ router.get('/leaves/all', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, 
   }
 });
 
+// Get leave request detail.
+// Kept BELOW the literal /leaves/pending and /leaves/all routes so that
+// ":id" does not swallow them — Express matches in registration order.
+router.get('/leaves/:id', authenticate, async (req, res, next) => {
+  try {
+    const result = await LeaveService.getRequestDetail(req.user, req.params.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get employee leave balances (HR view)
-router.get('/leaves/employee/:employeeId/balances', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/leaves/employee/:employeeId/balances', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const result = await LeaveService.getEmployeeBalances(req.user, req.params.employeeId);
     res.json(result);
@@ -157,7 +159,7 @@ router.get('/leaves/employee/:employeeId/balances', authenticate, authorize(Role
 });
 
 // Approve leave request
-router.post('/leaves/:id/approve', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(reviewSchema), async (req, res, next) => {
+router.post('/leaves/:id/approve', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(reviewSchema), async (req, res, next) => {
   try {
     const result = await LeaveService.approveRequest(req.user, req.params.id, req.body.reviewComment);
     res.json(result);
@@ -167,7 +169,7 @@ router.post('/leaves/:id/approve', authenticate, authorize(Role.SUPER_ADMIN, Rol
 });
 
 // Reject leave request
-router.post('/leaves/:id/reject', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(z.object({
+router.post('/leaves/:id/reject', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(z.object({
   reviewComment: z.string().min(1, 'A rejection reason is required.'),
 })), async (req, res, next) => {
   try {
@@ -181,7 +183,7 @@ router.post('/leaves/:id/reject', authenticate, authorize(Role.SUPER_ADMIN, Role
 // ============ LEAVE TYPE MANAGEMENT ============
 
 // List all leave types (admin)
-router.get('/leave-types', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/leave-types', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const types = await LeaveService.getAllLeaveTypes(req.user);
     res.json(types);
@@ -191,7 +193,7 @@ router.get('/leave-types', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN,
 });
 
 // Create leave type
-router.post('/leave-types', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(createLeaveTypeSchema), async (req, res, next) => {
+router.post('/leave-types', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(createLeaveTypeSchema), async (req, res, next) => {
   try {
     const result = await LeaveService.createLeaveType(req.user, req.body);
     res.status(201).json(result);
@@ -201,7 +203,7 @@ router.post('/leave-types', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN
 });
 
 // Update leave type
-router.put('/leave-types/:id', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateBody(updateLeaveTypeSchema), async (req, res, next) => {
+router.put('/leave-types/:id', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(updateLeaveTypeSchema), async (req, res, next) => {
   try {
     const result = await LeaveService.updateLeaveType(req.user, req.params.id, req.body);
     res.json(result);
@@ -213,7 +215,7 @@ router.put('/leave-types/:id', authenticate, authorize(Role.SUPER_ADMIN, Role.AD
 // ============ BALANCE MANAGEMENT ============
 
 // Initialize balances for an employee
-router.post('/leaves/employee/:employeeId/initialize', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.post('/leaves/employee/:employeeId/initialize', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const result = await LeaveService.initializeBalances(req.user, req.params.employeeId);
     res.json(result);
@@ -223,7 +225,7 @@ router.post('/leaves/employee/:employeeId/initialize', authenticate, authorize(R
 });
 
 // Process monthly accrual
-router.post('/leaves/accrual/monthly', authenticate, authorize(Role.SUPER_ADMIN, Role.HR), async (req, res, next) => {
+router.post('/leaves/accrual/monthly', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const result = await LeaveService.processMonthlyAccrual(req.user);
     res.json(result);

@@ -17,11 +17,9 @@ class AttendanceCorrectionService {
   static async getById(reqUser, correctionId) {
     const prismaClient = getPrisma();
     const correction = await prismaClient.attendanceCorrection.findUnique({
-      where: { id: correctionId },
+      where: { id: parseInt(correctionId, 10) },
       include: {
-        attendance: {
-          include: { sessions: true },
-        },
+        attendance: { select: { punchTime: true } },
       },
     });
 
@@ -30,7 +28,7 @@ class AttendanceCorrectionService {
     }
 
     // Employees can only view their own corrections
-    const canViewAll = reqUser.role === Role.SUPER_ADMIN || reqUser.role === Role.ADMIN || reqUser.role === Role.HR;
+    const canViewAll = reqUser.role === Role.SUPER_ADMIN || reqUser.role === Role.HR_ADMIN;
     if (!canViewAll && correction.employeeId !== reqUser.id) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You can only view your own correction requests.', 403);
     }
@@ -40,7 +38,7 @@ class AttendanceCorrectionService {
 
   static async listPending(reqUser) {
     // Only HR and above can see pending corrections
-    const allowed = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR];
+    const allowed = [Role.SUPER_ADMIN, Role.HR_ADMIN];
     if (!allowed.includes(reqUser.role)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view correction requests.', 403);
     }
@@ -51,9 +49,7 @@ class AttendanceCorrectionService {
       where: { status: 'PENDING' },
       orderBy: { createdAt: 'asc' },
       include: {
-        attendance: {
-          include: { sessions: { orderBy: { punchIn: 'asc' } } },
-        },
+        attendance: { select: { punchTime: true } },
       },
     });
 
@@ -75,7 +71,7 @@ class AttendanceCorrectionService {
         employeeName: `${emp?.firstName || ''} ${emp?.lastName || ''}`.trim() || 'Unknown',
         employeeEmail: emp?.user?.email || '',
         employeeCode: emp?.employeeCode || '',
-        date: c.attendance.date,
+        date: c.attendance.punchTime ? String(c.attendance.punchTime).slice(0, 10) : null,
         originalPunchIn: c.originalPunchIn,
         originalPunchOut: c.originalPunchOut,
         originalStatus: c.originalStatus,
@@ -100,7 +96,7 @@ class AttendanceCorrectionService {
         skip,
         take: PAGE_SIZE,
         include: {
-          attendance: { select: { id: true, date: true } },
+          attendance: { select: { id: true, punchTime: true } },
         },
       }),
       prismaClient.attendanceCorrection.count({ where: { employeeId: reqUser.id } }),
@@ -112,7 +108,7 @@ class AttendanceCorrectionService {
       corrections: corrections.map((c) => ({
         id: c.id,
         attendanceId: c.attendanceId,
-        date: c.attendance.date,
+        date: c.attendance.punchTime ? String(c.attendance.punchTime).slice(0, 10) : null,
         reason: c.reason,
         status: c.status,
         reviewComment: c.reviewComment,
@@ -133,9 +129,8 @@ class AttendanceCorrectionService {
       throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee profile not found.', 404);
     }
 
-    const attendance = await prismaClient.attendance.findUnique({
-      where: { id: attendanceId },
-      include: { sessions: { orderBy: { punchIn: 'asc' } } },
+    const attendance = await prismaClient.attendanceLog.findUnique({
+      where: { id: parseInt(attendanceId, 10) },
     });
 
     if (!attendance) {
@@ -149,7 +144,7 @@ class AttendanceCorrectionService {
     // Check for existing pending correction for this attendance
     const existingPending = await prismaClient.attendanceCorrection.findFirst({
       where: {
-        attendanceId,
+        attendanceId: parseInt(attendanceId, 10),
         employeeId: profile.id,
         status: 'PENDING',
       },
@@ -158,16 +153,15 @@ class AttendanceCorrectionService {
       throw new AppError(AppErrorCodes.CONFLICT, 'A pending correction request already exists for this attendance record.', 409);
     }
 
-    // Find the first session for original values
-    const firstSession = attendance.sessions[0] || null;
-    const lastSession = [...attendance.sessions].reverse().find((s) => s.punchOut) || null;
-
-    const originalPunchIn = firstSession?.punchIn || null;
-    const originalPunchOut = lastSession?.punchOut || null;
+    // Attendance logs only carry the punch-in time of the day, so that is the
+    // original punch-in used for the correction. The punch-out of the current
+    // session is not tracked by the deployed schema.
+    const originalPunchIn = attendance.punchTime ? attendance.punchTime : null;
+    const originalPunchOut = null;
 
     const correction = await prismaClient.attendanceCorrection.create({
       data: {
-        attendanceId,
+        attendanceId: parseInt(attendanceId, 10),
         employeeId: profile.id,
         originalPunchIn,
         originalPunchOut,
@@ -198,16 +192,14 @@ class AttendanceCorrectionService {
   static async approve(reqUser, correctionId, reviewComment) {
     const prismaClient = getPrisma();
 
-    if (![Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role)) {
+    if (![Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'Only authorized staff can approve corrections.', 403);
     }
 
     const correction = await prismaClient.attendanceCorrection.findUnique({
-      where: { id: correctionId },
+      where: { id: parseInt(correctionId, 10) },
       include: {
-        attendance: {
-          include: { sessions: true },
-        },
+        attendance: { select: { punchTime: true } },
       },
     });
 
@@ -226,82 +218,49 @@ class AttendanceCorrectionService {
       status: correction.correctedStatus || correction.attendance.status,
     };
 
-    // Recalculate total minutes from corrected sessions
-    if (correction.correctedPunchIn && correction.correctedPunchOut) {
-      const diffMs = new Date(correction.correctedPunchOut).getTime() - new Date(correction.correctedPunchIn).getTime();
-      updates.totalMinutes = Math.max(0, Math.round(diffMs / 60000));
-    }
-
-    // Update or create the corrected session
-    const updatedAttendance = await prismaClient.$transaction(async (tx) => {
-      // Update attendance record
-      const att = await tx.attendance.update({
-        where: { id: correction.attendanceId },
-        data: updates,
-      });
-
-      // Remove existing sessions and recreate with corrected values if provided
-      if (correction.correctedPunchIn || correction.correctedPunchOut) {
-        await tx.workSession.deleteMany({
-          where: { attendanceId: correction.attendanceId },
-        });
-
-        if (correction.correctedPunchIn && correction.correctedPunchOut) {
-          const diffMs = new Date(correction.correctedPunchOut).getTime() - new Date(correction.correctedPunchIn).getTime();
-          const durationMinutes = Math.max(0, Math.round(diffMs / 60000));
-
-          await tx.workSession.create({
-            data: {
-              attendanceId: correction.attendanceId,
-              employeeId: correction.employeeId,
-              punchIn: new Date(correction.correctedPunchIn),
-              punchOut: new Date(correction.correctedPunchOut),
-              durationMinutes,
-            },
-          });
-        }
-      }
-
-      // Mark correction as approved
-      const updated = await tx.attendanceCorrection.update({
-        where: { id: correctionId },
-        data: {
-          status: 'APPROVED',
-          reviewedBy: reqUser.id,
-          reviewedAt: now,
-          reviewComment,
-        },
-      });
-
-      // Add audit log
-      await tx.auditLog.create({
-        data: {
-          actorId: reqUser.id,
-          actorRole: reqUser.role,
-          action: 'APPROVE_ATTENDANCE_CORRECTION',
-          entityType: 'AttendanceCorrection',
-          entityId: correctionId,
-          metadata: JSON.stringify({ employeeId: correction.employeeId, attendanceId: correction.attendanceId }),
-        },
-      });
-
-      logger.info('Attendance correction approved', { correctionId, reviewerId: reqUser.id });
-
-      return updated;
+    // Update the attendance record with the corrected values
+    await prismaClient.attendanceLog.update({
+      where: { id: correction.attendanceId },
+      data: updates,
     });
 
-    return updatedAttendance;
+    // Mark correction as approved
+    const updated = await prismaClient.attendanceCorrection.update({
+      where: { id: parseInt(correctionId, 10) },
+      data: {
+        status: 'APPROVED',
+        reviewedBy: reqUser.id,
+        reviewedAt: now,
+        reviewComment,
+      },
+    });
+
+    // Add audit log
+    await prismaClient.auditLog.create({
+      data: {
+        actorId: reqUser.id,
+        actorRole: reqUser.role,
+        action: 'APPROVE_ATTENDANCE_CORRECTION',
+        entityType: 'AttendanceCorrection',
+        entityId: correctionId,
+        metadata: JSON.stringify({ employeeId: correction.employeeId, attendanceId: correction.attendanceId }),
+      },
+    });
+
+    logger.info('Attendance correction approved', { correctionId, reviewerId: reqUser.id });
+
+    return updated;
   }
 
   static async reject(reqUser, correctionId, reviewComment) {
     const prismaClient = getPrisma();
 
-    if (![Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role)) {
+    if (![Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'Only authorized staff can reject corrections.', 403);
     }
 
     const correction = await prismaClient.attendanceCorrection.findUnique({
-      where: { id: correctionId },
+      where: { id: parseInt(correctionId, 10) },
     });
 
     if (!correction) {
@@ -315,7 +274,7 @@ class AttendanceCorrectionService {
     const now = new Date();
 
     const updated = await prismaClient.attendanceCorrection.update({
-      where: { id: correctionId },
+      where: { id: parseInt(correctionId, 10) },
       data: {
         status: 'REJECTED',
         reviewedBy: reqUser.id,

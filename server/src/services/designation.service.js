@@ -13,13 +13,27 @@ function getPrisma() {
   return prisma;
 }
 
+// The live `designations` table predates this schema file: its primary key is a
+// VARCHAR and it has no Prisma model, so this service — like the legacy `users`
+// table code — uses raw SQL. The counts are derived from the `employees.designation`
+// column, which holds the designation name for each employee.
 class DesignationService {
   static canManage(reqUser) {
-    return reqUser.role === Role.SUPER_ADMIN || reqUser.role === Role.ADMIN;
+    return reqUser.role === Role.SUPER_ADMIN || reqUser.role === Role.HR_ADMIN;
   }
 
   static canView(reqUser) {
-    return [Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role);
+    return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role);
+  }
+
+  static async countAssigned(reqUser, designationName) {
+    const prismaClient = getPrisma();
+    const rows = await prismaClient.$queryRawUnsafe(
+      'SELECT COUNT(*) AS total FROM employees WHERE designation = ? AND isActive = 1',
+      designationName
+    );
+    const total = Number(rows[0]?.total || 0);
+    return total;
   }
 
   static async list(reqUser) {
@@ -28,19 +42,16 @@ class DesignationService {
     }
 
     const prismaClient = getPrisma();
-    const designations = await prismaClient.designation.findMany({
-      orderBy: { name: 'asc' },
-      include: {
-        _count: { select: { employees: true } },
-      },
-    });
+    const rows = await prismaClient.$queryRawUnsafe(
+      'SELECT id, name, description, isActive FROM designations ORDER BY name ASC'
+    );
 
-    return designations.map((d) => ({
-      id: d.id,
+    return rows.map((d) => ({
+      id: String(d.id),
       name: d.name,
       description: d.description,
-      isActive: d.isActive,
-      employeeCount: d._count.employees,
+      isActive: Boolean(d.isActive),
+      employeeCount: this.countAssigned(reqUser, d.name),
     }));
   }
 
@@ -50,23 +61,22 @@ class DesignationService {
     }
 
     const prismaClient = getPrisma();
-    const desig = await prismaClient.designation.findUnique({
-      where: { id: designationId },
-      include: {
-        _count: { select: { employees: true } },
-      },
-    });
+    const rows = await prismaClient.$queryRawUnsafe(
+      'SELECT id, name, description, isActive FROM designations WHERE id = ? LIMIT 1',
+      designationId
+    );
 
+    const desig = rows[0];
     if (!desig) {
       throw new AppError(AppErrorCodes.NOT_FOUND, 'Designation not found.', 404);
     }
 
     return {
-      id: desig.id,
+      id: String(desig.id),
       name: desig.name,
       description: desig.description,
-      isActive: desig.isActive,
-      employeeCount: desig._count.employees,
+      isActive: Boolean(desig.isActive),
+      employeeCount: this.countAssigned(reqUser, desig.name),
     };
   }
 
@@ -77,20 +87,24 @@ class DesignationService {
 
     const prismaClient = getPrisma();
 
-    const existing = await prismaClient.designation.findFirst({
-      where: { name: data.name },
-    });
+    const existing = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM designations WHERE name = ? LIMIT 1',
+      data.name
+    );
 
-    if (existing) {
+    if (existing.length) {
       throw new AppError(AppErrorCodes.DUPLICATE_ENTRY, 'A designation with this name already exists.', 409);
     }
 
-    const desig = await prismaClient.designation.create({
-      data: {
-        name: data.name,
-        description: data.description,
-      },
-    });
+    const now = new Date();
+    const desig = await prismaClient.$queryRawUnsafe(
+      'INSERT INTO designations (name, description, isActive, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)',
+      data.name,
+      data.description || null,
+      data.isActive !== undefined ? data.isActive : true,
+      now,
+      now
+    );
 
     await prismaClient.auditLog.create({
       data: {
@@ -98,13 +112,13 @@ class DesignationService {
         actorRole: reqUser.role,
         action: 'CREATE_DESIGNATION',
         entityType: 'Designation',
-        entityId: desig.id,
+        entityId: String(desig.insertId),
       },
     });
 
-    logger.info('Designation created', { designationId: desig.id, name: desig.name });
+    logger.info('Designation created', { designationId: desig.insertId, name: data.name });
 
-    return { id: desig.id, name: desig.name, description: desig.description, isActive: desig.isActive };
+    return { id: String(desig.insertId), name: data.name, description: data.description, isActive: data.isActive !== undefined ? data.isActive : true };
   }
 
   static async update(reqUser, designationId, data) {
@@ -113,29 +127,35 @@ class DesignationService {
     }
 
     const prismaClient = getPrisma();
-    const existing = await prismaClient.designation.findUnique({ where: { id: designationId } });
+    const existing = await prismaClient.$queryRawUnsafe(
+      'SELECT id, name, description, isActive FROM designations WHERE id = ? LIMIT 1',
+      designationId
+    );
 
-    if (!existing) {
+    if (!existing.length) {
       throw new AppError(AppErrorCodes.NOT_FOUND, 'Designation not found.', 404);
     }
 
-    if (data.name && data.name !== existing.name) {
-      const duplicate = await prismaClient.designation.findFirst({
-        where: { name: data.name, id: { not: designationId } },
-      });
-      if (duplicate) {
+    const current = existing[0];
+    if (data.name && data.name !== current.name) {
+      const duplicate = await prismaClient.$queryRawUnsafe(
+        'SELECT id FROM designations WHERE name = ? AND id <> ? LIMIT 1',
+        data.name,
+        designationId
+      );
+
+      if (duplicate.length) {
         throw new AppError(AppErrorCodes.DUPLICATE_ENTRY, 'A designation with this name already exists.', 409);
       }
     }
 
-    const updated = await prismaClient.designation.update({
-      where: { id: designationId },
-      data: {
-        name: data.name,
-        description: data.description,
-        isActive: data.isActive !== undefined ? data.isActive : existing.isActive,
-      },
-    });
+    const updated = await prismaClient.$queryRawUnsafe(
+      'UPDATE designations SET name = ?, description = ?, isActive = ? WHERE id = ?',
+      data.name !== undefined ? data.name : current.name,
+      data.description !== undefined ? data.description : current.description,
+      data.isActive !== undefined ? data.isActive : current.isActive,
+      designationId
+    );
 
     await prismaClient.auditLog.create({
       data: {
@@ -147,9 +167,9 @@ class DesignationService {
       },
     });
 
-    logger.info('Designation updated', { designationId, name: updated.name });
+    logger.info('Designation updated', { designationId, name: updated });
 
-    return { id: updated.id, name: updated.name, description: updated.description, isActive: updated.isActive };
+    return { id: String(designationId), name: data.name !== undefined ? data.name : current.name, description: data.description !== undefined ? data.description : current.description, isActive: data.isActive !== undefined ? data.isActive : current.isActive };
   }
 
   static async delete(reqUser, designationId) {
@@ -158,20 +178,25 @@ class DesignationService {
     }
 
     const prismaClient = getPrisma();
-    const desig = await prismaClient.designation.findUnique({
-      where: { id: designationId },
-      include: { _count: { select: { employees: true } } },
-    });
+    const existing = await prismaClient.$queryRawUnsafe(
+      'SELECT name FROM designations WHERE id = ? LIMIT 1',
+      designationId
+    );
 
-    if (!desig) {
+    if (!existing.length) {
       throw new AppError(AppErrorCodes.NOT_FOUND, 'Designation not found.', 404);
     }
 
-    if (desig._count.employees > 0) {
+    const assigned = await prismaClient.$queryRawUnsafe(
+      'SELECT COUNT(*) AS total FROM employees WHERE designation = ? AND isActive = 1',
+      existing[0].name
+    );
+
+    if (Number(assigned[0]?.total || 0) > 0) {
       throw new AppError(AppErrorCodes.CONFLICT, 'Cannot delete designation with assigned employees. Deactivate it instead.', 409);
     }
 
-    await prismaClient.designation.delete({ where: { id: designationId } });
+    await prismaClient.$executeRawUnsafe('DELETE FROM designations WHERE id = ?', [designationId]);
 
     await prismaClient.auditLog.create({
       data: {

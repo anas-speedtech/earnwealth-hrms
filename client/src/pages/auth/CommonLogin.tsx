@@ -4,10 +4,13 @@ import { useAuth, IDLE_REASON_KEY } from '../../contexts/AuthContext';
 import { authService } from '../../services/auth.service';
 import { useNavigate } from 'react-router-dom';
 
+const SESSION_ENDED_KEY = 'ews_session_ended';
+
 const ROLE_PATHS: Record<string, string> = {
   SUPER_ADMIN: '/super-admin/dashboard',
-  ADMIN: '/admin/dashboard',
-  HR: '/hr/dashboard',
+  HR_ADMIN: '/hr/dashboard',
+  // Legacy value stored by older sessions — still maps to the HR Admin
+  // dashboard so existing sessions keep working.
   HR_MANAGER: '/hr/dashboard',
   EMPLOYEE: '/employee/dashboard',
 };
@@ -18,12 +21,16 @@ export default function CommonLogin() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Show why the session was ended by idle timeout, then clear the flag.
+  // Show why the session was ended, then clear the flag. Covers both the
+  // 30-minute idle timeout and a session revoked by a newer login elsewhere.
   useEffect(() => {
-    const reason = sessionStorage.getItem(IDLE_REASON_KEY);
+    const idleReason = sessionStorage.getItem(IDLE_REASON_KEY);
+    const endedReason = sessionStorage.getItem(SESSION_ENDED_KEY);
+    const reason = endedReason || idleReason;
     if (reason) {
       setError(reason);
       sessionStorage.removeItem(IDLE_REASON_KEY);
+      sessionStorage.removeItem(SESSION_ENDED_KEY);
     }
   }, []);
 

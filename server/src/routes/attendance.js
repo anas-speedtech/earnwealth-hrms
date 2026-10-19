@@ -66,7 +66,7 @@ router.get('/attendance/my-history', authenticate, validateQuery(historyQuerySch
 });
 
 // Get attendance history for a specific employee (HR, ADMIN, SUPER_ADMIN)
-router.get('/attendance/employees/:id/history', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), validateQuery(historyQuerySchema), async (req, res, next) => {
+router.get('/attendance/employees/:id/history', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateQuery(historyQuerySchema), async (req, res, next) => {
   try {
     const result = await AttendanceService.getHistory(req.user, req.params.id, {
       page: parseInt(req.query.page) || 1,

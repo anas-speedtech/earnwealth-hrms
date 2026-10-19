@@ -21,7 +21,7 @@ const updateSchema = z.object({
 
 router.use(authenticate);
 
-router.get('/departments', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/departments', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const departments = await DepartmentService.list(req.user);
     res.json(departments);
@@ -30,7 +30,7 @@ router.get('/departments', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), asy
   }
 });
 
-router.get('/departments/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+router.get('/departments/:id', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const dept = await DepartmentService.getById(req.user, req.params.id);
     res.json(dept);
@@ -39,7 +39,7 @@ router.get('/departments/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   }
 });
 
-router.post('/departments', authorize(Role.SUPER_ADMIN, Role.ADMIN), validateBody(createSchema), async (req, res, next) => {
+router.post('/departments', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(createSchema), async (req, res, next) => {
   try {
     const dept = await DepartmentService.create(req.user, req.body);
     res.status(201).json(dept);
@@ -48,7 +48,7 @@ router.post('/departments', authorize(Role.SUPER_ADMIN, Role.ADMIN), validateBod
   }
 });
 
-router.patch('/departments/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN), validateBody(updateSchema), async (req, res, next) => {
+router.patch('/departments/:id', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(updateSchema), async (req, res, next) => {
   try {
     const dept = await DepartmentService.update(req.user, req.params.id, req.body);
     res.json(dept);
@@ -57,7 +57,7 @@ router.patch('/departments/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN), valida
   }
 });
 
-router.delete('/departments/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN), async (req, res, next) => {
+router.delete('/departments/:id', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
     const result = await DepartmentService.delete(req.user, req.params.id);
     res.json(result);

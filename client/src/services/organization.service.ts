@@ -60,12 +60,12 @@ export const organizationService = {
     designationId?: string;
     status?: string;
   } = {}): Promise<PaginatedResponse<Employee>> {
-    const { data } = await api.get('/api/employees', { params });
+    const { data } = await api.get('/employees', { params });
     return data;
   },
 
   async getEmployee(id: string): Promise<EmployeeDetail> {
-    const { data } = await api.get(`/api/employees/${id}`);
+    const { data } = await api.get(`/employees/${id}`);
     return data;
   },
 
@@ -82,7 +82,7 @@ export const organizationService = {
     joiningDate: string;
     status: string;
   }): Promise<Employee> {
-    const { data } = await api.post('/api/employees', payload);
+    const { data } = await api.post('/employees', payload);
     return data;
   },
 
@@ -98,67 +98,67 @@ export const organizationService = {
     deductions?: string;
     status?: string;
   }): Promise<Employee> {
-    const { data } = await api.patch(`/api/employees/${id}`, payload);
+    const { data } = await api.patch(`/employees/${id}`, payload);
     return data;
   },
 
   async deactivateEmployee(id: string): Promise<{ id: string; status: string }> {
-    const { data } = await api.post(`/api/employees/${id}/deactivate`);
+    const { data } = await api.post(`/employees/${id}/deactivate`);
     return data;
   },
 
   async activateEmployee(id: string): Promise<{ id: string; status: string }> {
-    const { data } = await api.post(`/api/employees/${id}/activate`);
+    const { data } = await api.post(`/employees/${id}/activate`);
     return data;
   },
 
   async getDepartments(): Promise<Department[]> {
-    const { data } = await api.get('/api/departments');
+    const { data } = await api.get('/departments');
     return data;
   },
 
   async getDepartment(id: string): Promise<Department> {
-    const { data } = await api.get(`/api/departments/${id}`);
+    const { data } = await api.get(`/departments/${id}`);
     return data;
   },
 
   async createDepartment(payload: { name: string; description?: string; isActive?: boolean }): Promise<Department> {
-    const { data } = await api.post('/api/departments', payload);
+    const { data } = await api.post('/departments', payload);
     return data;
   },
 
   async updateDepartment(id: string, payload: Partial<Department>): Promise<Department> {
-    const { data } = await api.patch(`/api/departments/${id}`, payload);
+    const { data } = await api.patch(`/departments/${id}`, payload);
     return data;
   },
 
   async deleteDepartment(id: string): Promise<{ message: string }> {
-    const { data } = await api.delete(`/api/departments/${id}`);
+    const { data } = await api.delete(`/departments/${id}`);
     return data;
   },
 
   async getDesignations(): Promise<Designation[]> {
-    const { data } = await api.get('/api/designations');
+    const { data } = await api.get('/designations');
     return data;
   },
 
   async getDesignation(id: string): Promise<Designation> {
-    const { data } = await api.get(`/api/designations/${id}`);
+    const { data } = await api.get(`/designations/${id}`);
     return data;
   },
 
   async createDesignation(payload: { name: string; description?: string; isActive?: boolean }): Promise<Designation> {
-    const { data } = await api.post('/api/designations', payload);
+    const { data } = await api.post('/designations', payload);
     return data;
   },
 
   async updateDesignation(id: string, payload: Partial<Designation>): Promise<Designation> {
-    const { data } = await api.patch(`/api/designations/${id}`, payload);
+    const { data } = await api.patch(`/designations/${id}`, payload);
     return data;
   },
 
   async deleteDesignation(id: string): Promise<{ message: string }> {
-    const { data } = await api.delete(`/api/designations/${id}`);
+    const { data } = await api.delete(`/designations/${id}`);
     return data;
   },
 };

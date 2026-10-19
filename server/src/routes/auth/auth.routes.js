@@ -1,6 +1,6 @@
 const express = require('express');
 const { z } = require('zod');
-const { loginLimiter, apiLimiter, passwordResetLimiter } = require('../../middleware/rateLimiter');
+const { loginLimiter, apiLimiter, passwordResetLimiter, otpVerifyLimiter } = require('../../middleware/rateLimiter');
 const { authenticate, authorize } = require('../../middleware/auth');
 const { validateBody } = require('../../middleware/validate');
 const { AuthService } = require('../../services/auth.service');
@@ -11,6 +11,9 @@ const router = express.Router();
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  // The role of the login page the request came from. It only decides which
+  // accounts are accepted; it never grants a role. A mismatch is rejected.
+  expectedRole: z.enum(['SUPER_ADMIN', 'HR_ADMIN', 'EMPLOYEE']).optional(),
 });
 
 const refreshSchema = z.object({
@@ -22,14 +25,20 @@ const resetPasswordSchema = z.object({
   email: z.string().email(),
 });
 
+const verifyOtpSchema = z.object({
+  email: z.string().email(),
+  otp: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code from your email.'),
+});
+
 const newPasswordSchema = z.object({
-  token: z.string().min(1),
+  verifyToken: z.string().min(1),
   password: z.string().min(8),
 });
 
 const inviteSchema = z.object({
   email: z.string().email(),
-  role: z.enum(['EMPLOYEE', 'HR', 'ADMIN']),
+  name: z.string().min(1).max(120).optional(),
+  role: z.enum(['EMPLOYEE', 'HR_ADMIN', 'SUPER_ADMIN']),
 });
 
 // Public health check
@@ -91,7 +100,7 @@ router.get('/auth/me', authenticate, async (req, res, next) => {
   }
 });
 
-// Request password reset
+// Step 1: request a reset code
 router.post('/auth/password/request', passwordResetLimiter, validateBody(resetPasswordSchema), async (req, res, next) => {
   try {
     const result = await AuthService.requestPasswordReset(req.body.email);
@@ -101,11 +110,20 @@ router.post('/auth/password/request', passwordResetLimiter, validateBody(resetPa
   }
 });
 
-// Reset password with token
+// Step 2: verify the code, which returns a short-lived verification token
+router.post('/auth/password/verify', otpVerifyLimiter, validateBody(verifyOtpSchema), async (req, res, next) => {
+  try {
+    const result = await AuthService.verifyPasswordResetOtp(req.body.email, req.body.otp);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Step 3: set the new password using the verification token
 router.post('/auth/password/reset', validateBody(newPasswordSchema), async (req, res, next) => {
   try {
-    const { token, password } = req.body;
-    const result = await AuthService.resetPassword(token, password);
+    const result = await AuthService.resetPassword(req.body.verifyToken, req.body.password);
     res.json(result);
   } catch (err) {
     next(err);
@@ -115,7 +133,7 @@ router.post('/auth/password/reset', validateBody(newPasswordSchema), async (req,
 // Create invitation (SUPER_ADMIN only)
 router.post('/auth/invite', authenticate, authorize(Role.SUPER_ADMIN), validateBody(inviteSchema), async (req, res, next) => {
   try {
-    const result = await AuthService.createInvitation(req.body.email, req.body.role, req.user.id);
+    const result = await AuthService.createInvitation(req.body.email, req.body.role, req.user.id, req.body.name);
     res.status(201).json(result);
   } catch (err) {
     next(err);
@@ -140,12 +158,12 @@ router.get('/auth/sa-dashboard', authenticate, authorize(Role.SUPER_ADMIN), (_re
   res.json({ message: 'Welcome, Super Admin', role: Role.SUPER_ADMIN });
 });
 
-router.get('/auth/admin-dashboard', authenticate, authorize(Role.ADMIN, Role.SUPER_ADMIN), (_req, res) => {
-  res.json({ message: 'Welcome, Admin', role: 'ADMIN or SUPER_ADMIN' });
+router.get('/auth/admin-dashboard', authenticate, authorize(Role.HR_ADMIN, Role.SUPER_ADMIN), (_req, res) => {
+  res.json({ message: 'Welcome, HR Admin', role: 'HR_ADMIN' });
 });
 
-router.get('/auth/hr-dashboard', authenticate, authorize(Role.HR, Role.SUPER_ADMIN), (_req, res) => {
-  res.json({ message: 'Welcome, HR', role: 'HR or SUPER_ADMIN' });
+router.get('/auth/hr-dashboard', authenticate, authorize(Role.HR_ADMIN, Role.SUPER_ADMIN), (_req, res) => {
+  res.json({ message: 'Welcome, HR Admin', role: 'HR_ADMIN' });
 });
 
 router.get('/auth/employee-dashboard', authenticate, authorize(Role.EMPLOYEE), (_req, res) => {

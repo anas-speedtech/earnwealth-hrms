@@ -49,8 +49,12 @@ export const passwordService = {
     return data;
   },
 
-  async reset(token: string, password: string): Promise<{ message: string }> {
-    const { data } = await api.post('/auth/password/reset', { token, password });
+  async verifyOtp(email: string, otp: string): Promise<{ verifyToken: string }> {
+    const { data } = await api.post('/auth/password/verify', { email, otp });
+    return data;
+  },
+  async reset(verifyToken: string, password: string): Promise<{ message: string }> {
+    const { data } = await api.post('/auth/password/reset', { verifyToken, password });
     return data;
   },
 };

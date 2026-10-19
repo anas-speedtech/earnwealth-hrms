@@ -109,10 +109,10 @@ export default function HrLeaveApprovalsPage() {
 
   return (
     <DashboardShell
-      role="HR"
+      role="HR_ADMIN"
       userName={(user?.profile?.firstName && user?.profile?.lastName)
         ? `${user.profile.firstName} ${user.profile.lastName}`
-        : user?.email || 'HR'}
+        : user?.email || 'HR_ADMIN'}
       userEmail={user?.email || ''}
       onLogout={logout}
     >

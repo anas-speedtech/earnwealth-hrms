@@ -21,7 +21,7 @@ class PayrollService {
   // ---- Role checks ----
 
   static canManagePayroll(reqUser) {
-    return [Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role);
+    return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role);
   }
 
   static async getEmployeeProfileId(userId) {
@@ -42,7 +42,7 @@ class PayrollService {
     const { employeeId, monthlyCTC, currency, isActive, effectiveFrom, effectiveTo, components } = data;
 
     const employee = await getPrisma().employeeProfile.findUnique({
-      where: { id: employeeId },
+      where: { employeeId },
     });
 
     if (!employee) {
@@ -105,7 +105,7 @@ class PayrollService {
     }
 
     const existing = await getPrisma().salaryStructure.findUnique({
-      where: { id: structureId },
+      where: { id: Number(structureId) },
     });
 
     if (!existing) {
@@ -120,7 +120,7 @@ class PayrollService {
     if (data.effectiveTo !== undefined) updateData.effectiveTo = data.effectiveTo ? new Date(data.effectiveTo) : null;
 
     const structure = await getPrisma().salaryStructure.update({
-      where: { id: structureId },
+      where: { id: parseInt(structureId, 10) },
       data: updateData,
       include: {
         components: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } },
@@ -273,9 +273,11 @@ class PayrollService {
       throw new AppError(PayrollErrorCodes.SALARY_STRUCTURE_INACTIVE, 'Salary structure is inactive.', 400);
     }
 
-    const existing = await prismaClient.payrollRecord.findUnique({
+    const existing = await prismaClient.payrollRecord.findFirst({
       where: {
-        payroll_employee_period: { employeeId, month, year },
+        employeeId,
+        month,
+        year,
       },
     });
 
@@ -334,7 +336,7 @@ class PayrollService {
     const prismaClient = getPrisma();
 
     const payroll = await prismaClient.payrollRecord.findUnique({
-      where: { id: payrollId },
+      where: { id: parseInt(payrollId, 10) },
       include: { components: true },
     });
 
@@ -368,7 +370,7 @@ class PayrollService {
     }
 
     const updated = await prismaClient.payrollRecord.update({
-      where: { id: payrollId },
+      where: { id: parseInt(payrollId, 10) },
       data: { grossEarnings, totalDeductions, netPay: grossEarnings - totalDeductions },
       include: { components: { orderBy: { sortOrder: 'asc' } } },
     });
@@ -384,7 +386,7 @@ class PayrollService {
     const prismaClient = getPrisma();
 
     const payroll = await prismaClient.payrollRecord.findUnique({
-      where: { id: payrollId },
+      where: { id: parseInt(payrollId, 10) },
     });
 
     if (!payroll) {
@@ -396,7 +398,7 @@ class PayrollService {
     }
 
     const components = await prismaClient.payrollComponent.findMany({
-      where: { payrollRecordId: payrollId },
+      where: { payrollRecordId: parseInt(payrollId, 10) },
     });
 
     if (components.length === 0) {
@@ -404,7 +406,7 @@ class PayrollService {
     }
 
     const updated = await prismaClient.payrollRecord.update({
-      where: { id: payrollId },
+      where: { id: parseInt(payrollId, 10) },
       data: { status: 'PENDING_APPROVAL', submittedAt: new Date() },
       include: { components: { orderBy: { sortOrder: 'asc' } } },
     });
@@ -422,7 +424,7 @@ class PayrollService {
     const prismaClient = getPrisma();
 
     const payroll = await prismaClient.payrollRecord.findUnique({
-      where: { id: payrollId },
+      where: { id: parseInt(payrollId, 10) },
     });
 
     if (!payroll) {
@@ -434,7 +436,7 @@ class PayrollService {
     }
 
     const updated = await prismaClient.payrollRecord.update({
-      where: { id: payrollId },
+      where: { id: parseInt(payrollId, 10) },
       data: {
         status: 'APPROVED',
         approvedBy: reqUser.id,
@@ -461,7 +463,7 @@ class PayrollService {
     const prismaClient = getPrisma();
 
     const payroll = await prismaClient.payrollRecord.findUnique({
-      where: { id: payrollId },
+      where: { id: parseInt(payrollId, 10) },
     });
 
     if (!payroll) {
@@ -473,7 +475,7 @@ class PayrollService {
     }
 
     const updated = await prismaClient.payrollRecord.update({
-      where: { id: payrollId },
+      where: { id: parseInt(payrollId, 10) },
       data: {
         status: 'REJECTED',
         approvedBy: reqUser.id,
@@ -492,7 +494,7 @@ class PayrollService {
     const prismaClient = getPrisma();
 
     const payroll = await prismaClient.payrollRecord.findUnique({
-      where: { id: payrollId },
+      where: { id: parseInt(payrollId, 10) },
       include: { components: { orderBy: { sortOrder: 'asc' } } },
     });
 
@@ -599,7 +601,7 @@ class PayrollService {
     const prismaClient = getPrisma();
 
     const payroll = await prismaClient.payrollRecord.findUnique({
-      where: { id: payrollId },
+      where: { id: parseInt(payrollId, 10) },
     });
 
     if (!payroll) {
@@ -611,7 +613,7 @@ class PayrollService {
     }
 
     const existingPayslip = await prismaClient.payslip.findUnique({
-      where: { payrollRecordId: payrollId },
+      where: { payrollRecordId: parseInt(payrollId, 10) },
     });
 
     if (existingPayslip) {
@@ -646,7 +648,7 @@ class PayrollService {
     const prismaClient = getPrisma();
 
     const payslip = await prismaClient.payslip.findUnique({
-      where: { id: payslipId },
+      where: { id: parseInt(payslipId, 10) },
       include: {
         payrollRecord: {
           include: { components: { orderBy: { sortOrder: 'asc' } } },
@@ -723,7 +725,7 @@ class PayrollService {
 
     // Load payslip with its payroll record and components
     const payslip = await prismaClient.payslip.findUnique({
-      where: { id: payslipId },
+      where: { id: parseInt(payslipId, 10) },
       include: {
         payrollRecord: {
           include: { components: { orderBy: { sortOrder: 'asc' } } },
@@ -801,7 +803,7 @@ class PayrollService {
   // ---- Helpers ----
 
   static authorizePayrollAccess(reqUser, payrollRecord) {
-    if ([Role.SUPER_ADMIN, Role.ADMIN, Role.HR].includes(reqUser.role)) {
+    if ([Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role)) {
       return;
     }
     if (reqUser.role === Role.EMPLOYEE) {

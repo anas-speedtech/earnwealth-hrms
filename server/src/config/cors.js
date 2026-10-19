@@ -1,22 +1,35 @@
-﻿const configuredOrigins = process.env.CORS_ORIGIN
+const configuredOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
   : [];
 
-// Local Vite may use 5174 when 5173 is already occupied. These are explicit development
-// origins; credentials remain enabled and no wildcard origin is allowed.
-const allowedOrigins = [...new Set([
-  ...configuredOrigins,
-  'http://localhost:5173',
-  'http://localhost:5174',
-])];
+// Vite picks 5173, then walks upward when ports are taken, so an allowlist of
+// fixed ports breaks every time it lands on an unused one. Development allows
+// any localhost/127.0.0.1 port on any scheme; production uses CORS_ORIGIN only.
+const isDevLocalhost = (origin) => {
+  try {
+    const { protocol, hostname } = new URL(origin);
+    return (
+      (protocol === 'http:' || protocol === 'https:') &&
+      (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]')
+    );
+  } catch {
+    return false;
+  }
+};
 
 const corsOptions = {
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    // No Origin header (curl, server-to-server, same-origin) is not a browser
+    // cross-origin request, so there is nothing to restrict.
+    if (!origin) {
       callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+      return;
     }
+    if (configuredOrigins.includes(origin) || isDevLocalhost(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
