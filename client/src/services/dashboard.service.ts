@@ -167,8 +167,8 @@ export const dashboardService = {
       stats: [
         { key: 'employees', label: 'Total Employees', value: totalEmployees, available: true, href: '/admin/employees', tone: 'blue' },
         { key: 'admins', label: 'Active Admins', value: activeAdmins, available: true, href: '/super-admin/admins', tone: 'green' },
-        { key: 'hr', label: 'HR Staff', value: hrStaff, available: true, href: '/super-admin/hrs', tone: 'purple' },
-        { key: 'pending', label: 'Pending Approvals', value: pendingCount, available: true, href: '/hr/leaves', tone: 'yellow' },
+        { key: 'hr', label: 'HR Staff', value: hrStaff, available: true, href: '/super-admin/admins', tone: 'purple' },
+        { key: 'pending', label: 'Pending Approvals', value: pendingCount, available: true, href: '/super-admin/leaves', tone: 'yellow' },
       ],
     };
   },

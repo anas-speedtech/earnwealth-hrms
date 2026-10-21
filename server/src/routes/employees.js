@@ -30,7 +30,8 @@ const createSchema = z.object({
   status: z.string().default('ACTIVE').transform((value) => value.toUpperCase()),
   role: z.enum(['EMPLOYEE']).optional(),
   departmentText: z.string().optional(),
-  reportingManagerId: z.coerce.number().int().positive().optional(),
+  // Mandatory: every employee must map to a higher person.
+  reportingManagerId: z.coerce.number().int().positive(),
 });
 
 const updateSchema = z.object({
@@ -44,7 +45,9 @@ const updateSchema = z.object({
   allowances: z.coerce.number().min(0).optional(),
   deductions: z.coerce.number().min(0).optional(),
   status: z.string().optional(),
-  reportingManagerId: z.coerce.number().int().positive().nullable().optional(),
+  // Only provided when the admin is changing the manager; a null here would
+  // break the mandatory mapping, so it is rejected.
+  reportingManagerId: z.coerce.number().int().positive().optional(),
 });
 
 // All endpoints require authentication

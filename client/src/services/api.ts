@@ -118,7 +118,18 @@ api.interceptors.response.use(
       }
     }
 
-    const message = error.response?.data?.error?.message || error.message || 'An error occurred';
+    // Prefer the most specific server-side error message. Zod validation
+    // failures carry per-field issues in `validationErrors`; fall back to the
+    // top-level `error.message`, then to the axios message.
+    const body = error.response?.data?.error;
+    const validationIssues: Array<{ field: string; message: string }> | undefined =
+      body?.validationErrors;
+    const message =
+      (validationIssues && validationIssues.length
+        ? validationIssues.map((v) => `${v.field}: ${v.message}`).join(' ')
+        : body?.message) ||
+      error.message ||
+      'An error occurred';
 
     if (error.response?.status !== 429 && error.response?.status !== 401) {
       toast.error(message);

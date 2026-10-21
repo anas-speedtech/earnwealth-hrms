@@ -5,11 +5,21 @@ export interface LoginCredentials {
   password: string;
 }
 
+export interface EmployeeDetailLite {
+  id: string;
+  employeeCode: string;
+  designation?: { id: string; name: string } | null;
+  manager?: { id: string; name: string } | null;
+}
+
 export interface AuthResponse {
   user: {
     id: string;
     email: string;
     role: string;
+    // Linked employee record, if any. An HR Admin is also an employee, so the
+    // same account carries its own designation and reporting manager here.
+    employee?: EmployeeDetailLite | null;
   };
   accessToken: string;
   refreshToken: string;

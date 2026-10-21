@@ -55,10 +55,10 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={`rounded-2xl border border-slate-200 bg-white p-5 ${className}`}>
+    <section className={`rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(15,23,42,0.28)] ${className}`}>
       {(title || action) && (
         <div className="mb-4 flex items-center justify-between">
-          {title && <h2 className="text-sm font-bold text-slate-900">{title}</h2>}
+          {title && <h2 className="text-[15px] font-bold tracking-tight text-slate-900">{title}</h2>}
           {action}
         </div>
       )}
@@ -69,8 +69,8 @@ export function Panel({
 
 export function ViewAll({ to, label = 'View All' }: { to: string; label?: string }) {
   return (
-    <Link to={to} className="text-xs font-medium text-primary-600 hover:underline">
-      {label}
+    <Link to={to} className="rounded-lg px-2 py-1 text-xs font-semibold text-primary-600 transition hover:bg-primary-50">
+      {label} <span aria-hidden="true">→</span>
     </Link>
   );
 }
@@ -92,7 +92,7 @@ export function StatGrid({ stats, loading }: { stats: TitledStat[]; loading: boo
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="h-36 animate-pulse rounded-2xl border border-slate-200 bg-slate-100" />
+          <div key={i} className="h-36 animate-pulse rounded-3xl border border-slate-200 bg-slate-100" />
         ))}
       </div>
     );
@@ -102,13 +102,14 @@ export function StatGrid({ stats, loading }: { stats: TitledStat[]; loading: boo
       {stats.map((s) => {
         const t = TONES[s.tone] ?? TONES.slate;
         const inner = (
-          <div className={`rounded-2xl border ${t.border} bg-white p-5 shadow-sm transition hover:shadow-md`}>
+          <div className={`relative overflow-hidden rounded-3xl border ${t.border} bg-white p-5 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.35)] transition duration-300 hover:-translate-y-1 hover:shadow-lg`}>
+            <span className={`absolute -right-6 -top-6 h-24 w-24 rounded-full ${t.icon} opacity-40`} />
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="truncate text-xs font-medium text-slate-500">{s.label}</p>
                 <p className={`mt-2 text-3xl font-bold ${t.text}`}>{s.value}</p>
               </div>
-              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${t.icon} ${t.text}`}>
+              <span className={`relative grid h-10 w-10 shrink-0 place-items-center rounded-2xl ${t.icon} ${t.text}`}>
                 <span className="h-2.5 w-2.5 rounded-md bg-current opacity-80" />
               </span>
             </div>
@@ -149,7 +150,7 @@ const STATUS_STYLES: Record<string, string> = {
 
 export function StatusChip({ status }: { status: string }) {
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[status] ?? 'bg-slate-100 text-slate-600'}`}>
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${STATUS_STYLES[status] ?? 'bg-slate-100 text-slate-600'}`}>
       {status}
     </span>
   );
@@ -321,13 +322,13 @@ export function QuickActions({ actions }: { actions: { label: string; to: string
           <Link
             key={a.label}
             to={a.to}
-            className="flex items-center gap-3 rounded-xl border border-slate-200 px-3.5 py-3 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:bg-primary-50"
+            className="group flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/50 px-3.5 py-3 text-sm font-semibold text-slate-700 transition duration-200 hover:-translate-y-0.5 hover:border-primary-200 hover:bg-primary-50 hover:shadow-sm"
           >
             <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${t.icon} ${t.text}`}>
               <span className="h-2.5 w-2.5 rounded-md bg-current opacity-80" />
             </span>
             {a.label}
-            <span className="ml-auto text-slate-300">→</span>
+            <span className="ml-auto text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-primary-500">→</span>
           </Link>
         );
       })}

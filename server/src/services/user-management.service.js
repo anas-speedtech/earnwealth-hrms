@@ -27,9 +27,14 @@ class UserManagementService {
     const placeholders = roles.map(() => '?').join(', ');
     // The live table has no lastLoginAt column, so the login timestamp is not
     // selected here. Adding it would require a migration.
+    // The live `employee_profiles` table has no `designation` column (only
+    // `designationId`), so the designation is read from the `employees` table
+    // alone. Referencing `ep.designation` would make the whole query fail,
+    // which is what produced the "Failed to load accounts" error.
     const rows = await prismaClient.$queryRawUnsafe(
       'SELECT u.id, u.name, u.email, u.role, u.isActive, u.createdAt, ' +
         'COALESCE(e.employeeCode, ep.employeeCode) AS employeeCode, ' +
+        'e.designation AS designation, ' +
         'm.name AS reportingManagerName ' +
         'FROM users u ' +
         'LEFT JOIN employees e ON e.userId = u.id ' +
@@ -48,6 +53,7 @@ class UserManagementService {
       createdAt: r.createdAt,
       lastLoginAt: null,
       employeeCode: r.employeeCode || null,
+      designation: r.designation || null,
       reportingManager: r.reportingManagerName || null,
     }));
   }
@@ -55,16 +61,29 @@ class UserManagementService {
   /**
    * Creates an HR Admin, Employee or Super Admin account.
    */
-  static async create(actor, { name, email, password, role, employeeCode, reportingManager }) {
-    if (!['HR_ADMIN', 'EMPLOYEE', 'SUPER_ADMIN'].includes(role)) {
+  /**
+   * Creates a user account and, for HR Admin and Employee roles, a linked
+   * employee record.
+   *
+   * The Super Admin is a system user, not an employee: it never gets an
+   * employee record or an employee code, so it is not provisionable through
+   * this flow at all.
+   *
+   * The employee code is entered manually by the HR Admin — it is not
+   * auto-generated, and it is not derived from or linked to the users-table
+   * sequence. The code must be unique across all employees and, once set,
+   * it cannot be changed.
+   */
+  static async create(actor, { name, email, password, role, employeeCode, designation, reportingManager }) {
+    // Super Admin may only appoint HR Admin accounts — no Employee, no other
+    // Super Admin. HR Admin in turn creates the Employee accounts.
+    if (actor.role === 'SUPER_ADMIN' && role !== 'HR_ADMIN') {
       throw new AppError(
         AppErrorCodes.FORBIDDEN,
-        'Only HR Admin, Employee and Super Admin accounts can be created here.',
+        'Super Admin can only create HR Admin accounts.',
         403
       );
     }
-
-    // HR Admin can only create Employee accounts, not HR Admin or Super Admin
     if (actor.role === 'HR_ADMIN' && role !== 'EMPLOYEE') {
       throw new AppError(
         AppErrorCodes.FORBIDDEN,
@@ -72,47 +91,61 @@ class UserManagementService {
         403
       );
     }
+    // The Super Admin is a system account, not an employee, and cannot be
+    // minted by anyone through this flow.
+    if (role === 'SUPER_ADMIN') {
+      throw new AppError(
+        AppErrorCodes.FORBIDDEN,
+        'Super Admin accounts cannot be created through this flow.',
+        403
+      );
+    }
 
     const prismaClient = getPrisma();
 
-    // When an employee code is supplied, validate it up front and resolve the
-    // reporting manager so the account is linked to the correct employee row.
-    // Doing this before the user insert avoids leaving an orphaned account if
-    // the code does not exist.
-    let employeeLink = null;
-    if (employeeCode && String(employeeCode).trim()) {
-      const code = String(employeeCode).trim();
-      const empRows = await prismaClient.$queryRawUnsafe(
-        'SELECT id FROM employees WHERE employeeCode = ? LIMIT 1',
-        code
+    // The employee code is mandatory and entered manually by the HR Admin.
+    // It must not already be in use.
+    const code = employeeCode && String(employeeCode).trim();
+    if (!code) {
+      throw new AppError(
+        AppErrorCodes.VALIDATION_ERROR,
+        'An employee code is required. Enter one manually — codes are not auto-generated.',
+        400
       );
-      if (!empRows || !empRows.length) {
-        throw new AppError(
-          AppErrorCodes.VALIDATION_ERROR,
-          'No employee found for the given employee code.',
-          400
-        );
-      }
+    }
+    const dup = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM employees WHERE employeeCode = ? LIMIT 1',
+      code
+    );
+    if (dup && dup.length) {
+      throw new AppError(
+        AppErrorCodes.DUPLICATE_ENTRY,
+        'An employee with this code already exists.',
+        409
+      );
+    }
 
-      let reportingManagerId = null;
-      let reportingManagerName = null;
-      if (reportingManager && String(reportingManager).trim()) {
-        const mgrRows = await prismaClient.$queryRawUnsafe(
-          'SELECT id, name FROM employees WHERE name = ? LIMIT 1',
-          String(reportingManager).trim()
-        );
-        if (mgrRows && mgrRows.length) {
-          reportingManagerId = Number(mgrRows[0].id);
-          reportingManagerName = mgrRows[0].name;
-        }
+    // Resolve the reporting manager against the employees table.
+    let reportingManagerId = null;
+    let reportingManagerName = null;
+    if (reportingManager && String(reportingManager).trim()) {
+      const mgrRows = await prismaClient.$queryRawUnsafe(
+        'SELECT id, name FROM employees WHERE name = ? LIMIT 1',
+        String(reportingManager).trim()
+      );
+      if (mgrRows && mgrRows.length) {
+        reportingManagerId = Number(mgrRows[0].id);
+        reportingManagerName = mgrRows[0].name;
       }
+    }
 
-      employeeLink = {
-        employeeId: Number(empRows[0].id),
-        code,
-        reportingManagerId,
-        reportingManagerName,
-      };
+    // An Employee must map to a higher person.
+    if (role === 'EMPLOYEE' && !reportingManagerId) {
+      throw new AppError(
+        AppErrorCodes.VALIDATION_ERROR,
+        'Every Employee must map to a higher person. Select a reporting manager.',
+        400
+      );
     }
 
     const existing = await prismaClient.$queryRaw`
@@ -126,17 +159,17 @@ class UserManagementService {
       );
     }
 
-    // Generate a random password if none provided (for Employee accounts created without password)
     let finalPassword = password;
-    if (!password) {
+    if (!finalPassword) {
       const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-      let generated = '';
       for (let i = 0; i < 12; i++) {
-        generated += chars.charAt(Math.floor(Math.random() * chars.length));
+        finalPassword += chars.charAt(Math.floor(Math.random() * chars.length));
       }
-      finalPassword = generated;
     }
 
+    // The live employees table has NOT NULL designation, so a blank value
+    // must fall back to a default rather than inserting NULL.
+    const finalDesignation = (designation && String(designation).trim()) || 'Employee';
     const passwordHash = await hashPassword(finalPassword);
 
     const created = await prismaClient.$executeRaw`
@@ -149,15 +182,21 @@ class UserManagementService {
     `;
     const user = rows[0];
 
-    // Link the new account to the employee record and its reporting manager.
-    if (employeeLink) {
-      await prismaClient.$executeRawUnsafe(
-        'UPDATE employees SET userId = ?, reportingManagerId = ?, updatedAt = NOW(3) WHERE id = ?',
-        Number(user.id),
-        employeeLink.reportingManagerId,
-        employeeLink.employeeId
-      );
-    }
+    // Both HR Admin and Employee accounts get a linked employee record with
+    // the manually-entered code above.
+    //
+    // deviceEnrollNo is a unique NOT NULL column in the live schema. It has
+    // no meaning for an account-provisioned employee, so it is set to the
+    // users-table id — which is unique by definition — rather than 0, which
+    // would collide on the second insert.
+    await prismaClient.$executeRawUnsafe(
+      `INSERT INTO employees
+        (employeeCode, name, designation, joiningDate, deviceEnrollNo,
+         basicSalary, allowances, deductions, isActive, userId,
+         reportingManagerId, createdAt, updatedAt)
+       VALUES (?, ?, ?, NOW(), ?, 0, 0, 0, 1, ?, ?, NOW(3), NOW(3))`,
+      code, name, finalDesignation, Number(user.id), Number(user.id), reportingManagerId
+    );
 
     await AuthService.logAudit(
       String(actor.id),
@@ -166,9 +205,13 @@ class UserManagementService {
       'User',
       String(user.id)
     );
-    logger.info('Privileged account created', { actorId: actor.id, newUserId: user.id, role });
+    logger.info('Privileged account created', {
+      actorId: actor.id,
+      newUserId: user.id,
+      role,
+      employeeCode: code,
+    });
 
-    // Send account creation email with the temporary password
     try {
       await sendAccountCreatedEmail(email, name, finalPassword, role);
     } catch (emailErr) {
@@ -186,8 +229,9 @@ class UserManagementService {
       role: user.role,
       isActive: Boolean(user.isActive),
       createdAt: user.createdAt,
-      employeeCode: employeeLink ? employeeLink.code : null,
-      reportingManager: employeeLink ? employeeLink.reportingManagerName : null,
+      employeeCode: code,
+      designation: finalDesignation,
+      reportingManager: reportingManagerName,
     };
   }
 

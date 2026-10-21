@@ -82,7 +82,7 @@ export const organizationService = {
     departmentId?: string;
     joiningDate: string;
     status: string;
-    reportingManagerId?: number;
+    reportingManagerId: number;
   }): Promise<Employee> {
     const { data } = await api.post('/employees', payload);
     return data;

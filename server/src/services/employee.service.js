@@ -17,7 +17,7 @@ const PAGE_SIZE = 20;
 
 class EmployeeService {
   static canAccessAll(reqUser) {
-    return reqUser.role === Role.SUPER_ADMIN || reqUser.role === Role.HR_ADMIN || reqUser.role === Role.HR_ADMIN;
+    return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role);
   }
 
   static async list(reqUser, { page = 1, search = '', departmentId = '', designationId = '', status = '' }) {
@@ -190,6 +190,18 @@ class EmployeeService {
     if (!data.joiningDate) {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Joining date is required.', 400);
     }
+    // A reporting manager is mandatory on every employee: the chain must
+    // resolve to a higher person so approvals, leaves and corrections always
+    // have a clear owner. The top of the tree (the CTO or whoever reports to
+    // nobody) is created once by a Super Admin via a DB back-fill, not through
+    // this path.
+    if (!data.reportingManagerId) {
+      throw new AppError(
+        AppErrorCodes.VALIDATION_ERROR,
+        'A reporting manager is required. Every employee must map to a higher person.',
+        400
+      );
+    }
 
     const dateValue = new Date(data.joiningDate);
     if (Number.isNaN(dateValue.getTime())) {
@@ -214,7 +226,9 @@ class EmployeeService {
       employeeCode
     );
 
-    // Validate reporting manager if provided
+    // Reporting manager is mandatory. Validate it exists and is not the new
+    // employee's own id (a brand-new employee has no row yet, so a self
+    // reference is only a risk if the client reuses an existing id).
     let reportingManagerId = null;
     if (data.reportingManagerId) {
       const managerRows = await prismaClient.$queryRawUnsafe(
@@ -379,38 +393,43 @@ class EmployeeService {
       values.push(String(data.designationId || '').trim());
     }
 
+    // Reporting manager is mandatory: it may be changed to a different valid
+    // manager, but never cleared. A null/empty value is rejected here.
     if (data.reportingManagerId !== undefined) {
-      if (data.reportingManagerId === null || data.reportingManagerId === '' || data.reportingManagerId === 0) {
-        updates.push('reportingManagerId = NULL');
-      } else {
-        const managerRows = await prismaClient.$queryRawUnsafe(
-          'SELECT id FROM employees WHERE id = ? LIMIT 1',
-          Number(data.reportingManagerId)
+      if (!data.reportingManagerId || data.reportingManagerId === 0) {
+        throw new AppError(
+          AppErrorCodes.VALIDATION_ERROR,
+          'A reporting manager is required and cannot be cleared.',
+          400
         );
-        if (!managerRows || !managerRows.length) {
-          throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Invalid reporting manager selected.', 400);
-        }
-        if (Number(data.reportingManagerId) === Number(employeeProfileId)) {
-          throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'An employee cannot be their own reporting manager.', 400);
-        }
-        // Prevent circular reporting chains
-        const chainCheck = await prismaClient.$queryRawUnsafe(
-          `WITH RECURSIVE chain AS (
-             SELECT id, reportingManagerId FROM employees WHERE id = ?
-             UNION ALL
-             SELECT e.id, e.reportingManagerId FROM employees e
-             INNER JOIN chain c ON e.id = c.reportingManagerId
-           )
-           SELECT id FROM chain WHERE id = ?`,
-          Number(data.reportingManagerId),
-          Number(employeeProfileId)
-        );
-        if (chainCheck && chainCheck.length > 0) {
-          throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Circular reporting chain detected.', 400);
-        }
-        updates.push('reportingManagerId = ?');
-        values.push(Number(data.reportingManagerId));
       }
+      const managerRows = await prismaClient.$queryRawUnsafe(
+        'SELECT id FROM employees WHERE id = ? LIMIT 1',
+        Number(data.reportingManagerId)
+      );
+      if (!managerRows || !managerRows.length) {
+        throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Invalid reporting manager selected.', 400);
+      }
+      if (Number(data.reportingManagerId) === Number(employeeProfileId)) {
+        throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'An employee cannot be their own reporting manager.', 400);
+      }
+      // Prevent circular reporting chains
+      const chainCheck = await prismaClient.$queryRawUnsafe(
+        `WITH RECURSIVE chain AS (
+           SELECT id, reportingManagerId FROM employees WHERE id = ?
+           UNION ALL
+           SELECT e.id, e.reportingManagerId FROM employees e
+           INNER JOIN chain c ON e.id = c.reportingManagerId
+         )
+         SELECT id FROM chain WHERE id = ?`,
+        Number(data.reportingManagerId),
+        Number(employeeProfileId)
+      );
+      if (chainCheck && chainCheck.length > 0) {
+        throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Circular reporting chain detected.', 400);
+      }
+      updates.push('reportingManagerId = ?');
+      values.push(Number(data.reportingManagerId));
     }
 
     if (data.departmentId !== undefined) {

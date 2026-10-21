@@ -46,7 +46,7 @@ async function resolveEmployeeId(prismaClient, reqUser, targetEmployeeId) {
 }
 
 function canAccessAll(user) {
-  return user.role === Role.SUPER_ADMIN || user.role === Role.HR_ADMIN || user.role === Role.HR_ADMIN;
+  return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(user.role);
 }
 
 class CompOffService {

@@ -166,19 +166,17 @@ describe('UserManagementService.create() — role permissions', () => {
     expect(result.role).toBe('HR_ADMIN');
   });
 
-  test('Super Admin creating a Super Admin account is permitted', async () => {
+  test('Super Admin creating a Super Admin account is rejected with 403', async () => {
     configureMockForCreate();
     const actor = { id: 1, role: 'SUPER_ADMIN' };
-    const result = await UserManagementService.create(actor, {
-      name: 'New Super Admin',
-      email: 'sa.new2@example.com',
-      password: 'TestPass123!',
-      role: 'SUPER_ADMIN',
-    });
-    expect(result).toBeDefined();
-    expect(result.id).toBe('99');
-    expect(result.email).toBe('sa.new2@example.com');
-    expect(result.role).toBe('SUPER_ADMIN');
+    await expect(
+      UserManagementService.create(actor, {
+        name: 'New Super Admin',
+        email: 'sa.new2@example.com',
+        password: 'TestPass123!',
+        role: 'SUPER_ADMIN',
+      })
+    ).rejects.toMatchObject({ code: AppErrorCodes.FORBIDDEN, statusCode: 403 });
   });
 
   test('Duplicate email is rejected with 409', async () => {

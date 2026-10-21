@@ -35,7 +35,8 @@ import SuperAdminHolidays from './pages/super-admin/Holidays';
 import SuperAdminReports from './pages/super-admin/Reports';
 import SuperAdminAttendance from './pages/super-admin/Attendance';
 import SuperAdminLeaves from './pages/super-admin/Leaves';
-import SuperAdminUserRoles from './pages/super-admin/UserRoles';
+import RoleDesignation from './pages/super-admin/RoleDesignation';
+import Controls from './pages/super-admin/Controls';
 
 // Admin pages
 import EmployeeList from './pages/admin/EmployeeList';
@@ -96,7 +97,7 @@ function App() {
             <Route path="/hr/login" element={<Navigate to="/login" replace />} />
             <Route path="/employee/login" element={<Navigate to="/login" replace />} />
 
-            {/* Super Admin routes */}
+            {/* Super Admin routes — Super Admin has access to every option. */}
             <Route
               path="/super-admin/dashboard"
               element={
@@ -160,7 +161,7 @@ function App() {
             <Route
               path="/super-admin/audit-logs"
               element={
-                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN']}>
                   <ProtectedRoute>
                     <AuditLogs />
                   </ProtectedRoute>
@@ -202,17 +203,27 @@ function App() {
               element={
                 <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
-                    <SuperAdminUserRoles />
+                    <RoleDesignation />
+                  </ProtectedRoute>
+                </RoleRoute>
+              }
+            />
+            <Route
+              path="/super-admin/controls"
+              element={
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
+                  <ProtectedRoute>
+                    <Controls />
                   </ProtectedRoute>
                 </RoleRoute>
               }
             />
 
-            {/* Admin routes */}
+            {/* Admin routes — Super Admin also has full access here. */}
             <Route
               path="/admin/dashboard"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <AdminDashboard />
                   </ProtectedRoute>
@@ -222,7 +233,7 @@ function App() {
             <Route
               path="/admin/employees"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <EmployeeList />
                   </ProtectedRoute>
@@ -232,7 +243,7 @@ function App() {
             <Route
               path="/admin/employees/new"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <EmployeeCreate />
                   </ProtectedRoute>
@@ -242,7 +253,7 @@ function App() {
             <Route
               path="/admin/employees/:id"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <EmployeeDetail />
                   </ProtectedRoute>
@@ -252,7 +263,7 @@ function App() {
             <Route
               path="/admin/departments"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <DepartmentList />
                   </ProtectedRoute>
@@ -262,7 +273,7 @@ function App() {
             <Route
               path="/admin/designations"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <DesignationList />
                   </ProtectedRoute>
@@ -272,7 +283,7 @@ function App() {
             <Route
               path="/admin/attendance"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <AdminAttendanceReview />
                   </ProtectedRoute>
@@ -282,7 +293,7 @@ function App() {
             <Route
               path="/admin/reports"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <AdminReports />
                   </ProtectedRoute>
@@ -290,11 +301,11 @@ function App() {
               }
             />
 
-            {/* HR routes */}
+            {/* HR routes — Super Admin also has full access here. */}
             <Route
               path="/hr/dashboard"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <HrDashboard />
                   </ProtectedRoute>
@@ -304,7 +315,7 @@ function App() {
             <Route
               path="/hr/attendance"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <HrAttendance />
                   </ProtectedRoute>
@@ -314,7 +325,7 @@ function App() {
             <Route
               path="/hr/wfh"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <HrWFH />
                   </ProtectedRoute>
@@ -324,7 +335,7 @@ function App() {
             <Route
               path="/hr/leaves"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN', 'SUPER_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <HrLeaves />
                   </ProtectedRoute>
@@ -334,7 +345,7 @@ function App() {
             <Route
               path="/hr/comp-offs"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <HrCompOffs />
                   </ProtectedRoute>
@@ -344,7 +355,7 @@ function App() {
             <Route
               path="/hr/payroll"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <HRPayroll />
                   </ProtectedRoute>
@@ -354,7 +365,7 @@ function App() {
             <Route
               path="/hr/payslips"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <HrPayslips />
                   </ProtectedRoute>
@@ -364,7 +375,7 @@ function App() {
             <Route
               path="/hr/reports"
               element={
-                <RoleRoute allowedRoles={['HR_ADMIN']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <HrReports />
                   </ProtectedRoute>

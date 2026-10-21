@@ -7,7 +7,7 @@ const PAGE_SIZE = 20;
 
 class AttendanceService {
   static canAccessAll(reqUser) {
-    return reqUser.role === Role.SUPER_ADMIN || reqUser.role === Role.HR_ADMIN || reqUser.role === Role.HR_ADMIN;
+    return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role);
   }
 
   static getPrisma() {

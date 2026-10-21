@@ -51,10 +51,54 @@ export interface OpenSession {
   workMode: string;
 }
 
+export interface ImportSkipRow {
+  line: string;
+  reason: string;
+}
+
+export interface ImportResult {
+  importId: number;
+  matched: number;
+  duplicates: number;
+  skipped: ImportSkipRow[];
+  unmatched: string[];
+}
+
+export interface AttendanceImport {
+  id: number;
+  fileName: string | null;
+  importedBy: number;
+  totalRows: number;
+  savedRows: number;
+  duplicateRows: number;
+  failedRows: number;
+  unknownCodes: string[];
+  importedAt: string;
+}
+
 export const attendanceService = {
   async punchIn(payload: PunchInPayload) {
     const { data } = await api.post('/attendance/punch-in', payload);
     return data;
+  },
+
+  /**
+   * Uploads a biometric .dat export. The raw file is sent as multipart so the
+   * server can parse it row by row and match each punch to an employee code.
+   */
+  async importDat(file: File, note?: string): Promise<ImportResult> {
+    const form = new FormData();
+    form.append('file', file);
+    if (note) form.append('note', note);
+    const { data } = await api.post('/attendance/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+
+  async listImports(): Promise<AttendanceImport[]> {
+    const { data } = await api.get<{ imports: AttendanceImport[] }>('/attendance/imports');
+    return data.imports;
   },
 
   async punchOut(payload: PunchOutPayload) {

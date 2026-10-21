@@ -50,7 +50,7 @@ function countWorkingDays(startDate, endDate, holidayDateSet, isHalfDay = false)
 }
 
 function canAccessAll(reqUser) {
-  return reqUser.role === Role.SUPER_ADMIN || reqUser.role === Role.HR_ADMIN || reqUser.role === Role.HR_ADMIN;
+  return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role);
 }
 
 async function resolveLeaveAccess(reqUser, targetEmployeeId, prisma) {

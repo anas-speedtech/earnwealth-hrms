@@ -38,7 +38,10 @@ const newPasswordSchema = z.object({
 const inviteSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(120).optional(),
-  role: z.enum(['EMPLOYEE', 'HR_ADMIN', 'SUPER_ADMIN']),
+  // The Super Admin may only appoint HR Admins; HR Admins may only appoint
+  // Employees. The check is enforced again in the service so no route-level
+  // bypass can mint the wrong role.
+  role: z.enum(['EMPLOYEE', 'HR_ADMIN']),
 });
 
 // Public health check

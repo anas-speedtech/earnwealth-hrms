@@ -16,9 +16,11 @@ const createSchema = z.object({
   // Kept for compatibility with the older create flow; the New Account page
   // uses the invitation flow instead and never sends a password.
   password: z.string().min(8).max(128).optional(),
-  // Optional employee link: when supplied the account is tied to the matching
-  // employees row and its reportingManagerId is set from the manager name.
-  employeeCode: z.string().trim().min(1).max(50).optional(),
+  // The employee code is entered manually by the HR Admin; it is unique and
+  // immutable. A linked employee record is created for HR Admin and Employee
+  // accounts alike — the Super Admin never reaches this path.
+  employeeCode: z.string().trim().min(1).max(50),
+  designation: z.string().trim().max(100).optional(),
   reportingManager: z.string().trim().max(120).optional(),
 });
 

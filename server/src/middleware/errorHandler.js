@@ -17,8 +17,15 @@ function errorHandler(err, _req, res, _next) {
   const code = isApp ? err.code : 'INTERNAL_ERROR';
   const message = isApp ? err.message : 'Something went wrong.';
 
+  // Zod validation failures carry the per-field issues in `validationErrors`;
+  // surface them so the UI can show the specific problem instead of the
+  // generic "Validation failed." banner.
+  const validationErrors = isApp && err.validationErrors
+    ? err.validationErrors
+    : undefined;
+
   res.status(statusCode).json({
-    error: { code, message },
+    error: { code, message, ...(validationErrors ? { validationErrors } : {}) },
   });
 }
 

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import { organizationService, Designation } from '../../services/organization.service';
 import toast from 'react-hot-toast';
 
 interface AdminAccount {
@@ -14,6 +16,7 @@ interface AdminAccount {
   createdAt: string;
   employeeCode: string | null;
   reportingManager: string | null;
+  designation: string | null;
 }
 
 interface NewAccount {
@@ -21,23 +24,25 @@ interface NewAccount {
   email: string;
   password: string;
   employeeCode: string;
+  designation: string;
   reportingManager: string;
   role: 'HR_ADMIN' | 'EMPLOYEE';
 }
 
 const ROLE_OPTIONS: { value: NewAccount['role']; label: string }[] = [
-  { value: 'HR_ADMIN', label: 'HR Staff' },
+  { value: 'HR_ADMIN', label: 'HR Admin' },
   { value: 'EMPLOYEE', label: 'Employee' },
 ];
 
-// HR Admin can only create Employee accounts, not HR Admin accounts
+// Super Admin appoints only HR Admins; HR Admin appoints only Employees.
+// This mirrors the server-side guard in UserManagementService.create().
 function getRoleOptions(userRole: string): { value: NewAccount['role']; label: string }[] {
-  if (userRole === 'SUPER_ADMIN') return ROLE_OPTIONS;
+  if (userRole === 'SUPER_ADMIN') return ROLE_OPTIONS.filter((o) => o.value === 'HR_ADMIN');
   return ROLE_OPTIONS.filter((o) => o.value === 'EMPLOYEE');
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  HR_ADMIN: 'HR Staff',
+  HR_ADMIN: 'HR Admin',
   EMPLOYEE: 'Employee',
 };
 
@@ -50,11 +55,14 @@ export default function SuperAdminAdminsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
+  const [designations, setDesignations] = useState<Designation[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; name: string; employeeCode: string }[]>([]);
   const [form, setForm] = useState<NewAccount>({
     name: '',
     email: '',
     password: '',
     employeeCode: '',
+    designation: '',
     reportingManager: '',
     role: 'HR_ADMIN',
   });
@@ -80,6 +88,34 @@ export default function SuperAdminAdminsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load the designation list and the employee list (for the reporting-manager
+  // picker) so the create form can reference both.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setDesignations(await organizationService.getDesignations());
+      } catch {
+        // non-critical
+      }
+      try {
+        const page = await organizationService.getEmployees({ page: 1 });
+        if (mounted) {
+          setEmployees(
+            (page.data || []).map((e: { id: string; firstName?: string; lastName?: string; name?: string; employeeCode?: string }) => ({
+              id: e.id,
+              name: (e.firstName && e.lastName) ? `${e.firstName} ${e.lastName}` : (e.name || 'Unknown'),
+              employeeCode: e.employeeCode || '',
+            })),
+          );
+        }
+      } catch {
+        // non-critical
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
   const fetchAccounts = async (): Promise<AdminAccount[]> => {
     const { data } = await api.get<AdminAccount[]>(`/admin-users?role=HR_ADMIN,EMPLOYEE`);
     return data;
@@ -93,6 +129,18 @@ export default function SuperAdminAdminsPage() {
     }
     if (!form.email.includes('@')) {
       setFieldError('Please enter a valid email address.');
+      return;
+    }
+    // The employee code is entered manually and is required for every account
+    // created here (HR Admin and Employee). The server enforces uniqueness
+    // and treats it as immutable.
+    if (!form.employeeCode.trim()) {
+      setFieldError('Employee code is required. Enter the code manually — it is not auto-generated.');
+      return;
+    }
+    // Every Employee must map to a higher person.
+    if (form.role === 'EMPLOYEE' && !form.reportingManager) {
+      setFieldError('A reporting manager is required for Employee accounts.');
       return;
     }
     // Password is required for HR Admin accounts but optional for Employee accounts
@@ -109,11 +157,12 @@ export default function SuperAdminAdminsPage() {
         password: form.password || '',
         role: form.role,
         employeeCode: form.employeeCode || '',
+        designation: form.designation || '',
         reportingManager: form.reportingManager || '',
       });
       toast.success(`Account created for ${form.email}.`);
       setShowForm(false);
-      setForm({ name: '', email: '', password: '', employeeCode: '', reportingManager: '', role: 'HR_ADMIN' });
+      setForm({ name: '', email: '', password: '', employeeCode: '', designation: '', reportingManager: '', role: 'HR_ADMIN' });
       load();
     } catch (err: unknown) {
       const message =
@@ -151,7 +200,7 @@ export default function SuperAdminAdminsPage() {
 
   return (
     <DashboardShell role={user?.role || 'SUPER_ADMIN'} userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
-      <Header title="HR Staff" subtitle="Provision and manage HR Staff and Employee accounts" />
+      <Header title="User Management" subtitle="Provision and manage user accounts" />
       <div className="p-8 max-w-6xl">
         {canManage && (
           <div className="mb-4">
@@ -159,17 +208,29 @@ export default function SuperAdminAdminsPage() {
               onClick={() => {
                 setShowForm(!showForm);
                 setFieldError(null);
+                // The form starts on the role the current user is allowed to
+                // create, so the "Add Employee" button opens the right one for
+                // an HR Admin.
+                if (!showForm) {
+                  setForm((prev) => ({ ...prev, role: user?.role === 'HR_ADMIN' ? 'EMPLOYEE' : 'HR_ADMIN' }));
+                }
               }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors ${
+                showForm
+                  ? 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                  : 'bg-primary-600 text-white hover:bg-primary-700'
+              }`}
             >
-              {showForm ? 'Close' : '+ New Account'}
+              {showForm ? 'Close' : (<span className="inline-flex items-center gap-1.5"><Plus size={15} /> Add Employee</span>)}
             </button>
           </div>
         )}
 
         {showForm && canManage && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">New Account</h3>
+            <h3 className="text-lg font-semibold text-slate-900 mb-4">
+              {form.role === 'EMPLOYEE' ? 'Add Employee' : 'Add HR Admin'}
+            </h3>
             {fieldError && <p className="mb-3 text-sm text-red-600">{fieldError}</p>}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
@@ -197,22 +258,46 @@ export default function SuperAdminAdminsPage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Employee Code</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Employee Code
+                  </label>
                   <input
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     value={form.employeeCode}
                     onChange={(e) => setForm({ ...form, employeeCode: e.target.value })}
                     placeholder="EMP-1001"
+                    required
                   />
+                  <p className="mt-1 text-xs text-slate-400">
+                    Enter the code manually. It must be unique and cannot be
+                    changed once the account is created.
+                  </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Reporting Manager Name</label>
-                  <input
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
+                  <select
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={form.designation}
+                    onChange={(e) => setForm({ ...form, designation: e.target.value })}
+                  >
+                    <option value="">Select designation…</option>
+                    {designations.map((d) => (
+                      <option key={d.id} value={d.name}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Reporting Manager</label>
+                  <select
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     value={form.reportingManager}
                     onChange={(e) => setForm({ ...form, reportingManager: e.target.value })}
-                    placeholder="Manager full name"
-                  />
+                  >
+                    <option value="">Select manager…</option>
+                    {employees.map((e) => (
+                      <option key={e.id} value={e.name}>{e.name} ({e.employeeCode})</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -249,7 +334,7 @@ export default function SuperAdminAdminsPage() {
                 disabled={isSubmitting}
                 className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
               >
-                {isSubmitting ? 'Creating…' : 'Create Account'}
+                {isSubmitting ? 'Creating…' : form.role === 'EMPLOYEE' ? 'Create Employee' : 'Create HR Admin'}
               </button>
             </form>
           </div>
@@ -266,6 +351,7 @@ export default function SuperAdminAdminsPage() {
                 <tr>
                   <th className="px-4 py-3 font-medium text-slate-500">Employee Code</th>
                   <th className="px-4 py-3 font-medium text-slate-500">Name</th>
+                  <th className="px-4 py-3 font-medium text-slate-500">Designation</th>
                   <th className="px-4 py-3 font-medium text-slate-500">Reporting Manager</th>
                   <th className="px-4 py-3 font-medium text-slate-500">Email</th>
                   <th className="px-4 py-3 font-medium text-slate-500">Role</th>
@@ -278,6 +364,7 @@ export default function SuperAdminAdminsPage() {
                   <tr key={account.id} className="border-t border-slate-100">
                     <td className="px-4 py-3 text-slate-600">{account.employeeCode || '—'}</td>
                     <td className="px-4 py-3 font-medium text-slate-700">{account.name}</td>
+                    <td className="px-4 py-3 text-slate-600">{account.designation || '—'}</td>
                     <td className="px-4 py-3 text-slate-600">{account.reportingManager || '—'}</td>
                     <td className="px-4 py-3 text-slate-600">{account.email}</td>
                     <td className="px-4 py-3">
@@ -287,12 +374,17 @@ export default function SuperAdminAdminsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`text-xs px-2 py-0.5 rounded-full ${
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
                           account.isActive
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-red-100 text-red-700'
+                            ? 'bg-green-50 text-green-700'
+                            : 'bg-red-50 text-red-700'
                         }`}
                       >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            account.isActive ? 'bg-green-500' : 'bg-red-500'
+                          }`}
+                        />
                         {account.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>

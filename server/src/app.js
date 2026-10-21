@@ -9,6 +9,7 @@ const employeeRoutes = require('./routes/employees');
 const departmentRoutes = require('./routes/departments');
 const designationRoutes = require('./routes/designations');
 const attendanceRoutes = require('./routes/attendance');
+const attendanceImportRoutes = require('./routes/attendance-import');
 const correctionRoutes = require('./routes/attendance-corrections');
 const wfhRoutes = require('./routes/wfh');
 const leaveRoutes = require('./routes/leaves');
@@ -17,6 +18,7 @@ const auditLogRoutes = require('./routes/audit-logs');
 const compOffRoutes = require('./routes/compoff');
 const userRoutes = require('./routes/users');
 const holidayRoutes = require('./routes/holidays');
+const roleAccessRoutes = require('./routes/role-access');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -38,6 +40,7 @@ app.use('/api', employeeRoutes);
 app.use('/api', departmentRoutes);
 app.use('/api', designationRoutes);
 app.use('/api', attendanceRoutes);
+app.use('/api', attendanceImportRoutes);
 app.use('/api', correctionRoutes);
 app.use('/api', wfhRoutes);
 app.use('/api', leaveRoutes);
@@ -46,6 +49,7 @@ app.use('/api', auditLogRoutes);
 app.use('/api', compOffRoutes);
 app.use('/api', userRoutes);
 app.use('/api', holidayRoutes);
+app.use('/api', roleAccessRoutes);
 
 // Global error handler (must be last)
 app.use(errorHandler);

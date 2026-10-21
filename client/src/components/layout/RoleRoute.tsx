@@ -34,7 +34,9 @@ export default function RoleRoute({ children, allowedRoles }: RoleRouteProps) {
       HR_ADMIN: '/hr/dashboard',
       EMPLOYEE: '/employee/dashboard',
     };
-    return <Navigate to={fallback[user.role] || '/login'} replace />;
+    // Use the normalized role for the fallback too, so a legacy HR_MANAGER
+    // account is not sent to /login (it would be undefined on the raw key).
+    return <Navigate to={fallback[effectiveRole] || '/login'} replace />;
   }
 
   return <>{children}</>;

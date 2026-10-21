@@ -46,13 +46,13 @@ class DesignationService {
       'SELECT id, name, description, isActive FROM designations ORDER BY name ASC'
     );
 
-    return rows.map((d) => ({
+    return Promise.all(rows.map(async (d) => ({
       id: String(d.id),
       name: d.name,
       description: d.description,
       isActive: Boolean(d.isActive),
-      employeeCount: this.countAssigned(reqUser, d.name),
-    }));
+      employeeCount: await this.countAssigned(reqUser, d.name),
+    })));
   }
 
   static async getById(reqUser, designationId) {
@@ -76,7 +76,7 @@ class DesignationService {
       name: desig.name,
       description: desig.description,
       isActive: Boolean(desig.isActive),
-      employeeCount: this.countAssigned(reqUser, desig.name),
+      employeeCount: await this.countAssigned(reqUser, desig.name),
     };
   }
 
@@ -108,15 +108,22 @@ class DesignationService {
       now
     );
 
-    await prismaClient.auditLog.create({
-      data: {
-        actorId: reqUser.id,
-        actorRole: reqUser.role,
-        action: 'CREATE_DESIGNATION',
-        entityType: 'Designation',
-        entityId: String(desig.insertId),
-      },
-    });
+    // Audit writes are best-effort: the audit_logs table stores actorId as
+    // VARCHAR, and the designation operation itself has already committed.
+    // A failed audit write must not turn a successful create into a 500.
+    try {
+      await prismaClient.auditLog.create({
+        data: {
+          actorId: String(reqUser.id),
+          actorRole: reqUser.role,
+          action: 'CREATE_DESIGNATION',
+          entityType: 'Designation',
+          entityId: id,
+        },
+      });
+    } catch (err) {
+      logger.warn('Audit log write failed', { action: 'CREATE_DESIGNATION', error: err.message });
+    }
 
     logger.info('Designation created', { designationId: id, name: data.name });
 
@@ -159,15 +166,19 @@ class DesignationService {
       designationId
     );
 
-    await prismaClient.auditLog.create({
-      data: {
-        actorId: reqUser.id,
-        actorRole: reqUser.role,
-        action: 'UPDATE_DESIGNATION',
-        entityType: 'Designation',
-        entityId: designationId,
-      },
-    });
+    try {
+      await prismaClient.auditLog.create({
+        data: {
+          actorId: String(reqUser.id),
+          actorRole: reqUser.role,
+          action: 'UPDATE_DESIGNATION',
+          entityType: 'Designation',
+          entityId: designationId,
+        },
+      });
+    } catch (err) {
+      logger.warn('Audit log write failed', { action: 'UPDATE_DESIGNATION', error: err.message });
+    }
 
     logger.info('Designation updated', { designationId, name: updated });
 
@@ -198,17 +209,27 @@ class DesignationService {
       throw new AppError(AppErrorCodes.CONFLICT, 'Cannot delete designation with assigned employees. Deactivate it instead.', 409);
     }
 
-    await prismaClient.$executeRawUnsafe('DELETE FROM designations WHERE id = ?', [designationId]);
+    // $executeRawUnsafe takes the parameters individually; passing the array
+    // as a single argument makes Prisma treat it as one (array) parameter,
+    // which is what produced the 500 on delete.
+    await prismaClient.$executeRawUnsafe(
+      'DELETE FROM designations WHERE id = ?',
+      designationId
+    );
 
-    await prismaClient.auditLog.create({
-      data: {
-        actorId: reqUser.id,
-        actorRole: reqUser.role,
-        action: 'DELETE_DESIGNATION',
-        entityType: 'Designation',
-        entityId: designationId,
-      },
-    });
+    try {
+      await prismaClient.auditLog.create({
+        data: {
+          actorId: String(reqUser.id),
+          actorRole: reqUser.role,
+          action: 'DELETE_DESIGNATION',
+          entityType: 'Designation',
+          entityId: designationId,
+        },
+      });
+    } catch (err) {
+      logger.warn('Audit log write failed', { action: 'DELETE_DESIGNATION', error: err.message });
+    }
 
     logger.info('Designation deleted', { designationId });
     return { message: 'Designation deleted successfully.' };

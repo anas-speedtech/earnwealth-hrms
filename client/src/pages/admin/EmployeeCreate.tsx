@@ -13,6 +13,7 @@ export default function EmployeeCreatePage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [departments, setDepartments] = useState<{ id: string; name: string; isActive: boolean }[]>([]);
   const [employees, setEmployees] = useState<{ id: string; name: string; employeeCode: string }[]>([]);
+  const [designations, setDesignations] = useState<{ id: string; name: string }[]>([]);
 
   const [form, setForm] = useState({
     employeeCode: '',
@@ -50,6 +51,12 @@ export default function EmployeeCreatePage() {
       } catch {
         // Non-critical
       }
+      try {
+        const desigs = await organizationService.getDesignations();
+        setDesignations(desigs.filter((d) => d.isActive).map((d) => ({ id: d.id, name: d.name })));
+      } catch {
+        // Non-critical
+      }
     }
     load();
   }, []);
@@ -59,6 +66,7 @@ export default function EmployeeCreatePage() {
     if (!form.employeeCode.trim()) errors.employeeCode = 'Employee code is required.';
     if (!form.firstName.trim()) errors.firstName = 'First name is required.';
     if (!form.lastName.trim()) errors.lastName = 'Last name is required.';
+    if (!form.reportingManagerId) errors.reportingManagerId = 'A reporting manager is required. Every employee must map to a higher person.';
     if (!form.designation.trim()) errors.designation = 'Designation is required.';
     if (!form.deviceEnrollNo.trim()) errors.deviceEnrollNo = 'Device enrollment number is required.';
     else if (!/^\d+$/.test(form.deviceEnrollNo)) errors.deviceEnrollNo = 'Device enrollment number must be a whole number.';
@@ -92,7 +100,8 @@ export default function EmployeeCreatePage() {
         departmentId: form.departmentId || undefined,
         joiningDate: form.joiningDate,
         status: form.status,
-        reportingManagerId: form.reportingManagerId ? Number(form.reportingManagerId) : undefined,
+        // Mandatory: every employee must map to a higher person.
+        reportingManagerId: Number(form.reportingManagerId),
       });
       setSuccess('Employee created successfully.');
       setTimeout(() => navigate('/admin/employees'), 1500);
@@ -148,7 +157,10 @@ export default function EmployeeCreatePage() {
             </Field>
 
             <Field label="Designation" error={fieldErrors.designation}>
-              <input type="text" value={form.designation} onChange={(e) => update('designation', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100" />
+              <select value={form.designation} onChange={(e) => update('designation', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100">
+                <option value="">Select designation…</option>
+                {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+              </select>
             </Field>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -178,11 +190,12 @@ export default function EmployeeCreatePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Reporting Manager</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Reporting Manager (required)</label>
               <select value={form.reportingManagerId} onChange={(e) => update('reportingManagerId', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100">
-                <option value="">— None —</option>
+                <option value="">Select a manager…</option>
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.name} ({e.employeeCode})</option>)}
               </select>
+              {fieldErrors.reportingManagerId && <p className="mt-1 text-sm text-red-600">{fieldErrors.reportingManagerId}</p>}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

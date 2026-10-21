@@ -26,7 +26,7 @@ const auditFilterSchema = z.object({
 router.get(
   '/audit-logs',
   authenticate,
-  authorize(AUDIT_READERS),
+  authorize(...AUDIT_READERS),
   validateQuery(auditFilterSchema),
   async (req, res, next) => {
     try {
@@ -42,7 +42,7 @@ router.get(
 router.get(
   '/audit-logs/filters',
   authenticate,
-  authorize(AUDIT_READERS),
+  authorize(...AUDIT_READERS),
   async (req, res, next) => {
     try {
       const result = await AuditService.getFilterOptions(req.user);

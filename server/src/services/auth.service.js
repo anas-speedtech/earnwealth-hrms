@@ -251,8 +251,37 @@ class AuthService {
 
     logger.info('Login successful', { userId: user.id, email, role: user.role });
 
+    // An HR Admin is also an employee, so attach the linked employee record
+    // (designation, reporting manager) when one exists. This lets the client
+    // show "my details as an employee" without a separate lookup.
+    let employee = null;
+    try {
+      const empRows = await prismaClient.$queryRaw`
+        SELECT e.id, e.employeeCode, e.designation,
+               e.reportingManagerId, m.name AS reportingManagerName
+        FROM employees e
+        LEFT JOIN employees m ON m.id = e.reportingManagerId
+        WHERE e.userId = ${Number(user.id)}
+        LIMIT 1
+      `;
+      if (empRows && empRows.length) {
+        const row = empRows[0];
+        employee = {
+          id: String(row.id),
+          employeeCode: row.employeeCode || '',
+          designation: row.designation ? { id: '', name: row.designation } : null,
+          manager: row.reportingManagerId
+            ? { id: String(row.reportingManagerId), name: row.reportingManagerName || '' }
+            : null,
+        };
+      }
+    } catch {
+      // The employees table may be absent; the login still succeeds.
+      employee = null;
+    }
+
     return {
-      user: { id: user.id, email: user.email, role: user.role },
+      user: { id: user.id, email: user.email, role: user.role, employee },
       accessToken,
       refreshToken,
     };
@@ -598,6 +627,17 @@ class AuthService {
   }
 
   static async createInvitation(email, role, invitedBy, name) {
+    // Nobody may mint a Super Admin account through the invitation flow,
+    // including a Super Admin. This is enforced at the route schema too; the
+    // guard here is the authoritative block so no future caller can bypass it.
+    if (role === Role.SUPER_ADMIN) {
+      throw new AppError(
+        AppErrorCodes.FORBIDDEN,
+        'Super Admin accounts cannot be created through an invitation.',
+        403
+      );
+    }
+
     const prismaClient = getPrisma();
 
     const existing = await prismaClient.user.findUnique({ where: { email } });

@@ -38,37 +38,32 @@ export default function LoginPage({ title, subtitle, onSubmit, isLoading, error 
   };
 
   // One neutral brand treatment for all roles — the login page is role-agnostic.
-  const colors = {
-    bg: 'bg-slate-50',
-    text: 'text-slate-700',
-    border: 'border-slate-200',
-    focus: 'focus:ring-slate-500 focus:border-slate-500',
-    light: 'bg-slate-100 text-slate-700',
-  };
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-8">
-      <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-2 bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f6f8fc] px-4 py-8 before:absolute before:-left-32 before:-top-32 before:h-96 before:w-96 before:rounded-full before:bg-primary-200/40 before:blur-3xl after:absolute after:-bottom-40 after:-right-24 after:h-96 after:w-96 after:rounded-full after:bg-violet-200/40 after:blur-3xl">
+      <div className="relative z-10 grid w-full max-w-5xl grid-cols-1 overflow-hidden rounded-[2rem] border border-white/70 bg-white/90 shadow-2xl shadow-slate-900/10 backdrop-blur lg:grid-cols-2">
         {/* Left — brand panel. Replace this block with the company logo/imagery. */}
-        <div className="hidden lg:flex flex-col items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 p-12 text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-white/10 mb-6">
-            <span className="text-4xl font-bold text-white">E</span>
-          </div>
-          <h2 className="text-3xl font-bold text-white">EWS HRMS</h2>
-          <p className="text-sm text-slate-300 mt-2">Human Resource Management System</p>
-          <p className="text-xs text-slate-400 mt-8">
-            {/* Placeholder for company logo / brand image */}
-            Brand image placeholder
-          </p>
+        <div className="relative hidden flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-[#0b182d] via-slate-900 to-primary-950 p-12 text-center lg:flex">
+          <div className="absolute -right-24 -top-24 h-64 w-64 rounded-full border border-white/10" />
+          <div className="absolute -bottom-32 -left-20 h-64 w-64 rounded-full bg-primary-500/20 blur-3xl" />
+          <img
+            src="/ews-logo.png"
+            alt="EarnWealth Kamate Raho"
+            className="relative mb-6 h-44 w-44 rounded-3xl bg-white object-contain shadow-xl shadow-primary-950/50"
+          />
+          <h2 className="relative text-3xl font-bold tracking-tight text-white">EWS HRMS</h2>
+          <p className="relative mt-2 max-w-xs text-sm leading-6 text-slate-300">A calm, connected workspace for your people and their best work.</p>
+          <div className="relative mt-10 flex items-center gap-2 text-xs font-medium text-sky-200"><span className="h-2 w-2 rounded-full bg-emerald-400" />Secure employee workspace</div>
         </div>
 
         {/* Right — login form */}
-        <div className="p-8 sm:p-10">
+        <div className="p-8 sm:p-12">
           {/* Logo (small screens) */}
           <div className="text-center mb-8 lg:hidden">
-            <div className={`inline-flex items-center justify-center w-14 h-14 rounded-xl mb-4 ${colors.light}`}>
-              <span className={`text-2xl font-bold ${colors.text}`}>E</span>
-            </div>
+            <img
+              src="/ews-logo.png"
+              alt="EarnWealth Kamate Raho"
+              className="mx-auto mb-4 h-24 w-24 rounded-2xl bg-white object-contain shadow-md"
+            />
             <h1 className="text-3xl font-bold text-slate-900">EWS HRMS</h1>
             <p className="text-sm text-slate-500 mt-1">Human Resource Management System</p>
           </div>
@@ -131,7 +126,7 @@ export default function LoginPage({ title, subtitle, onSubmit, isLoading, error 
               </button>
             </div>
 
-            <Button type="submit" className="w-full" isLoading={isLoading}>
+            <Button type="submit" className="w-full py-3" isLoading={isLoading}>
               Sign In
             </Button>
 

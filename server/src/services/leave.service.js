@@ -195,7 +195,7 @@ class LeaveService {
               l.type, lt.displayName AS leaveTypeName, lt.code AS leaveTypeCode, l.startDate, l.endDate, l.reason, l.createdAt
        FROM leaves l
        LEFT JOIN employees e ON e.id = l.employeeId
-       LEFT JOIN leave_types lt ON lt.name = l.type
+       LEFT JOIN leave_types lt ON BINARY lt.name = BINARY l.type
         WHERE l.status = 'PENDING'
        ORDER BY l.createdAt ASC`
     );

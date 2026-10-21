@@ -79,9 +79,15 @@ export default function EmployeeDashboardPage() {
 
   return (
     <DashboardShell role="EMPLOYEE" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
-      <Header title="Employee Dashboard" />
-      <div className="mx-auto max-w-7xl px-4 py-8">
-        <p className="mb-6 text-sm text-slate-500">Your self-service portal.</p>
+      <Header title="Employee Dashboard" subtitle="Your workday, all in one place." />
+      <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+        <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-slate-500">Welcome back, <span className="font-semibold text-slate-700">{displayName.split(' ')[0]}</span>.</p>
+            <p className="mt-1 text-xs text-slate-400">Here’s a clear view of your workplace today.</p>
+          </div>
+          <div className="rounded-full border border-primary-100 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700">Personal workspace</div>
+        </div>
         {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
         <div className="space-y-6">
           <StatGrid stats={stats} loading={loading} />

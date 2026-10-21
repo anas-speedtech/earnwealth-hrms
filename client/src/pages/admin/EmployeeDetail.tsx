@@ -86,8 +86,9 @@ export default function EmployeeDetailPage() {
       if (employee.basicSalary !== undefined) payload.basicSalary = String(employee.basicSalary);
       if (employee.allowances !== undefined) payload.allowances = String(employee.allowances);
       if (employee.deductions !== undefined) payload.deductions = String(employee.deductions);
+      // Reporting manager is mandatory and cannot be cleared.
       if (employee.manager?.id) payload.reportingManagerId = Number(employee.manager.id);
-      else payload.reportingManagerId = null;
+      else return setError('A reporting manager is required. Select one before saving.');
 
       const updated = await organizationService.updateEmployee(id, payload);
       setEmployee((prev) => (prev ? { ...prev, ...(updated as EmployeeDetail) } : prev));

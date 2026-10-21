@@ -43,14 +43,8 @@ export default function SuperAdminSettingsPage() {
               <dd className="font-medium text-slate-800">Active</dd>
             </div>
           </dl>
-          <button
-            onClick={logout}
-            className="mt-6 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
-          >
-            Sign Out
-          </button>
-          <p className="mt-3 text-xs text-slate-400">
-            Use the Sign Out button from any page to end this session.
+          <p className="mt-4 text-xs text-slate-400">
+            Sign Out is available from the profile menu in the top-right corner of the header.
           </p>
         </div>
       </div>
