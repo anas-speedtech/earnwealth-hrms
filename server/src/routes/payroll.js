@@ -69,6 +69,41 @@ const componentOverrideSchema = z.object({
   amount: z.number(),
 });
 
+const payheadSchema = z.object({
+  code: z.string().min(1).max(40),
+  name: z.string().min(1).max(100),
+  type: z.enum(['EARNING', 'DEDUCTION']),
+  description: z.string().max(255).optional().nullable(),
+  isFixedByDefault: z.boolean().optional().default(false),
+  sortOrder: z.number().int().optional().default(0),
+});
+
+const updatePayheadSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  type: z.enum(['EARNING', 'DEDUCTION']).optional(),
+  description: z.string().max(255).optional().nullable(),
+  isFixedByDefault: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+  isActive: z.boolean().optional(),
+});
+
+const salaryRulesSchema = z.object({
+  basicPct: z.number().min(0).max(100).optional(),
+  hraPctOfBasic: z.number().min(0).max(100).optional(),
+  pfPct: z.number().min(0).max(100).optional(),
+  pfCap: z.number().min(0).optional(),
+  esicEmployerPct: z.number().min(0).max(100).optional(),
+  esicEmployeePct: z.number().min(0).max(100).optional(),
+  esicWageCeiling: z.number().min(0).optional(),
+  professionTax: z.number().min(0).optional(),
+  workingDaysMonth: z.number().int().min(0).max(31).optional(),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
+const salaryPreviewSchema = z.object({
+  ctc: z.number().min(0),
+});
+
 // ============ SALARY STRUCTURE ============
 
 router.post(
@@ -123,6 +158,114 @@ router.get(
   async (req, res, next) => {
     try {
       const result = await PayrollService.listSalaryStructures(req.user, req.query);
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ============ SALARY PAYHEADS ("salary headers" / payhead catalog) ============
+
+router.get(
+  '/payroll/payheads',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  async (req, res, next) => {
+    try {
+      const result = await PayrollService.listPayheads(req.user, {
+        activeOnly: req.query.activeOnly === 'true',
+      });
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/payroll/payheads',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  validateBody(payheadSchema),
+  async (req, res, next) => {
+    try {
+      const result = await PayrollService.createPayhead(req.user, req.body);
+      res.status(201).json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.put(
+  '/payroll/payheads/:id',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  validateBody(updatePayheadSchema),
+  async (req, res, next) => {
+    try {
+      const result = await PayrollService.updatePayhead(req.user, req.params.id, req.body);
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.delete(
+  '/payroll/payheads/:id',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  async (req, res, next) => {
+    try {
+      await PayrollService.deletePayhead(req.user, req.params.id);
+      res.json({ message: 'Salary payhead deactivated.' });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ============ SALARY RULES (configurable split: Basic/HRA/PF/ESIC/PT) ============
+
+router.get(
+  '/payroll/salary-rules',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  async (req, res, next) => {
+    try {
+      const result = await PayrollService.getSalaryRules(req.user);
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.put(
+  '/payroll/salary-rules',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  validateBody(salaryRulesSchema),
+  async (req, res, next) => {
+    try {
+      const result = await PayrollService.updateSalaryRules(req.user, req.body);
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/payroll/salary-rules/preview',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  validateBody(salaryPreviewSchema),
+  async (req, res, next) => {
+    try {
+      const result = await PayrollService.previewSalarySplit(req.user, req.body.ctc);
       res.json({ data: result });
     } catch (err) {
       next(err);

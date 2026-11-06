@@ -15,11 +15,28 @@ function getSession() {
   }
 }
 
+// The refresh JWT carries its own tokenId in the payload. After a rotation the
+// server revokes the old refresh row and stores the new token under a new id —
+// so every update must re-derive the id from the new refresh token, otherwise
+// the next refresh call would pair the (revoked) old id with the new token and
+// fail with "Invalid or expired refresh token", logging the user out ~30
+// minutes after login.
+function extractTokenId(refreshToken: string): string {
+  try {
+    const payload = JSON.parse(atob(refreshToken.split('.')[1]));
+    return payload.tokenId || '';
+  } catch {
+    return '';
+  }
+}
+
 function updateSession(accessToken: string, refreshToken: string): void {
   const session = getSession();
   if (!session) return;
   session.accessToken = accessToken;
   session.refreshToken = refreshToken;
+  const newId = extractTokenId(refreshToken);
+  if (newId) session.refreshTokenId = newId;
   sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 

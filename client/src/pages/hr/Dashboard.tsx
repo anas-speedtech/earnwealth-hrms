@@ -10,6 +10,7 @@ import { Panel, StatGrid, TitledStat, StatusChip, QuickActions, ViewAll } from '
 interface PendingLeave {
   id: string;
   employeeName?: string;
+  employeeCode?: string;
   leaveTypeName?: string;
   startDate: string;
   endDate: string;
@@ -38,25 +39,27 @@ export default function HrDashboardPage() {
   return (
     <DashboardShell role="HR_ADMIN" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="HR Dashboard" />
-      <div className="mx-auto max-w-7xl px-4 py-8">
-        <p className="mb-6 text-sm text-slate-500">Take care of people, build a better workplace.</p>
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        <div className="space-y-6">
+      <div className="mx-auto max-w-7xl px-5 py-6">
+        <p className="mb-5 text-[13px] text-slate-500">Take care of people, build a better workplace.</p>
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700 ring-1 ring-inset ring-red-600/10">{error}</p>}
+        <div className="space-y-4">
           <StatGrid stats={stats} loading={loading} />
 
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-3">
             <Panel title="Pending Leave Requests" action={<ViewAll to="/hr/leaves" />} className="lg:col-span-2">
               {pendingLeaveRows.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-500">No leave requests waiting for review.</p>
+                <p className="py-6 text-center text-[13px] text-slate-500 text-[13px]">No leave requests waiting for review.</p>
               ) : (
                 <ul className="divide-y divide-slate-100">
                   {pendingLeaveRows.map((request) => (
                     <li key={request.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
                       <span className="font-medium text-slate-700">
-                        {request.employeeName || 'Unknown'}
+                        {request.employeeName || request.employeeCode || 'Unmatched employee'}
                       </span>
                       <span className="text-slate-600">{request.leaveTypeName || 'Leave'}</span>
-                      <span className="text-slate-400">{request.startDate} → {request.endDate}</span>
+                      <span className="text-slate-400">
+                        {formatDayKey(request.startDate)} → {formatDayKey(request.endDate)}
+                      </span>
                       <StatusChip status={request.status} />
                     </li>
                   ))}
@@ -75,10 +78,10 @@ export default function HrDashboardPage() {
             </Panel>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-3">
             <Panel title="Pending WFH Requests" className="lg:col-span-2">
               {pendingWfhs.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-500">No WFH requests waiting for review.</p>
+                <p className="py-6 text-center text-[13px] text-slate-500 text-[13px]">No WFH requests waiting for review.</p>
               ) : (
                 <ul className="divide-y divide-slate-100">
                   {pendingWfhs.map((request) => (
@@ -93,7 +96,7 @@ export default function HrDashboardPage() {
               )}
             </Panel>
             <Panel title="Comp-Off Queue">
-              <p className="text-sm text-slate-500">
+              <p className="text-[13px] text-slate-500">
                 Pending comp-off credits and redeemed days are reviewed inside Comp-Off.
               </p>
             </Panel>
@@ -105,6 +108,18 @@ export default function HrDashboardPage() {
 }
 
 // ---- live data ----
+
+// `leaves.startDate/endDate` are DATE columns; some database drivers return
+// them as raw "YYYY-MM-DD" strings and others as Dates. Extract the day key
+// so both render as a clean day instead of a full ISO timestamp.
+function formatDayKey(value: string): string {
+  if (!value) return '—';
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return String(value).slice(0, 10);
+  const [, y, m, d] = match;
+  const date = new Date(Number(y), Number(m) - 1, Number(d));
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
 
 function useDashboard(): { data: DashSummary | null; loading: boolean; error: string | null } {
   const [state, setState] = useState<{ data: DashSummary | null; loading: boolean; error: string | null }>({
@@ -164,6 +179,7 @@ function usePendingQueues(): {
           requests.map((request) => ({
             id: request.id,
             employeeName: request.employeeName,
+            employeeCode: request.employeeCode,
             leaveTypeName: request.leaveTypeName,
             startDate: request.startDate,
             endDate: request.endDate,

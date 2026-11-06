@@ -64,7 +64,7 @@ export default function EmployeeWFHPage() {
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       PENDING: 'bg-yellow-100 text-yellow-700',
-      APPROVED: 'bg-green-100 text-green-700',
+      APPROVED: 'bg-emerald-100 text-emerald-700',
       REJECTED: 'bg-red-100 text-red-700',
       CANCELLED: 'bg-slate-100 text-slate-600',
     };
@@ -94,7 +94,7 @@ export default function EmployeeWFHPage() {
         {!showForm && (
           <button
             onClick={() => setShowForm(true)}
-            className="mb-6 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors"
+            className="mb-6 px-4 py-2 bg-cyan-600 text-white rounded-lg text-[13px] font-medium hover:bg-cyan-700 transition-colors"
           >
             + New WFH Request
           </button>
@@ -103,26 +103,26 @@ export default function EmployeeWFHPage() {
         {/* Form */}
         {showForm && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 mb-8">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">New WFH Request</h3>
+            <h3 className="text-[15px] font-semibold text-slate-900 mb-4">New WFH Request</h3>
             <form onSubmit={handleSubmit}>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 mb-1">Request Date</label>
+                <label className="block text-[12px] font-medium text-slate-600 mb-1.5">Request Date</label>
                 <input
                   type="date"
                   value={formData.requestDate}
                   onChange={(e) => setFormData({ ...formData, requestDate: e.target.value })}
                   min={new Date().toISOString().split('T')[0]}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   required
                 />
               </div>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 mb-1">Reason</label>
+                <label className="block text-[12px] font-medium text-slate-600 mb-1.5">Reason</label>
                 <textarea
                   value={formData.reason}
                   onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
                   rows={3}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   placeholder="Briefly explain why you need to work from home"
                   required
                 />
@@ -131,14 +131,14 @@ export default function EmployeeWFHPage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-[13px] font-medium hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {submitting ? 'Submitting...' : 'Submit Request'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-[13px] font-medium hover:bg-slate-50 transition-colors"
                 >
                   Cancel
                 </button>
@@ -150,7 +150,7 @@ export default function EmployeeWFHPage() {
         {/* Requests List */}
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="px-6 py-4 border-b border-slate-200">
-            <h3 className="text-lg font-semibold text-slate-900">My WFH Requests</h3>
+            <h3 className="text-[15px] font-semibold text-slate-900">My WFH Requests</h3>
           </div>
           {loading ? (
             <div className="p-8 text-center text-slate-500">Loading...</div>
@@ -162,13 +162,13 @@ export default function EmployeeWFHPage() {
                 <div key={req.id} className="px-6 py-4 flex items-center justify-between">
                   <div>
                     <p className="font-medium text-slate-900">{formatDate(req.requestDate)}</p>
-                    <p className="text-sm text-slate-500 mt-1 line-clamp-1">{req.reason}</p>
+                    <p className="text-[13px] text-slate-500 mt-1 line-clamp-1">{req.reason}</p>
                     <div className="mt-2">{getStatusBadge(req.status)}</div>
                   </div>
                   {req.status === 'PENDING' && (
                     <button
                       onClick={() => handleCancel(req.id)}
-                      className="text-sm text-red-600 hover:text-red-700 font-medium"
+                      className="text-[13px] text-red-600 hover:text-red-700 font-medium"
                     >
                       Cancel
                     </button>

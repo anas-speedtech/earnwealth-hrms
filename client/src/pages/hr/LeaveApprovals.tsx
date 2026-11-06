@@ -3,6 +3,7 @@ import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
 import { leaveService, LeaveRequestItem } from '../../services/leave.service';
+import { formatISTDay, daysBetween } from '../../utils/dates';
 import toast from 'react-hot-toast';
 
 type Tab = 'pending' | 'all';
@@ -92,7 +93,7 @@ export default function HrLeaveApprovalsPage() {
   const statusBadge = (status: string) => {
     const styles: Record<string, string> = {
       PENDING: 'bg-yellow-100 text-yellow-700',
-      APPROVED: 'bg-green-100 text-green-700',
+      APPROVED: 'bg-emerald-100 text-emerald-700',
       REJECTED: 'bg-red-100 text-red-700',
       CANCELLED: 'bg-slate-100 text-slate-600',
     };
@@ -103,9 +104,9 @@ export default function HrLeaveApprovalsPage() {
     );
   };
 
-  const formatDate = (iso: string) => {
-    return new Date(iso + 'T00:00:00+05:30').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-  };
+  // DATE columns arrive as ISO instants from the live DB — normalize via the
+  // shared IST helper instead of assuming a plain "YYYY-MM-DD" string.
+  const formatDate = (iso: string) => formatISTDay(iso);
 
   return (
     <DashboardShell
@@ -117,12 +118,12 @@ export default function HrLeaveApprovalsPage() {
       onLogout={logout}
     >
       <Header title="Leave Approvals" subtitle="Review and manage leave requests" />
-      <div className="p-8 max-w-5xl">
+      <div className="p-6 max-w-5xl">
         {/* Tabs */}
         <div className="flex items-center gap-1 mb-6">
           <button
             onClick={() => setActiveTab('pending')}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+            className={`px-4 py-2 text-[13px] font-medium rounded-lg transition-colors ${
               activeTab === 'pending'
                 ? 'bg-yellow-100 text-yellow-700'
                 : 'text-slate-600 hover:bg-slate-100'
@@ -132,9 +133,9 @@ export default function HrLeaveApprovalsPage() {
           </button>
           <button
             onClick={() => setActiveTab('all')}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+            className={`px-4 py-2 text-[13px] font-medium rounded-lg transition-colors ${
               activeTab === 'all'
-                ? 'bg-primary-100 text-primary-700'
+                ? 'bg-cyan-100 text-cyan-700'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -161,15 +162,19 @@ export default function HrLeaveApprovalsPage() {
                         <span className="text-xs text-slate-400">{req.employeeCode}</span>
                         {statusBadge(req.status)}
                       </div>
-                      <p className="text-sm text-slate-600">
-                        <span className="font-medium">{req.leaveTypeName}</span>
+                      <p className="text-[13px] text-slate-600">
+                        <span className="font-medium">{req.leaveTypeName || req.type}</span>
                         {' — '}
                         {formatDate(req.startDate)} to {formatDate(req.endDate)}
                         {req.isHalfDay && req.halfDayPeriod && (
                           <span className="text-slate-400"> ({req.halfDayPeriod.replace('_', ' ').toLowerCase()})</span>
                         )}
                       </p>
-                      <p className="text-xs text-slate-400 mt-0.5">{req.totalDays.toFixed(2)} day(s)</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {/* totalDays is not computed by the list endpoint — derive
+                            it from the range so the card doesn't crash. */}
+                        {req.totalDays != null ? Number(req.totalDays).toFixed(2) : daysBetween(req.startDate, req.endDate)} day(s)
+                      </p>
                       <p className="text-xs text-slate-500 mt-1 bg-slate-50 px-2 py-1 rounded line-clamp-2">{req.reason}</p>
                       {req.reviewComment && req.status === 'REJECTED' && (
                         <p className="text-xs text-red-600 mt-1">
@@ -187,7 +192,7 @@ export default function HrLeaveApprovalsPage() {
                               value={rejectComment}
                               onChange={(e) => setRejectComment(e.target.value)}
                               placeholder="Rejection reason (required)"
-                              className="px-2 py-1 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500"
+                              className="px-2 py-1 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-cyan-500"
                               autoFocus
                             />
                             <button

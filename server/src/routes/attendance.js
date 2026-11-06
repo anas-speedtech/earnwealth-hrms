@@ -18,6 +18,11 @@ const summaryQuerySchema = z.object({
   endDate: z.string().default(''),
 });
 
+const matrixQuerySchema = z.object({
+  year: z.coerce.number().int().positive().default(new Date().getFullYear()),
+  month: z.coerce.number().int().min(1).max(12).default(new Date().getMonth() + 1),
+});
+
 // Punch in — any authenticated user punches in for themselves or authorized roles for their target
 router.post('/attendance/punch-in', authenticate, async (req, res, next) => {
   try {
@@ -72,6 +77,19 @@ router.get('/attendance/employees/:id/history', authenticate, authorize(Role.SUP
       page: parseInt(req.query.page) || 1,
       startDate: req.query.startDate,
       endDate: req.query.endDate,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Month matrix — one row per active employee, day-by-day in/out times.
+router.get('/attendance/matrix', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateQuery(matrixQuerySchema), async (req, res, next) => {
+  try {
+    const result = await AttendanceService.getMatrix(req.user, {
+      year: req.query.year,
+      month: req.query.month,
     });
     res.json(result);
   } catch (err) {

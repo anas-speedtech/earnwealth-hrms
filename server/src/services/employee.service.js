@@ -2,6 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { Role } = require('../types/index');
 const { logger } = require('../utils/logger');
+const { hashPassword } = require('../utils/password');
 
 let prisma;
 
@@ -263,6 +264,38 @@ class EmployeeService {
     const status = data.status || 'ACTIVE';
     const isActive = status === 'ACTIVE' ? 1 : 0;
 
+    // Optional login account: when email + password are supplied, create the
+    // linked user row BEFORE the employee insert so the FK can be set in one
+    // statement. Without a password the employee record is created without
+    // login access (provisioned via the invite flow later).
+    let linkedUserId = data.userId ? Number(data.userId) : null;
+    const email = (data.email || '').trim().toLowerCase();
+    if (data.password && email) {
+      const dupUser = await prismaClient.$queryRawUnsafe(
+        'SELECT id FROM users WHERE email = ? LIMIT 1',
+        email
+      );
+      if (dupUser && dupUser.length) {
+        throw new AppError(AppErrorCodes.DUPLICATE_ENTRY, 'An account with this email already exists.', 409);
+      }
+      const passwordHash = await hashPassword(data.password);
+      const userInserted = await prismaClient.$executeRawUnsafe(
+        "INSERT INTO users (name, email, passwordHash, role, isActive, createdAt, updatedAt) VALUES (?, ?, ?, 'EMPLOYEE', 1, NOW(3), NOW(3))",
+        name,
+        email,
+        passwordHash
+      );
+      const userRows = await prismaClient.$queryRawUnsafe(
+        'SELECT id FROM users WHERE email = ? LIMIT 1',
+        email
+      );
+      linkedUserId = userRows && userRows.length ? Number(userRows[0].id) : null;
+      if (!linkedUserId) {
+        throw new AppError(AppErrorCodes.INTERNAL_ERROR, 'Login account creation failed.', 500);
+      }
+      void userInserted;
+    }
+
     await prismaClient.$executeRawUnsafe(
       'INSERT INTO employees (employeeCode, name, designation, joiningDate, deviceEnrollNo, basicSalary, allowances, deductions, isActive, departmentId, departmentText, userId, reportingManagerId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))',
       employeeCode,
@@ -276,7 +309,7 @@ class EmployeeService {
       isActive,
       departmentId,
       departmentText,
-      data.userId ? Number(data.userId) : null,
+      linkedUserId,
       reportingManagerId
     );
 

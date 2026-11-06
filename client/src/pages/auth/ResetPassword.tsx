@@ -49,16 +49,16 @@ export default function ResetPassword() {
       <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-slate-100 mb-4">
-            <span className="text-2xl font-bold text-slate-700">E</span>
+            <span className="text-xl font-bold text-slate-700">E</span>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Choose a new password</h1>
-          <p className="text-sm text-slate-500 mt-1">Enter a new password for your account.</p>
+          <h1 className="text-xl font-bold text-slate-900">Choose a new password</h1>
+          <p className="text-[13px] text-slate-500 mt-1">Enter a new password for your account.</p>
         </div>
 
         {done ? (
           <div className="space-y-4" role="status">
             <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-sm text-green-700">
+              <p className="text-[13px] text-green-700">
                 Your password has been updated. You are signed out of all other devices and can
                 now sign in with your new password.
               </p>
@@ -70,7 +70,7 @@ export default function ResetPassword() {
         ) : !verifyToken ? (
           <div className="space-y-4">
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg" role="alert">
-              <p className="text-sm text-red-700">
+              <p className="text-[13px] text-red-700">
                 Your verification has expired. Please start the password reset again.
               </p>
             </div>
@@ -82,7 +82,7 @@ export default function ResetPassword() {
           <>
             {error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg" role="alert">
-                <p className="text-sm text-red-700">{error}</p>
+                <p className="text-[13px] text-red-700">{error}</p>
               </div>
             )}
 
@@ -127,8 +127,8 @@ export default function ResetPassword() {
         )}
 
         {!done && (
-          <p className="text-center text-sm mt-6">
-            <Link to="/login" className="text-primary-600 hover:text-primary-700 font-medium">
+          <p className="text-center text-[13px] mt-6">
+            <Link to="/login" className="text-cyan-600 hover:text-cyan-700 font-medium">
               Back to sign in
             </Link>
           </p>

@@ -5,6 +5,7 @@ import { authService } from '../../services/auth.service';
 import { useNavigate } from 'react-router-dom';
 
 const SESSION_ENDED_KEY = 'ews_session_ended';
+const LOCK_KEY = 'ews_session_lock';
 
 const ROLE_PATHS: Record<string, string> = {
   SUPER_ADMIN: '/super-admin/dashboard',
@@ -47,11 +48,21 @@ export default function CommonLogin() {
     setIsLoading(true);
     setError(null);
     try {
-      // Only one active session per browser. A different user must sign out first.
-      const lock = localStorage.getItem('ews_session_lock');
-      if (lock && lock.toLowerCase() !== email.trim().toLowerCase()) {
-        setError('Another user is already signed in on this browser. Please sign out first.');
-        return;
+      // Single-account-per-browser guard: block login when a *different*
+      // email holds the lock AND still has a live session in this tab.
+      // If the lock names an account with no live session (e.g. it was
+      // deleted, or the tab was closed after a data reset), it is stale —
+      // release it so the user is not stranded trying to sign out an account
+      // that no longer exists.
+      const lock = localStorage.getItem(LOCK_KEY);
+      const lockDiffers = !!lock && lock.toLowerCase() !== email.trim().toLowerCase();
+      if (lockDiffers) {
+        const lockHolderLive = !!isAuthenticated && !!user && user.email.toLowerCase() === lock.toLowerCase();
+        if (lockHolderLive) {
+          setError('Another user is already signed in on this browser. Please sign out first.');
+          return;
+        }
+        localStorage.removeItem(LOCK_KEY);
       }
 
       const response = await authService.login({ email, password });
@@ -64,7 +75,7 @@ export default function CommonLogin() {
         return;
       }
 
-      await login(backendRole, response.user.email, response.accessToken, response.refreshToken);
+      await login(response.user, response.accessToken, response.refreshToken);
       await fetchProfile();
       navigate(rolePath, { replace: true });
     } catch (err) {

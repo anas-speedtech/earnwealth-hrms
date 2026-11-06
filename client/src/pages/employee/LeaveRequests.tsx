@@ -3,6 +3,7 @@ import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
 import { leaveService, LeaveRequestItem } from '../../services/leave.service';
+import { formatISTDay, daysBetween } from '../../utils/dates';
 import toast from 'react-hot-toast';
 
 export default function EmployeeLeaveRequestsPage() {
@@ -54,7 +55,7 @@ export default function EmployeeLeaveRequestsPage() {
   const statusBadge = (status: string) => {
     const styles: Record<string, string> = {
       PENDING: 'bg-yellow-100 text-yellow-700',
-      APPROVED: 'bg-green-100 text-green-700',
+      APPROVED: 'bg-emerald-100 text-emerald-700',
       REJECTED: 'bg-red-100 text-red-700',
       CANCELLED: 'bg-slate-100 text-slate-600',
     };
@@ -65,9 +66,9 @@ export default function EmployeeLeaveRequestsPage() {
     );
   };
 
-  const formatDate = (iso: string) => {
-    return new Date(iso + 'T00:00:00+05:30').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-  };
+  // The list endpoint returns ISO instants for DATE columns, so use the
+  // shared IST normalizer instead of assuming a plain "YYYY-MM-DD" string.
+  const formatDate = (iso: string) => formatISTDay(iso);
 
   return (
     <DashboardShell
@@ -87,8 +88,8 @@ export default function EmployeeLeaveRequestsPage() {
               <button
                 key={s}
                 onClick={() => handleFilter(s)}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                  filter === s ? 'bg-primary-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+                className={`px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                  filter === s ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 {s || 'All'}
@@ -100,7 +101,7 @@ export default function EmployeeLeaveRequestsPage() {
         {/* Requests List */}
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-900">Leave History</h3>
+            <h3 className="text-[15px] font-semibold text-slate-900">Leave History</h3>
           </div>
           {loading ? (
             <div className="p-8 text-center text-slate-500">Loading...</div>
@@ -117,14 +118,16 @@ export default function EmployeeLeaveRequestsPage() {
                           <span className="font-medium text-slate-900">{req.leaveTypeName || req.type || 'Leave'}</span>
                           {statusBadge(req.status)}
                         </div>
-                        <p className="text-sm text-slate-600">
+                        <p className="text-[13px] text-slate-600">
                           {formatDate(req.startDate)} — {formatDate(req.endDate)}
                           {req.isHalfDay && req.halfDayPeriod && (
                             <span className="text-slate-400 ml-1">({req.halfDayPeriod.replace('_', ' ').toLowerCase()})</span>
                           )}
                         </p>
                         <p className="text-xs text-slate-400 mt-1">
-                          {req.totalDays.toFixed(2)} day(s)
+                          {/* totalDays is not computed by the list endpoint — derive
+                              it from the range so the card doesn't crash on undefined. */}
+                          {req.totalDays != null ? Number(req.totalDays).toFixed(2) : daysBetween(req.startDate, req.endDate)} day(s)
                           {req.reason && ` — ${req.reason}`}
                         </p>
                         {req.reviewComment && (
@@ -137,7 +140,7 @@ export default function EmployeeLeaveRequestsPage() {
                         {req.status === 'PENDING' && (
                           <button
                             onClick={() => handleCancel(req.id)}
-                            className="text-sm text-red-600 hover:text-red-700 font-medium"
+                            className="text-[13px] text-red-600 hover:text-red-700 font-medium"
                           >
                             Cancel
                           </button>
@@ -153,15 +156,15 @@ export default function EmployeeLeaveRequestsPage() {
                   <button
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page === 1}
-                    className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg disabled:opacity-50 hover:bg-slate-50"
+                    className="px-3 py-1.5 text-[13px] border border-slate-300 rounded-lg disabled:opacity-50 hover:bg-slate-50"
                   >
                     Previous
                   </button>
-                  <span className="text-sm text-slate-600">Page {page} of {totalPages}</span>
+                  <span className="text-[13px] text-slate-600">Page {page} of {totalPages}</span>
                   <button
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     disabled={page === totalPages}
-                    className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg disabled:opacity-50 hover:bg-slate-50"
+                    className="px-3 py-1.5 text-[13px] border border-slate-300 rounded-lg disabled:opacity-50 hover:bg-slate-50"
                   >
                     Next
                   </button>

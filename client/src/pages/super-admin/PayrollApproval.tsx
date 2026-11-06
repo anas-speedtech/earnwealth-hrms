@@ -99,7 +99,7 @@ export default function SuperAdminPayrollApprovalPage() {
     const styles: Record<string, string> = {
       DRAFT: 'bg-slate-100 text-slate-700',
       PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
-      APPROVED: 'bg-green-100 text-green-700',
+      APPROVED: 'bg-emerald-100 text-emerald-700',
       REJECTED: 'bg-red-100 text-red-700',
     };
     return (
@@ -143,9 +143,9 @@ export default function SuperAdminPayrollApprovalPage() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key as ApprovalTab)}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              className={`px-4 py-2 text-[13px] font-medium rounded-lg transition-colors ${
                 activeTab === tab.key
-                  ? 'bg-primary-100 text-primary-700'
+                  ? 'bg-cyan-100 text-cyan-700'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
@@ -182,7 +182,7 @@ export default function SuperAdminPayrollApprovalPage() {
                 <tbody className="divide-y divide-slate-200">
                   {payrolls.map((record) => (
                     <tr key={record.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 text-sm text-slate-900 font-mono">{record.employeeId}</td>
+                      <td className="px-6 py-4 text-[13px] text-slate-900 font-mono">{record.employeeId}</td>
                       <td className="px-6 py-4">
                         {statusBadge(record.status)}
                         {record.rejectionReason && (
@@ -191,15 +191,15 @@ export default function SuperAdminPayrollApprovalPage() {
                           </p>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatCurrency(record.grossEarnings)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatCurrency(record.totalDeductions)}</td>
-                      <td className="px-6 py-4 text-sm font-medium text-slate-900 text-right">{formatCurrency(record.netPay)}</td>
+                      <td className="px-6 py-4 text-[13px] text-slate-600 text-right">{formatCurrency(record.grossEarnings)}</td>
+                      <td className="px-6 py-4 text-[13px] text-slate-600 text-right">{formatCurrency(record.totalDeductions)}</td>
+                      <td className="px-6 py-4 text-[13px] font-medium text-slate-900 text-right">{formatCurrency(record.netPay)}</td>
                       <td className="px-6 py-4 text-xs text-slate-500">{record.submittedAt ? formatDate(record.submittedAt) : '—'}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => setSelectedPayroll(record)}
-                            className="text-xs text-primary-600 hover:text-primary-700"
+                            className="text-xs text-cyan-600 hover:text-cyan-700"
                           >
                             Review
                           </button>
@@ -238,7 +238,7 @@ export default function SuperAdminPayrollApprovalPage() {
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-slate-900">Payroll Detail</h3>
+                <h3 className="text-[15px] font-semibold text-slate-900">Payroll Detail</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Employee: {selectedPayroll.employeeId} | {MONTH_NAMES[selectedPayroll.month - 1]} {selectedPayroll.year}
                 </p>
@@ -250,19 +250,19 @@ export default function SuperAdminPayrollApprovalPage() {
             <div className="p-6 space-y-4">
               <div className="flex items-center gap-3">
                 {statusBadge(selectedPayroll.status)}
-                <span className="text-sm text-slate-500">
+                <span className="text-[13px] text-slate-500">
                   Submitted: {selectedPayroll.submittedAt ? formatDate(selectedPayroll.submittedAt) : '—'}
                 </span>
               </div>
               {selectedPayroll.rejectionReason && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                   <p className="text-xs font-medium text-red-700">Rejection Reason:</p>
-                  <p className="text-sm text-red-600">{selectedPayroll.rejectionReason}</p>
+                  <p className="text-[13px] text-red-600">{selectedPayroll.rejectionReason}</p>
                 </div>
               )}
               {/* Component Breakdown */}
               <div>
-                <h4 className="text-sm font-medium text-slate-700 mb-2">Salary Components</h4>
+                <h4 className="text-[13px] font-medium text-slate-700 mb-2">Salary Components</h4>
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-slate-50">
@@ -275,15 +275,15 @@ export default function SuperAdminPayrollApprovalPage() {
                     <tbody className="divide-y divide-slate-200">
                       {selectedPayroll.components.map((comp: PayrollComponentItem) => (
                         <tr key={comp.id}>
-                          <td className="px-4 py-3 text-sm text-slate-900">{comp.name}</td>
+                          <td className="px-4 py-3 text-[13px] text-slate-900">{comp.name}</td>
                           <td className="px-4 py-3">
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                              comp.type === 'EARNING' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                              comp.type === 'EARNING' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
                             }`}>
                               {comp.type}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-sm text-slate-900 text-right">{formatCurrency(comp.amount)}</td>
+                          <td className="px-4 py-3 text-[13px] text-slate-900 text-right">{formatCurrency(comp.amount)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -293,16 +293,16 @@ export default function SuperAdminPayrollApprovalPage() {
               {/* Summary */}
               <div className="bg-slate-50 rounded-lg p-4">
                 <div className="flex justify-between mb-1">
-                  <span className="text-sm text-slate-600">Gross Earnings</span>
-                  <span className="text-sm font-medium text-slate-900">{formatCurrency(selectedPayroll.grossEarnings)}</span>
+                  <span className="text-[13px] text-slate-600">Gross Earnings</span>
+                  <span className="text-[13px] font-medium text-slate-900">{formatCurrency(selectedPayroll.grossEarnings)}</span>
                 </div>
                 <div className="flex justify-between mb-1">
-                  <span className="text-sm text-slate-600">Total Deductions</span>
-                  <span className="text-sm font-medium text-slate-900">{formatCurrency(selectedPayroll.totalDeductions)}</span>
+                  <span className="text-[13px] text-slate-600">Total Deductions</span>
+                  <span className="text-[13px] font-medium text-slate-900">{formatCurrency(selectedPayroll.totalDeductions)}</span>
                 </div>
                 <div className="border-t border-slate-200 pt-1 mt-1 flex justify-between">
-                  <span className="text-sm font-semibold text-slate-900">Net Pay</span>
-                  <span className="text-sm font-bold text-slate-900">{formatCurrency(selectedPayroll.netPay)}</span>
+                  <span className="text-[13px] font-semibold text-slate-900">Net Pay</span>
+                  <span className="text-[13px] font-bold text-slate-900">{formatCurrency(selectedPayroll.netPay)}</span>
                 </div>
               </div>
               {selectedPayroll.status === 'PENDING_APPROVAL' && (
@@ -312,7 +312,7 @@ export default function SuperAdminPayrollApprovalPage() {
                       setSelectedPayroll(null);
                       openReject(selectedPayroll);
                     }}
-                    className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700"
+                    className="px-4 py-2 bg-red-600 text-white text-[13px] rounded-lg hover:bg-red-700"
                   >
                     Reject
                   </button>
@@ -321,7 +321,7 @@ export default function SuperAdminPayrollApprovalPage() {
                       setSelectedPayroll(null);
                       openApprove(selectedPayroll);
                     }}
-                    className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700"
+                    className="px-4 py-2 bg-green-600 text-white text-[13px] rounded-lg hover:bg-green-700"
                   >
                     Approve
                   </button>
@@ -337,27 +337,27 @@ export default function SuperAdminPayrollApprovalPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="px-6 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-semibold text-slate-900">Confirm Approval</h3>
+              <h3 className="text-[15px] font-semibold text-slate-900">Confirm Approval</h3>
             </div>
             <div className="p-6 space-y-4">
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                <p className="text-sm text-green-800">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                <p className="text-[13px] text-emerald-800">
                   Employee: <span className="font-mono font-medium">{selectedPayroll.employeeId}</span>
                 </p>
-                <p className="text-sm text-green-800">
+                <p className="text-[13px] text-emerald-800">
                   Period: {MONTH_NAMES[selectedPayroll.month - 1]} {selectedPayroll.year}
                 </p>
-                <p className="text-sm text-green-800 font-medium mt-1">
+                <p className="text-[13px] text-emerald-800 font-medium mt-1">
                   Net Pay: {formatCurrency(selectedPayroll.netPay)}
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Comment (optional)</label>
+                <label className="block text-[13px] font-medium text-slate-700 mb-1">Comment (optional)</label>
                 <textarea
                   value={approveComment}
                   onChange={(e) => setApproveComment(e.target.value)}
                   placeholder="Add a comment..."
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   rows={2}
                 />
               </div>
@@ -365,14 +365,14 @@ export default function SuperAdminPayrollApprovalPage() {
             <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
               <button
                 onClick={() => { setShowApproveModal(false); setSelectedPayroll(null); }}
-                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800"
+                className="px-4 py-2 text-[13px] text-slate-600 hover:text-slate-800"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleApprove(selectedPayroll.id)}
                 disabled={approvingId2 === selectedPayroll.id}
-                className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
+                className="px-4 py-2 bg-green-600 text-white text-[13px] rounded-lg hover:bg-green-700 disabled:opacity-50"
               >
                 {approvingId2 === selectedPayroll.id ? 'Approving...' : 'Approve Payroll'}
               </button>
@@ -386,20 +386,20 @@ export default function SuperAdminPayrollApprovalPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="px-6 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-semibold text-slate-900">Reject Payroll</h3>
+              <h3 className="text-[15px] font-semibold text-slate-900">Reject Payroll</h3>
             </div>
             <div className="p-6 space-y-4">
-              <p className="text-sm text-slate-600">
+              <p className="text-[13px] text-slate-600">
                 Rejecting payroll for employee <span className="font-mono font-medium">{selectedPayroll.employeeId}</span> for{' '}
                 {MONTH_NAMES[selectedPayroll.month - 1]} {selectedPayroll.year}.
               </p>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Rejection Reason <span className="text-red-500">*</span></label>
+                <label className="block text-[13px] font-medium text-slate-700 mb-1">Rejection Reason <span className="text-red-500">*</span></label>
                 <textarea
                   value={rejectReason}
                   onChange={(e) => setRejectReason(e.target.value)}
                   placeholder="Explain why this payroll is being rejected..."
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   rows={3}
                 />
               </div>
@@ -407,14 +407,14 @@ export default function SuperAdminPayrollApprovalPage() {
             <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
               <button
                 onClick={() => { setShowRejectModal(false); setSelectedPayroll(null); setRejectReason(''); }}
-                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800"
+                className="px-4 py-2 text-[13px] text-slate-600 hover:text-slate-800"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleReject(selectedPayroll.id)}
                 disabled={rejectingId === selectedPayroll.id}
-                className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50"
+                className="px-4 py-2 bg-red-600 text-white text-[13px] rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
                 {rejectingId === selectedPayroll.id ? 'Rejecting...' : 'Reject Payroll'}
               </button>

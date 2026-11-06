@@ -83,6 +83,10 @@ export const organizationService = {
     joiningDate: string;
     status: string;
     reportingManagerId: number;
+    // Optional login credentials — when both are given the new employee gets
+    // a linked user account so they can sign in.
+    email?: string;
+    password?: string;
   }): Promise<Employee> {
     const { data } = await api.post('/employees', payload);
     return data;

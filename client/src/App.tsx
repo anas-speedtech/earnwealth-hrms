@@ -37,6 +37,7 @@ import SuperAdminAttendance from './pages/super-admin/Attendance';
 import SuperAdminLeaves from './pages/super-admin/Leaves';
 import RoleDesignation from './pages/super-admin/RoleDesignation';
 import Controls from './pages/super-admin/Controls';
+import LeaveConfig from './pages/super-admin/LeaveConfig';
 
 // Admin pages
 import EmployeeList from './pages/admin/EmployeeList';
@@ -50,6 +51,8 @@ import AdminReports from './pages/admin/Reports';
 // HR pages
 import HrCompOffs from './pages/hr/CompOffs';
 import HrLeaves from './pages/hr/Leaves';
+import HrLeavesHub from './pages/hr/LeavesHub';
+import HrCalendarMatrix from './pages/hr/CalendarMatrix';
 import HrPayslips from './pages/hr/Payslips';
 import HrReports from './pages/hr/Reports';
 
@@ -337,7 +340,37 @@ function App() {
               element={
                 <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
+                    <HrLeavesHub />
+                  </ProtectedRoute>
+                </RoleRoute>
+              }
+            />
+            <Route
+              path="/super-admin/leave-config"
+              element={
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
+                  <ProtectedRoute>
+                    <LeaveConfig />
+                  </ProtectedRoute>
+                </RoleRoute>
+              }
+            />
+            <Route
+              path="/hr/leaves/approvals"
+              element={
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
+                  <ProtectedRoute>
                     <HrLeaves />
+                  </ProtectedRoute>
+                </RoleRoute>
+              }
+            />
+            <Route
+              path="/hr/calendar"
+              element={
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
+                  <ProtectedRoute>
+                    <HrCalendarMatrix />
                   </ProtectedRoute>
                 </RoleRoute>
               }

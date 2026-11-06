@@ -70,12 +70,12 @@ export default function HrPayslipsPage() {
   return (
     <DashboardShell role="HR_ADMIN" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="Payslips" subtitle="Salary slips for approved payroll runs" />
-      <div className="p-8 max-w-6xl">
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      <div className="p-6 max-w-6xl">
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700 ring-1 ring-inset ring-red-600/10">{error}</p>}
 
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="month">
+            <label className="mb-1 block text-[13px] font-medium text-slate-700" htmlFor="month">
               Month
             </label>
             <input
@@ -89,7 +89,7 @@ export default function HrPayslipsPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="year">
+            <label className="mb-1 block text-[13px] font-medium text-slate-700" htmlFor="year">
               Year
             </label>
             <input
@@ -108,7 +108,7 @@ export default function HrPayslipsPage() {
                 setMonthFilter('');
                 setYearFilter('');
               }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-[13px] text-slate-600 hover:bg-slate-50"
             >
               Clear filters
             </button>
@@ -161,7 +161,7 @@ export default function HrPayslipsPage() {
                           <button
                             onClick={() => handleGenerate(record)}
                             disabled={generatingId === record.id}
-                            className="rounded-lg bg-primary-600 px-3 py-1 text-xs font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+                            className="rounded-lg bg-cyan-600 px-3 py-1 text-xs font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
                           >
                             {generatingId === record.id ? 'Generating…' : 'Generate Payslip'}
                           </button>

@@ -126,7 +126,7 @@ export default function AuditLogs() {
             <select
               value={selectedAction}
               onChange={(e) => { setSelectedAction(e.target.value); setPage(1); }}
-              className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
+              className="border border-slate-300 rounded-lg px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-slate-500"
             >
               <option value="">All actions</option>
               {filters.actions.map((a) => (
@@ -140,7 +140,7 @@ export default function AuditLogs() {
             <select
               value={selectedEntity}
               onChange={(e) => { setSelectedEntity(e.target.value); setPage(1); }}
-              className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
+              className="border border-slate-300 rounded-lg px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-slate-500"
             >
               <option value="">All types</option>
               {filters.entityTypes.map((t) => (
@@ -157,13 +157,13 @@ export default function AuditLogs() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleFilter()}
-              className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 w-48"
+              className="border border-slate-300 rounded-lg px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-slate-500 w-48"
             />
           </div>
 
           <button
             onClick={handleFilter}
-            className="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg hover:bg-slate-700"
+            className="px-4 py-2 bg-slate-800 text-white text-[13px] rounded-lg hover:bg-slate-700"
           >
             Filter
           </button>
@@ -171,7 +171,7 @@ export default function AuditLogs() {
           {hasFilters && (
             <button
               onClick={clearFilters}
-              className="px-4 py-2 text-slate-500 text-sm hover:text-slate-700"
+              className="px-4 py-2 text-slate-500 text-[13px] hover:text-slate-700"
             >
               Clear
             </button>
@@ -181,7 +181,7 @@ export default function AuditLogs() {
         {/* Error */}
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-[13px] text-red-700">{error}</p>
           </div>
         )}
 
@@ -238,7 +238,7 @@ export default function AuditLogs() {
 
           {/* Pagination */}
           {!loading && total > 0 && (
-            <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-between text-sm text-slate-500">
+            <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-between text-[13px] text-slate-500">
               <span>
                 Showing {(page - 1) * 25 + 1}–{Math.min(page * 25, total)} of {total} entries
               </span>

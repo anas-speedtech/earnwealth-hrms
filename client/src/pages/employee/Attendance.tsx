@@ -97,13 +97,21 @@ export default function EmployeeAttendancePage() {
     }
   };
 
+  // Punch times and record dates are serialized as UTC instants from the
+  // live DB; format them in IST so the day boundary matches the device data.
   const formatTime = (iso: string) => {
     if (!iso) return '—';
-    return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return iso;
+    return new Date(parsed.getTime() + 5.5 * 3600 * 1000).toISOString().slice(11, 16);
   };
 
   const formatDate = (iso: string) => {
-    return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return iso;
+    const dayKey = new Date(parsed.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const [y, m, d] = dayKey.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
   const formatMinutes = (mins: number) => {
@@ -114,8 +122,19 @@ export default function EmployeeAttendancePage() {
     return `${remainder}m`;
   };
 
-  const today = new Date().toLocaleDateString('en-CA');
-  const todayRecords = history.filter((record) => record.date.slice(0, 10) === today);
+  // record.date is the UTC instant of IST midnight for that attendance day
+  // (e.g. 2026-10-25T00:00 IST → "2026-10-24T18:30:00.000Z"), so the day
+  // must be recovered by shifting into IST before comparing — comparing the
+  // raw UTC date part would put every record a day early and the "Today"
+  // filter would find nothing.
+  const IST_MS = 5.5 * 3600 * 1000;
+  const istDayKey = (iso: string) => {
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return String(iso).slice(0, 10);
+    return new Date(parsed.getTime() + IST_MS).toISOString().slice(0, 10);
+  };
+  const today = new Date(Date.now() + IST_MS).toISOString().slice(0, 10);
+  const todayRecords = history.filter((record) => istDayKey(record.date) === today);
   const todayStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   if (!user) {
@@ -125,22 +144,22 @@ export default function EmployeeAttendancePage() {
   return (
     <DashboardShell role="EMPLOYEE" userName={user?.email || 'Employee'} userEmail={user?.email || ''} onLogout={async () => {}}>
       <Header title="Attendance" subtitle="Punch in, punch out, and view your attendance" />
-      <div className="p-8 max-w-5xl">
+      <div className="p-6 max-w-5xl">
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-[13px] text-red-700">{error}</p>
           </div>
         )}
 
         <div className="bg-white rounded-xl border border-slate-200 p-6 mb-8">
-          <h3 className="text-lg font-semibold text-slate-900 mb-4">Today — {todayStr}</h3>
+          <h3 className="text-[15px] font-semibold text-slate-900 mb-4">Today — {todayStr}</h3>
           <div className="flex items-center gap-4 mb-6">
             {openSession ? (
               <>
-                <div className="flex-1 bg-green-50 border border-green-200 rounded-lg p-4">
-                  <p className="text-sm text-green-700 font-medium">Latest IN event</p>
-                  <p className="text-2xl font-bold text-green-800 mt-1">{formatTime(openSession.punchIn)}</p>
-                  <p className="text-xs text-green-600 mt-1">Open session ID: {openSession.id}</p>
+                <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                  <p className="text-[13px] text-emerald-700 font-medium">Latest IN event</p>
+                  <p className="text-xl font-bold text-emerald-800 mt-1">{formatTime(openSession.punchIn)}</p>
+                  <p className="text-xs text-emerald-600 mt-1">Open session ID: {openSession.id}</p>
                 </div>
                 <button
                   onClick={handlePunchOut}
@@ -153,7 +172,7 @@ export default function EmployeeAttendancePage() {
             ) : (
               <>
                 <div className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-4">
-                  <p className="text-sm text-slate-500 font-medium">No open session</p>
+                  <p className="text-[13px] text-slate-500 font-medium">No open session</p>
                   <p className="text-lg text-slate-700 mt-1">Punch in to create an IN event</p>
                   <p className="text-xs text-slate-500 mt-2">Work mode is not persisted by the existing attendance schema.</p>
                 </div>
@@ -161,7 +180,7 @@ export default function EmployeeAttendancePage() {
                   <button
                     onClick={handlePunchIn}
                     disabled={punching || !employeeId}
-                    className="px-6 py-3 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-6 py-3 bg-cyan-600 text-white rounded-lg font-medium hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {punching ? 'Punching in...' : 'Punch In'}
                   </button>
@@ -173,31 +192,31 @@ export default function EmployeeAttendancePage() {
 
         {summary && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 mb-8">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">Attendance summary</h3>
+            <h3 className="text-[15px] font-semibold text-slate-900 mb-4">Attendance summary</h3>
             <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
               <div>
                 <p className="text-xs text-slate-500">Dates</p>
-                <p className="text-xl font-semibold text-slate-900">{summary.totalDays}</p>
+                <p className="text-lg font-semibold text-slate-900">{summary.totalDays}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Present</p>
-                <p className="text-xl font-semibold text-slate-900">{summary.totalPresent}</p>
+                <p className="text-lg font-semibold text-slate-900">{summary.totalPresent}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Partial</p>
-                <p className="text-xl font-semibold text-slate-900">{summary.totalPartial}</p>
+                <p className="text-lg font-semibold text-slate-900">{summary.totalPartial}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Minutes</p>
-                <p className="text-xl font-semibold text-slate-900">{summary.totalMinutes}</p>
+                <p className="text-lg font-semibold text-slate-900">{summary.totalMinutes}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Sessions</p>
-                <p className="text-xl font-semibold text-slate-900">{summary.totalSessions}</p>
+                <p className="text-lg font-semibold text-slate-900">{summary.totalSessions}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Average</p>
-                <p className="text-xl font-semibold text-slate-900">{summary.avgMinutesPerDay}m</p>
+                <p className="text-lg font-semibold text-slate-900">{summary.avgMinutesPerDay}m</p>
               </div>
             </div>
           </div>
@@ -205,7 +224,7 @@ export default function EmployeeAttendancePage() {
 
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="px-6 py-4 border-b border-slate-200">
-            <h3 className="text-lg font-semibold text-slate-900">Today's punch history</h3>
+            <h3 className="text-[15px] font-semibold text-slate-900">Today's punch history</h3>
           </div>
           {loading ? (
             <div className="p-8 text-center text-slate-500">Loading...</div>
@@ -217,9 +236,9 @@ export default function EmployeeAttendancePage() {
                 <div key={record.id} className="px-6 py-4 flex items-center justify-between">
                   <div>
                     <p className="font-medium text-slate-900">{formatDate(record.date)}</p>
-                    <span className={`inline-flex mt-1 px-2 py-1 rounded-full text-xs font-medium ${record.status === 'PRESENT' ? 'bg-green-100 text-green-700' : record.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-100 text-slate-700'}`}>{record.status}</span>
+                    <span className={`inline-flex mt-1 px-2 py-1 rounded-full text-xs font-medium ${record.status === 'PRESENT' ? 'bg-emerald-100 text-emerald-700' : record.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-100 text-slate-700'}`}>{record.status}</span>
                   </div>
-                  <div className="text-right text-sm text-slate-700">
+                  <div className="text-right text-[13px] text-slate-700">
                     {record.totalMinutes > 0 && <p>{formatMinutes(record.totalMinutes)}</p>}
                     {record.sessions?.[0]?.punchIn && (
                       <p className="text-xs text-slate-400">{formatTime(record.sessions[0].punchIn)}{record.sessions[0].punchOut ? ` – ${formatTime(record.sessions[0].punchOut)}` : ''}</p>

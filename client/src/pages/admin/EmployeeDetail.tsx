@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import DashboardShell from '../../components/layout/DashboardShell';
+import Button from '../../components/ui/Button';
+import Spinner from '../../components/ui/Spinner';
 import { organizationService } from '../../services/organization.service';
 import { useAuth } from '../../contexts/AuthContext';
 import type { EmployeeDetail, Department } from '../../services/organization.service';
@@ -32,19 +34,27 @@ export default function EmployeeDetailPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const [emp, depts, empPage] = await Promise.all([
-          organizationService.getEmployee(id),
-          organizationService.getDepartments(),
-          organizationService.getEmployees({ page: 1 }),
-        ]);
+        // The manager picker needs every employee, so walk all pages of the
+        // list endpoint (server pages at 20).
+        let page = 1;
+        let allItems: { id: string; firstName?: string; lastName?: string; name?: string; employeeCode?: string }[] = [];
+        for (;;) {
+          const empPage = await organizationService.getEmployees({ page });
+          const rows = empPage.data || [];
+          allItems = allItems.concat(rows);
+          if (page >= empPage.pagination.pages || rows.length === 0) break;
+          page += 1;
+        }
+        const emp = await organizationService.getEmployee(id);
+        const depts = await organizationService.getDepartments();
         setEmployee(emp);
         setDepartments(depts.filter((d) => d.isActive));
-        const items = empPage.data || [];
+        const items = allItems;
         setEmployees(items
           .filter((e: { id: string }) => e.id !== id)
           .map((e: { id: string; firstName?: string; lastName?: string; name?: string; employeeCode?: string }) => ({
             id: e.id,
-            name: (e.firstName && e.lastName) ? `${e.firstName} ${e.lastName}` : (e.name || 'Unknown'),
+            name: (e.name && e.name.trim()) || ((e.firstName && e.lastName) ? `${e.firstName} ${e.lastName}` : 'Unknown'),
             employeeCode: e.employeeCode || '',
           }))
         );
@@ -124,8 +134,8 @@ export default function EmployeeDetailPage() {
   if (isLoading) {
     return (
       <DashboardShell role={userRole} userName={user?.email || ''} userEmail={user?.email || ''} onLogout={async () => {}}>
-        <div className="flex items-center justify-center h-screen">
-          <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+        <div className="flex h-screen items-center justify-center">
+          <Spinner size="md" />
         </div>
       </DashboardShell>
     );
@@ -135,9 +145,9 @@ export default function EmployeeDetailPage() {
     return (
       <DashboardShell role={userRole} userName={user?.email || ''} userEmail={user?.email || ''} onLogout={async () => {}}>
         <Header title="Employee Not Found" />
-        <div className="p-8">
-          <p className="text-slate-500">The requested employee could not be found.</p>
-          <button onClick={() => navigate('/admin/employees')} className="mt-4 text-primary-600 hover:underline">Back to Employees</button>
+        <div className="p-6">
+          <p className="text-[13px] text-slate-500">The requested employee could not be found.</p>
+          <button onClick={() => navigate('/admin/employees')} className="mt-4 text-[13px] font-medium text-cyan-600 hover:text-cyan-700 hover:underline">Back to Employees</button>
         </div>
       </DashboardShell>
     );
@@ -151,41 +161,47 @@ export default function EmployeeDetailPage() {
   return (
     <DashboardShell role={userRole} userName={user?.email || ''} userEmail={user?.email || ''} onLogout={async () => {}}>
       <Header title={`${employee.firstName} ${employee.lastName}`} subtitle={employee.employeeCode} />
-      <div className="p-8">
+      <div className="p-6">
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-sm text-red-700">{error}</p>
+          <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4">
+            <p className="text-[13px] text-red-700">{error}</p>
           </div>
         )}
         {success && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-            <p className="text-sm text-green-700">{success}</p>
+          <div className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-[13px] text-emerald-700">{success}</p>
           </div>
         )}
 
-        <div className="bg-white rounded-xl border border-slate-200 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-slate-900">Employee Details</h3>
-            <div className="flex gap-2">
+        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+          <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-6 py-4">
+            <div>
+              <h3 className="text-[15px] font-bold tracking-tight text-slate-900">Employee Details</h3>
+              <p className="mt-0.5 text-xs text-slate-400">{employee.email}</p>
+            </div>
+            <div className="flex items-center gap-2">
               {canEdit && !isEditing && (
-                <button onClick={() => setIsEditing(true)} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm">
+                <Button size="sm" onClick={() => setIsEditing(true)}>
                   Edit
-                </button>
+                </Button>
               )}
               {canToggleStatus && (
-                <button
+                <Button
                   onClick={handleToggleStatus}
                   disabled={isSaving}
-                  className={`px-4 py-2 rounded-lg text-sm ${employee.status === 'ACTIVE' ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-green-600 text-white hover:bg-green-700'} disabled:opacity-50`}
+                  size="sm"
+                  variant={employee.status === 'ACTIVE' ? 'danger' : 'secondary'}
+                  className={employee.status !== 'ACTIVE' ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50' : ''}
                 >
                   {employee.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
-                </button>
+                </Button>
               )}
             </div>
           </div>
 
+          <div className="p-6">
           {isEditing ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <EditableField label="Employee Code" value={employee.employeeCode} onChange={(v) => setEmployee((p) => (p ? { ...p, employeeCode: v } : p))} />
               <EditableField label="First Name" value={employee.firstName} onChange={(v) => setEmployee((p) => (p ? { ...p, firstName: v } : p))} />
               <EditableField label="Last Name" value={employee.lastName} onChange={(v) => setEmployee((p) => (p ? { ...p, lastName: v } : p))} />
@@ -217,21 +233,21 @@ export default function EmployeeDetailPage() {
                 onChange={(v) => setEmployee((p) => (p ? { ...p, manager: v ? { id: v, name: employees.find((e) => e.id === v)?.name || '' } : null } : p))}
               />
 
-              <div className="md:col-span-2 flex gap-3 pt-4">
-                <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">
+              <div className="md:col-span-2 flex items-center gap-3 border-t border-slate-100 pt-5">
+                <Button onClick={handleSave} isLoading={isSaving}>
                   {isSaving ? 'Saving...' : 'Save Changes'}
-                </button>
-                <button onClick={() => setIsEditing(false)} className="px-6 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">
+                </Button>
+                <Button variant="secondary" onClick={() => setIsEditing(false)}>
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <ReadField label="Employee Code" value={employee.employeeCode} />
               <ReadField label="Email" value={employee.email} />
               <ReadField label="Account Status">
-                <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${employee.accountStatus === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-800'}`}>
+                <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${employee.accountStatus === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-slate-100 text-slate-600 ring-slate-200'}`}>
                   {employee.accountStatus}
                 </span>
               </ReadField>
@@ -243,21 +259,25 @@ export default function EmployeeDetailPage() {
               <ReadField label="Deductions" value={String(employee.deductions ?? '—')} />
               <ReadField label="Joining Date" value={new Date(employee.joiningDate).toLocaleDateString()} />
               <ReadField label="Status">
-                <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(employee.status)}`}>{employee.status}</span>
+                <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusColor(employee.status)}`}>{employee.status}</span>
               </ReadField>
             </div>
           )}
+          </div>
         </div>
       </div>
     </DashboardShell>
   );
 }
 
+const fieldInputClass =
+  'h-9 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10';
+
 function EditableField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-      <input type="text" value={value} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none" />
+      <label className="mb-1.5 block text-[12px] font-medium text-slate-600">{label}</label>
+      <input type="text" value={value} onChange={(e) => onChange(e.target.value)} className={fieldInputClass} />
     </div>
   );
 }
@@ -265,8 +285,8 @@ function EditableField({ label, value, onChange }: { label: string; value: strin
 function EditableDate({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-      <input type="date" value={value} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none" />
+      <label className="mb-1.5 block text-[12px] font-medium text-slate-600">{label}</label>
+      <input type="date" value={value} onChange={(e) => onChange(e.target.value)} className={fieldInputClass} />
     </div>
   );
 }
@@ -274,8 +294,8 @@ function EditableDate({ label, value, onChange }: { label: string; value: string
 function EditableSelect({ label, value, options, onChange, noneLabel }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void; noneLabel?: string }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none">
+      <label className="mb-1.5 block text-[12px] font-medium text-slate-600">{label}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={fieldInputClass}>
         <option value="">{noneLabel || 'Select...'}</option>
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
@@ -286,18 +306,18 @@ function EditableSelect({ label, value, options, onChange, noneLabel }: { label:
 function ReadField({ label, value, children }: { label: string; value?: string; children?: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-500 mb-1">{label}</label>
-      {children || <p className="text-sm text-slate-900">{value || '—'}</p>}
+      <label className="mb-1.5 block text-[12px] font-medium text-slate-600">{label}</label>
+      {children || <p className="text-[13px] font-semibold text-slate-900">{value || '—'}</p>}
     </div>
   );
 }
 
 function getStatusColor(status: string): string {
   switch (status) {
-    case 'ACTIVE': return 'bg-green-100 text-green-800';
-    case 'INACTIVE': return 'bg-slate-100 text-slate-800';
-    case 'SUSPENDED': return 'bg-red-100 text-red-800';
-    case 'ON_LEAVE': return 'bg-yellow-100 text-yellow-800';
-    default: return 'bg-slate-100 text-slate-800';
+    case 'ACTIVE': return 'bg-emerald-50 text-emerald-700 ring-emerald-200';
+    case 'INACTIVE': return 'bg-slate-100 text-slate-600 ring-slate-200';
+    case 'SUSPENDED': return 'bg-red-50 text-red-700 ring-red-200';
+    case 'ON_LEAVE': return 'bg-amber-50 text-amber-700 ring-amber-200';
+    default: return 'bg-slate-100 text-slate-600 ring-slate-200';
   }
 }

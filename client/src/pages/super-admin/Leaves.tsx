@@ -210,9 +210,9 @@ export default function SuperAdminLeavesPage() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
                 activeTab === tab.key
-                  ? 'bg-primary-600 text-white'
+                  ? 'bg-cyan-600 text-white'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
@@ -227,7 +227,7 @@ export default function SuperAdminLeavesPage() {
               <p className="text-slate-500">Loading leave requests…</p>
             ) : (
               <>
-                <h3 className="mb-3 text-base font-semibold text-slate-700">Pending requests</h3>
+                <h3 className="mb-3 text-[14px] font-semibold text-slate-700">Pending requests</h3>
                 {pendingRequests.length === 0 ? (
                   <p className="text-slate-500">No pending leave requests.</p>
                 ) : (
@@ -240,19 +240,19 @@ export default function SuperAdminLeavesPage() {
                           </p>
                           <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{request.status}</span>
                         </div>
-                        <p className="mt-1 text-sm text-slate-600">{request.reason}</p>
+                        <p className="mt-1 text-[13px] text-slate-600">{request.reason}</p>
                         {canReviewAll && (
                           <div className="mt-3 flex flex-wrap gap-2">
                             <button
                               onClick={() => handleApproveLeave(request.id)}
                               disabled={submitting === request.id}
-                              className="px-3 py-1 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-50"
+                              className="px-3 py-1 rounded-lg bg-cyan-600 text-white text-[13px] disabled:opacity-50"
                             >
                               Approve
                             </button>
                             <button
                               onClick={() => setRejectFor(rejectFor === request.id ? null : request.id)}
-                              className="px-3 py-1 rounded-lg border border-slate-300 text-sm text-slate-700"
+                              className="px-3 py-1 rounded-lg border border-slate-300 text-[13px] text-slate-700"
                             >
                               Reject
                             </button>
@@ -269,7 +269,7 @@ export default function SuperAdminLeavesPage() {
                               <button
                                 onClick={() => handleRejectLeave(request.id)}
                                 disabled={submitting === request.id}
-                                className="px-3 py-1 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-50"
+                                className="px-3 py-1 rounded-lg bg-cyan-600 text-white text-[13px] disabled:opacity-50"
                               >
                                 Confirm rejection
                               </button>
@@ -287,7 +287,7 @@ export default function SuperAdminLeavesPage() {
 
         {activeTab === 'balances' && (
           <section>
-            <h3 className="mb-3 text-base font-semibold text-slate-700">Leave balances</h3>
+            <h3 className="mb-3 text-[14px] font-semibold text-slate-700">Leave balances</h3>
             <div className="mb-4 max-w-xs">
               <select
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
@@ -346,7 +346,7 @@ export default function SuperAdminLeavesPage() {
               <p className="text-slate-500">Loading WFH requests…</p>
             ) : (
               <>
-                <h3 className="mb-3 text-base font-semibold text-slate-700">All WFH requests</h3>
+                <h3 className="mb-3 text-[14px] font-semibold text-slate-700">All WFH requests</h3>
                 {wfhRequests.length === 0 ? (
                   <p className="text-slate-500">No WFH requests.</p>
                 ) : (
@@ -368,19 +368,19 @@ export default function SuperAdminLeavesPage() {
                             </p>
                             <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{item.status}</span>
                           </div>
-                          <p className="mt-1 text-sm text-slate-600">{item.reason}</p>
+                          <p className="mt-1 text-[13px] text-slate-600">{item.reason}</p>
                           {canReviewAll && (
                             <div className="mt-3 flex flex-wrap gap-2">
                               <button
                                 onClick={() => handleApproveWfh(item.id)}
                                 disabled={submitting === item.id}
-                                className="px-3 py-1 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-50"
+                                className="px-3 py-1 rounded-lg bg-cyan-600 text-white text-[13px] disabled:opacity-50"
                               >
                                 Approve
                               </button>
                               <button
                                 onClick={() => setRejectFor(rejectFor === item.id ? null : item.id)}
-                                className="px-3 py-1 rounded-lg border border-slate-300 text-sm text-slate-700"
+                                className="px-3 py-1 rounded-lg border border-slate-300 text-[13px] text-slate-700"
                               >
                                 Reject
                               </button>
@@ -397,7 +397,7 @@ export default function SuperAdminLeavesPage() {
                                 <button
                                   onClick={() => handleRejectWfh(item.id)}
                                   disabled={submitting === item.id}
-                                  className="px-3 py-1 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-50"
+                                  className="px-3 py-1 rounded-lg bg-cyan-600 text-white text-[13px] disabled:opacity-50"
                                 >
                                   Confirm rejection
                                 </button>
@@ -420,7 +420,7 @@ export default function SuperAdminLeavesPage() {
               <p className="text-slate-500">Loading comp-off credits…</p>
             ) : (
               <>
-                <h3 className="mb-3 text-base font-semibold text-slate-700">Pending comp-off credits</h3>
+                <h3 className="mb-3 text-[14px] font-semibold text-slate-700">Pending comp-off credits</h3>
                 {pendingCredits.length === 0 ? (
                   <p className="text-slate-500">No pending comp-off credits.</p>
                 ) : (
@@ -437,13 +437,13 @@ export default function SuperAdminLeavesPage() {
                           <button
                             onClick={() => handleApproveCredit(item.id, 'APPROVE')}
                             disabled={submitting === String(item.id)}
-                            className="mt-3 px-3 py-1 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-50"
+                            className="mt-3 px-3 py-1 rounded-lg bg-cyan-600 text-white text-[13px] disabled:opacity-50"
                           >
                             Approve
                           </button>
                           <button
                             onClick={() => setRejectFor(rejectFor === String(item.id) ? null : String(item.id))}
-                            className="mt-3 px-3 py-1 rounded-lg border border-slate-300 text-sm text-slate-700"
+                            className="mt-3 px-3 py-1 rounded-lg border border-slate-300 text-[13px] text-slate-700"
                           >
                             Reject
                           </button>
@@ -471,13 +471,15 @@ export default function SuperAdminLeavesPage() {
 }
 
 function computeTotals(balances: LeaveBalanceItem[]) {
+  // Balance figures are MySQL DECIMALs that arrive as strings — coerce every
+  // column or `+=` concatenates text ("5.00" + "3.00" -> "5.003.00").
   let allocated = 0;
   let used = 0;
   let available = 0;
   for (const row of balances) {
     allocated += Number(row.openingBalance || 0);
-    used += row.usedBalance;
-    available += row.availableBalance;
+    used += Number(row.usedBalance || 0);
+    available += Number(row.availableBalance || 0);
   }
   return { totalAllocated: allocated, totalUsed: used, totalRemaining: available };
 }

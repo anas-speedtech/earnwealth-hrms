@@ -130,16 +130,16 @@ function arrayLen(value: unknown): number {
 }
 
 /**
- * Silently swallows errors so one failing endpoint never breaks the whole
- * dashboard.  Used for tables that are known to be absent or routes that are
- * not yet wired.
+ * Swallows errors so one failing endpoint never breaks the whole dashboard,
+ * but reports whether the call succeeded so tiles can show an honest state
+ * ("module not loaded") instead of a misleading zero.
  */
-async function safe<T>(promise: Promise<{ data: T }>): Promise<T | null> {
+async function safe<T>(promise: Promise<{ data: T }>): Promise<{ ok: boolean; data: T | null }> {
   try {
     const result = await promise;
-    return result.data;
+    return { ok: true, data: result.data };
   } catch {
-    return null;
+    return { ok: false, data: null };
   }
 }
 
@@ -156,19 +156,19 @@ export const dashboardService = {
       safe(api.get<CompOffCredit[]>('/compoff/pending')),
     ]);
 
-    const totalEmployees = toInt(empResp?.pagination?.total);
-    const activeAdmins = arrayLen(adminsResp);
-    const hrStaff = arrayLen(hrsResp);
+    const totalEmployees = toInt(empResp.data?.pagination?.total);
+    const activeAdmins = arrayLen(adminsResp.data);
+    const hrStaff = arrayLen(hrsResp.data);
     // HR sees pending leaves + comp-off credits in their queue
-    const pendingCount = arrayLen(pendingLeaves) + arrayLen(pendingCredits);
+    const pendingCount = arrayLen(pendingLeaves.data) + arrayLen(pendingCredits.data);
 
     return {
       title: 'System administration and oversight',
       stats: [
-        { key: 'employees', label: 'Total Employees', value: totalEmployees, available: true, href: '/admin/employees', tone: 'blue' },
-        { key: 'admins', label: 'Active Admins', value: activeAdmins, available: true, href: '/super-admin/admins', tone: 'green' },
-        { key: 'hr', label: 'HR Staff', value: hrStaff, available: true, href: '/super-admin/admins', tone: 'purple' },
-        { key: 'pending', label: 'Pending Approvals', value: pendingCount, available: true, href: '/super-admin/leaves', tone: 'yellow' },
+        { key: 'employees', label: 'Total Employees', value: totalEmployees, available: empResp.ok, href: '/admin/employees', tone: 'blue' },
+        { key: 'admins', label: 'Active Admins', value: activeAdmins, available: adminsResp.ok, href: '/super-admin/admins', tone: 'green' },
+        { key: 'hr', label: 'HR Staff', value: hrStaff, available: hrsResp.ok, href: '/super-admin/admins', tone: 'purple' },
+        { key: 'pending', label: 'Pending Approvals', value: pendingCount, available: pendingLeaves.ok && pendingCredits.ok, href: '/super-admin/leaves', tone: 'yellow' },
       ],
     };
   },
@@ -184,32 +184,32 @@ export const dashboardService = {
       safe(api.get<unknown[]>('/wfh/requests')),
     ]);
 
-    const wfhCount = arrayLen(wfhResp);
+    const wfhCount = arrayLen(wfhResp.data);
 
     return {
       title: 'Employee and department management',
       stats: [
         {
           key: 'employees', label: 'Total Employees',
-          value: toInt(empResp?.pagination?.total),
-          available: true, href: '/admin/employees', tone: 'blue',
+          value: toInt(empResp.data?.pagination?.total),
+          available: empResp.ok, href: '/admin/employees', tone: 'blue',
         },
         {
           key: 'departments', label: 'Departments',
-          value: arrayLen(deptResp),
-          available: true, href: '/admin/departments', tone: 'green',
+          value: arrayLen(deptResp.data),
+          available: deptResp.ok, href: '/admin/departments', tone: 'green',
         },
         {
           key: 'designations', label: 'Designations',
-          value: arrayLen(desigResp),
-          available: true, href: '/admin/designations', tone: 'purple',
+          value: arrayLen(desigResp.data),
+          available: desigResp.ok, href: '/admin/designations', tone: 'purple',
         },
         // WFH requests are reviewed by HR and above.
         {
           key: 'wfh',
           label: 'WFH Requests',
           value: wfhCount,
-          available: true, href: '/admin/wfh', tone: 'slate',
+          available: wfhResp.ok, href: '/admin/wfh', tone: 'slate',
         },
       ],
     };
@@ -225,29 +225,29 @@ export const dashboardService = {
       safe(api.get<PayrollStatsResponse>('/payroll/stats')),
     ]);
 
-    const pendingLeavesCount = arrayLen(pendingLeaves);
-    const pendingCreditsCount = arrayLen(pendingCredits);
-    const pendingPayroll = toInt(payrollResp?.data?.pendingApproval);
+    const pendingLeavesCount = arrayLen(pendingLeaves.data);
+    const pendingCreditsCount = arrayLen(pendingCredits.data);
+    const pendingPayroll = toInt(payrollResp.data?.data?.pendingApproval);
     // approvedThisMonth counts payroll_records APPROVED in the current month.
     // It is a payroll metric only — deliberately NOT folded into the comp-off
     // or leave queues, since comp-off credits are a separate workflow.
-    const payrollApprovedThisMonth = toInt(payrollResp?.data?.approvedThisMonth);
+    const payrollApprovedThisMonth = toInt(payrollResp.data?.data?.approvedThisMonth);
 
     return {
       title: 'Human resources operations',
       stats: [
-        { key: 'leaves', label: 'Pending Leaves', value: pendingLeavesCount, available: true, href: '/hr/leaves', tone: 'yellow' },
-        { key: 'credits', label: 'Pending Comp-Off', value: pendingCreditsCount, available: true, href: '/hr/comp-offs', tone: 'green' },
+        { key: 'leaves', label: 'Pending Leaves', value: pendingLeavesCount, available: pendingLeaves.ok, href: '/hr/leaves', tone: 'yellow' },
+        { key: 'credits', label: 'Pending Comp-Off', value: pendingCreditsCount, available: pendingCredits.ok, href: '/hr/comp-offs', tone: 'green' },
         {
           key: 'payroll', label: 'Pending Payroll',
           value: pendingPayroll,
-          available: !!payrollResp,
+          available: payrollResp.ok,
           href: '/hr/payroll', tone: 'slate',
         },
         {
           key: 'payrollApproved', label: 'Payroll Runs Approved (This Month)',
           value: payrollApprovedThisMonth,
-          available: !!payrollResp,
+          available: payrollResp.ok,
           href: '/hr/payroll', tone: 'purple',
         },
       ],
@@ -266,16 +266,16 @@ export const dashboardService = {
       safe(api.get<PayrollMySummaryResponse>('/payroll/my-summary')),
     ]);
 
-    const session = openSession?.session;
+    const session = openSession.data?.session;
     const punchInTime = session?.punchIn
       ? new Date(session.punchIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : null;
-    const compAvailable = toInt(compBalance?.available);
-    const compCreditsCount = arrayLen(compCredits?.credits);
-    const attendanceTotal = toInt(history?.pagination?.total);
-    const latestNetPay = toAmount(payrollResp?.data?.latestPayroll?.netPay);
+    const compAvailable = toInt(compBalance.data?.available);
+    const compCreditsCount = arrayLen(compCredits.data?.credits);
+    const attendanceTotal = toInt(history.data?.pagination?.total);
+    const latestNetPay = toAmount(payrollResp.data?.data?.latestPayroll?.netPay);
     // Amount is rendered as the currency-formatted sub-label on the card.
-    const payslipAmount = payrollResp?.data?.latestPayroll
+    const payslipAmount = payrollResp.data?.data?.latestPayroll
       ? `₹${latestNetPay.toLocaleString('en-IN')}`
       : null;
 
@@ -287,7 +287,7 @@ export const dashboardService = {
           label: punchInTime ? `Punched In ${punchInTime}` : 'Not Punched In',
           value: punchInTime ? 1 : 0,
           subLabel: punchInTime ? `Started ${punchInTime}` : undefined,
-          available: true,
+          available: openSession.ok,
           href: '/employee/attendance',
           tone: punchInTime ? 'green' : 'yellow',
         },
@@ -296,7 +296,7 @@ export const dashboardService = {
           label: 'Comp-Off Available',
           value: compAvailable,
           subLabel: compCreditsCount > 0 ? `${compCreditsCount} credited` : undefined,
-          available: true,
+          available: compBalance.ok && compCredits.ok,
           href: '/employee/comp-offs',
           tone: 'purple',
         },
@@ -304,7 +304,7 @@ export const dashboardService = {
           key: 'attendance',
           label: 'Attendance Records',
           value: attendanceTotal,
-          available: true,
+          available: history.ok,
           href: '/employee/attendance',
           tone: 'blue',
         },
@@ -313,7 +313,7 @@ export const dashboardService = {
           label: 'Latest Net Pay',
           value: latestNetPay,
           subLabel: payslipAmount ?? undefined,
-          available: !!payrollResp?.data,   // real data when payroll module is wired
+          available: payrollResp.ok,   // real data when payroll module is wired
           href: '/employee/payslips',
           tone: latestNetPay > 0 ? 'green' : 'slate',
         },

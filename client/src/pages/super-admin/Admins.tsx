@@ -1,11 +1,28 @@
 import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Users } from 'lucide-react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { organizationService, Designation } from '../../services/organization.service';
+import { leaveService, LeaveTypeItem } from '../../services/leave.service';
 import toast from 'react-hot-toast';
+import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
+import Select from '../../components/ui/Select';
+import Spinner from '../../components/ui/Spinner';
+import EmptyState from '../../components/ui/EmptyState';
+
+// The list endpoint flattens a single `name` column, which is frequently
+// empty (the split `firstName`/`lastName` are always populated). We only need
+// these fields for the manager picker, so keep the shape narrow.
+interface EmployeeRow {
+  id: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  employeeCode?: string;
+}
 
 interface AdminAccount {
   id: string;
@@ -57,6 +74,8 @@ export default function SuperAdminAdminsPage() {
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [employees, setEmployees] = useState<{ id: string; name: string; employeeCode: string }[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
+  const [selectedLeaveTypes, setSelectedLeaveTypes] = useState<Record<string, boolean>>({});
   const [form, setForm] = useState<NewAccount>({
     name: '',
     email: '',
@@ -99,16 +118,67 @@ export default function SuperAdminAdminsPage() {
         // non-critical
       }
       try {
-        const page = await organizationService.getEmployees({ page: 1 });
-        if (mounted) {
-          setEmployees(
-            (page.data || []).map((e: { id: string; firstName?: string; lastName?: string; name?: string; employeeCode?: string }) => ({
+        // The list endpoint pages at 20 (search matches code / name /
+        // designation), so fetch every page to keep the manager picker
+        // complete. Accumulate all rows, then dedupe by employee code
+        // (the list endpoint's flat `name` column is often empty — the
+        // split `firstName`/`lastName` are always populated).
+        let page = 1;
+        const allRows: EmployeeRow[] = [];
+        for (;;) {
+          const result = await organizationService.getEmployees({ page });
+          const rows = result.data || [];
+          allRows.push(...rows);
+          if (page >= result.pagination.pages || rows.length === 0) break;
+          page += 1;
+        }
+        if (!mounted) return;
+        setEmployees(
+          [...new Map(
+            allRows
+              .filter((e) => (e.employeeCode && e.employeeCode.trim()))
+              .map((e) => [e.employeeCode as string, e] as const)
+          ).values()]
+            .map((e) => ({
               id: e.id,
-              name: (e.firstName && e.lastName) ? `${e.firstName} ${e.lastName}` : (e.name || 'Unknown'),
+              name:
+                (e.name && e.name.trim()) ||
+                ((e.firstName || e.lastName) ? [e.firstName, e.lastName].filter(Boolean).join(' ') : 'Unknown'),
               employeeCode: e.employeeCode || '',
             })),
-          );
-        }
+        );
+      } catch {
+        // non-critical
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Load leave types so the create form can let an admin opt in/out of which
+  // types a new employee receives. Maternity / Paternity are excluded by
+  // default since they aren't applicable to everyone.
+  const isMaternityOrPaternity = (t: LeaveTypeItem) => {
+    const code = (t.code || '').toUpperCase();
+    const name = (t.displayName || t.name || '').toLowerCase();
+    return (
+      ['MAT', 'PTE', 'PAT', 'MLE'].includes(code) ||
+      name.includes('maternity') ||
+      name.includes('paternity')
+    );
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const list = await leaveService.getAllLeaveTypes();
+        if (!mounted) return;
+        setLeaveTypes(list);
+        setSelectedLeaveTypes(
+          Object.fromEntries(
+            list.map((t) => [t.id, !isMaternityOrPaternity(t)]),
+          ),
+        );
       } catch {
         // non-critical
       }
@@ -150,6 +220,9 @@ export default function SuperAdminAdminsPage() {
     }
     setIsSubmitting(true);
     setFieldError(null);
+    // TODO(backend): send leave-type opt-in with account creation
+    const ignoredLeaveTypeSelection = selectedLeaveTypes; // unused until backend supports it
+    void ignoredLeaveTypeSelection;
     try {
       await api.post('/admin-users', {
         name: form.name,
@@ -201,68 +274,68 @@ export default function SuperAdminAdminsPage() {
   return (
     <DashboardShell role={user?.role || 'SUPER_ADMIN'} userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="User Management" subtitle="Provision and manage user accounts" />
-      <div className="p-8 max-w-6xl">
-        {canManage && (
-          <div className="mb-4">
-            <button
-              onClick={() => {
-                setShowForm(!showForm);
-                setFieldError(null);
-                // The form starts on the role the current user is allowed to
-                // create, so the "Add Employee" button opens the right one for
-                // an HR Admin.
-                if (!showForm) {
-                  setForm((prev) => ({ ...prev, role: user?.role === 'HR_ADMIN' ? 'EMPLOYEE' : 'HR_ADMIN' }));
-                }
-              }}
-              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors ${
-                showForm
-                  ? 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                  : 'bg-primary-600 text-white hover:bg-primary-700'
-              }`}
-            >
-              {showForm ? 'Close' : (<span className="inline-flex items-center gap-1.5"><Plus size={15} /> Add Employee</span>)}
-            </button>
+      <div className="mx-auto max-w-6xl px-6 py-6">
+        {/* Toolbar */}
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <div>
+            {canManage ? (
+              <Button
+                variant={showForm ? 'secondary' : 'primary'}
+                size="sm"
+                onClick={() => {
+                  setShowForm(!showForm);
+                  setFieldError(null);
+                  // The form starts on the role the current user is allowed to
+                  // create, so the "Add Employee" button opens the right one for
+                  // an HR Admin.
+                  if (!showForm) {
+                    setForm((prev) => ({ ...prev, role: user?.role === 'HR_ADMIN' ? 'EMPLOYEE' : 'HR_ADMIN' }));
+                  }
+                }}
+              >
+                {showForm
+                  ? 'Close'
+                  : (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Plus size={15} /> Add Employee
+                      </span>
+                    )}
+              </Button>
+            ) : null}
           </div>
-        )}
+          <p className="text-[13px] text-slate-500">
+            {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'}
+          </p>
+        </div>
 
         {showForm && canManage && (
-          <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">
+          <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+            <h3 className="mb-5 text-[15px] font-bold tracking-tight text-slate-900">
               {form.role === 'EMPLOYEE' ? 'Add Employee' : 'Add HR Admin'}
             </h3>
-            {fieldError && <p className="mb-3 text-sm text-red-600">{fieldError}</p>}
+            {fieldError && (
+              <p className="mb-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700 ring-1 ring-inset ring-red-600/10">{fieldError}</p>
+            )}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  label="Full name"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Asha Rao"
+                  required
+                />
+                <Input
+                  label="Email address"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  placeholder="admin@company.com"
+                  required
+                />
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Full name</label>
-                  <input
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="Asha Rao"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Email address</label>
-                  <input
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    placeholder="admin@company.com"
-                    required
-                  />
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Employee Code
-                  </label>
-                  <input
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  <Input
+                    label="Employee Code"
                     value={form.employeeCode}
                     onChange={(e) => setForm({ ...form, employeeCode: e.target.value })}
                     placeholder="EMP-1001"
@@ -273,144 +346,175 @@ export default function SuperAdminAdminsPage() {
                     changed once the account is created.
                   </p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
-                  <select
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    value={form.designation}
-                    onChange={(e) => setForm({ ...form, designation: e.target.value })}
-                  >
-                    <option value="">Select designation…</option>
-                    {designations.map((d) => (
-                      <option key={d.id} value={d.name}>{d.name}</option>
-                    ))}
-                  </select>
+                <Select
+                  label="Designation"
+                  value={form.designation}
+                  onChange={(e) => setForm({ ...form, designation: e.target.value })}
+                  options={[
+                    { value: '', label: 'Select designation…' },
+                    ...designations.map((d) => ({ value: d.name, label: d.name })),
+                  ]}
+                />
+                <Select
+                  label="Reporting Manager"
+                  value={form.reportingManager}
+                  onChange={(e) => setForm({ ...form, reportingManager: e.target.value })}
+                  options={[
+                    { value: '', label: 'Select manager…' },
+                    ...employees.map((e) => ({
+                      value: e.name,
+                      label: `${e.name} (${e.employeeCode})`,
+                    })),
+                  ]}
+                />
+                <div className="sm:col-span-2">
+                  <Input
+                    label={form.role === 'HR_ADMIN' ? 'Password' : 'Password (optional)'}
+                    type="password"
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    placeholder={form.role === 'HR_ADMIN' ? 'At least 8 characters' : 'Leave blank to email an invitation instead'}
+                    required={form.role === 'HR_ADMIN'}
+                  />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Reporting Manager</label>
-                  <select
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    value={form.reportingManager}
-                    onChange={(e) => setForm({ ...form, reportingManager: e.target.value })}
-                  >
-                    <option value="">Select manager…</option>
-                    {employees.map((e) => (
-                      <option key={e.id} value={e.name}>{e.name} ({e.employeeCode})</option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Role"
+                  value={form.role}
+                  onChange={(e) => setForm({ ...form, role: e.target.value as NewAccount['role'] })}
+                  options={roleOptions.map((option) => ({ value: option.value, label: option.label }))}
+                />
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {form.role === 'HR_ADMIN' && (
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                    <input
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                      type="password"
-                      value={form.password}
-                      onChange={(e) => setForm({ ...form, password: e.target.value })}
-                      placeholder="At least 8 characters"
-                      required
-                    />
+
+              {form.role === 'EMPLOYEE' && leaveTypes.length > 0 && (
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4">
+                  <h4 className="text-[13px] font-semibold text-slate-900">Available leave types</h4>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Select which leave types this employee gets. Maternity / Paternity are usually not applicable to everyone.
+                  </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {leaveTypes.map((t) => (
+                      <label key={t.id} className="flex items-center gap-2 text-[13px] text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={selectedLeaveTypes[t.id] ?? false}
+                          onChange={(e) =>
+                            setSelectedLeaveTypes((prev) => ({ ...prev, [t.id]: e.target.checked }))
+                          }
+                          className="h-4 w-4 rounded accent-cyan-600"
+                        />
+                        {t.displayName || t.name}
+                      </label>
+                    ))}
                   </div>
-                )}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
-                  <select
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    value={form.role}
-                    onChange={(e) => setForm({ ...form, role: e.target.value as NewAccount['role'] })}
-                  >
-                    {roleOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
                 </div>
+              )}
+
+              <div className="flex items-center gap-3 border-t border-slate-100 pt-4">
+                <Button type="submit" variant="primary" isLoading={isSubmitting}>
+                  {isSubmitting ? 'Creating…' : form.role === 'EMPLOYEE' ? 'Create Employee' : 'Create HR Admin'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowForm(false);
+                    setFieldError(null);
+                  }}
+                >
+                  Close
+                </Button>
               </div>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                {isSubmitting ? 'Creating…' : form.role === 'EMPLOYEE' ? 'Create Employee' : 'Create HR Admin'}
-              </button>
             </form>
           </div>
         )}
 
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {error && (
+          <p className="mb-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700 ring-1 ring-inset ring-red-600/10">{error}</p>
+        )}
 
         {isLoading ? (
-          <p className="text-slate-500">Loading accounts…</p>
+          <div className="flex items-center justify-center gap-3 py-16 text-[13px] text-slate-500">
+            <Spinner size="md" />
+            <span>Loading accounts…</span>
+          </div>
+        ) : accounts.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+            <EmptyState
+              icon={<Users size={28} />}
+              title="No accounts yet"
+              description="Create the first account to get started."
+            />
+          </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left">
-                <tr>
-                  <th className="px-4 py-3 font-medium text-slate-500">Employee Code</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Name</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Designation</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Reporting Manager</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Email</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Role</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Status</th>
-                  <th className="px-4 py-3 font-medium text-slate-500">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((account) => (
-                  <tr key={account.id} className="border-t border-slate-100">
-                    <td className="px-4 py-3 text-slate-600">{account.employeeCode || '—'}</td>
-                    <td className="px-4 py-3 font-medium text-slate-700">{account.name}</td>
-                    <td className="px-4 py-3 text-slate-600">{account.designation || '—'}</td>
-                    <td className="px-4 py-3 text-slate-600">{account.reportingManager || '—'}</td>
-                    <td className="px-4 py-3 text-slate-600">{account.email}</td>
-                    <td className="px-4 py-3">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                        {ROLE_LABELS[account.role] || account.role}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-                          account.isActive
-                            ? 'bg-green-50 text-green-700'
-                            : 'bg-red-50 text-red-700'
-                        }`}
-                      >
-                        <span
-                          className={`h-1.5 w-1.5 rounded-full ${
-                            account.isActive ? 'bg-green-500' : 'bg-red-500'
-                          }`}
-                        />
-                        {account.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="sr-only peer"
-                          checked={account.isActive}
-                          disabled={togglingId === account.id}
-                          onChange={() => handleToggle(account)}
-                          aria-label={`${account.isActive ? 'Active' : 'Inactive'} - toggle to ${account.isActive ? 'deactivate' : 'activate'}`}
-                        />
-                        <div className={`w-11 h-6 rounded-full peer transition-colors ${
-                          account.isActive ? 'bg-green-500' : 'bg-slate-300'
-                        } ${togglingId === account.id ? 'opacity-50' : ''}`}>
-                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                            account.isActive ? 'translate-x-5' : 'translate-x-0'
-                          } ${togglingId === account.id ? 'animate-pulse' : ''}`} />
-                        </div>
-                      </label>
-                    </td>
+          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50/60 text-left">
+                  <tr>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Employee Code</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Name</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Designation</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Reporting Manager</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Role</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {accounts.map((account) => (
+                    <tr key={account.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/50">
+                      <td className="px-4 py-3 text-slate-600">{account.employeeCode || '—'}</td>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-slate-900">{account.name}</p>
+                        <p className="text-xs text-slate-400">{account.email}</p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{account.designation || '—'}</td>
+                      <td className="px-4 py-3 text-slate-600">{account.reportingManager || '—'}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 ring-1 ring-inset ring-slate-200/80">
+                          {ROLE_LABELS[account.role] || account.role}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${
+                            account.isActive
+                              ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/15'
+                              : 'bg-red-50 text-red-700 ring-red-600/15'
+                          }`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              account.isActive ? 'bg-emerald-500' : 'bg-red-500'
+                            }`}
+                          />
+                          {account.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={account.isActive}
+                            disabled={togglingId === account.id}
+                            onChange={() => handleToggle(account)}
+                            aria-label={`${account.isActive ? 'Active' : 'Inactive'} - toggle to ${account.isActive ? 'deactivate' : 'activate'}`}
+                          />
+                          <div className={`w-9 h-5 rounded-full peer transition-colors duration-150 ${
+                            account.isActive ? 'bg-emerald-500' : 'bg-slate-300'
+                          } ${togglingId === account.id ? 'opacity-50' : ''}`}>
+                            <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow-sm ring-0 transition-transform duration-150 ${
+                              account.isActive ? 'translate-x-4' : 'translate-x-0'
+                            } ${togglingId === account.id ? 'animate-pulse' : ''}`} />
+                          </div>
+                        </label>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

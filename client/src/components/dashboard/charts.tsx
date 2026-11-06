@@ -162,7 +162,7 @@ export function DonutLegend({ data }: { data: DonutSlice[] }) {
 
 export function EmptyState({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-400 ${className}`}>
+    <div className={`rounded-xl border border-dashed border-slate-200 p-6 text-center text-[13px] text-slate-400 ${className}`}>
       {children}
     </div>
   );

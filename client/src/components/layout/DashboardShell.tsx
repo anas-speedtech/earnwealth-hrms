@@ -17,11 +17,13 @@ export default function DashboardShell({ role, userName, userEmail, children }: 
   const effectiveRole = user?.role || role || 'EMPLOYEE';
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f6f8fc]">
+    <div className="flex h-screen overflow-hidden bg-[#f8fafc]">
       <Sidebar role={effectiveRole} userName={userName} userEmail={userEmail} />
-      <main className="flex-1 overflow-y-auto bg-[radial-gradient(circle_at_100%_0%,rgba(14,165,233,0.10),transparent_25rem)]">
-        {children}
-      </main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <main className="flex-1 overflow-y-auto">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

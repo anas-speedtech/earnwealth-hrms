@@ -86,7 +86,7 @@ export default function EmployeeNotificationsPage() {
         ) : (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-slate-500">
+              <p className="text-[13px] text-slate-500">
                 {visible.length} unread, {readCount} read
               </p>
               <button
@@ -99,7 +99,7 @@ export default function EmployeeNotificationsPage() {
             {visible.map((notification) => (
               <div
                 key={notification.id}
-                className={`rounded-xl border p-4 text-sm ${
+                className={`rounded-xl border p-4 text-[13px] ${
                   notification.tone === 'green'
                     ? 'border-green-100 bg-green-50'
                     : notification.tone === 'yellow'

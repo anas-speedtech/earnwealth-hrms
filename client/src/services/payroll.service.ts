@@ -98,6 +98,45 @@ export interface PayrollDashboardStats {
   totalEmployees: number;
 }
 
+// A "salary header" — one entry of the organisation-wide payhead catalog
+// (Basic, HRA, PF...). HR configures this list; the salary-structure form
+// then offers these headers instead of free-text components.
+export interface SalaryPayhead {
+  id: string;
+  code: string;
+  name: string;
+  type: 'EARNING' | 'DEDUCTION';
+  description: string;
+  isFixedByDefault: boolean;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+// The organisation's configurable salary split (the "Salary Configuration").
+// Stored server-side in a single row; HR edits it from the Payroll page.
+export interface SalaryRules {
+  basicPct: number;
+  hraPctOfBasic: number;
+  pfPct: number;
+  pfCap: number;
+  esicEmployerPct: number;
+  esicEmployeePct: number;
+  esicWageCeiling: number;
+  professionTax: number;
+  workingDaysMonth: number;
+  notes: string;
+}
+
+export interface SalarySplitPreview {
+  ctc: number;
+  earnings: { name: string; code: string; type: string; amount: number }[];
+  deductions: { name: string; code: string; type: string; amount: number }[];
+  employerContributions: { name: string; code: string; type: string; amount: number }[];
+  grossEarnings: number;
+  totalDeductions: number;
+  netPay: number;
+}
+
 export interface PayrollSummary {
   monthlyCTC: string;
   currency: string;
@@ -340,6 +379,89 @@ export const payrollService = {
       const message = err.response?.data?.error?.message || 'Failed to download payslip.';
       toast.error(message);
       throw new Error(message);
+    });
+  },
+
+  // ---- Salary Payheads ("salary headers") ----
+
+  // ---- Salary rules (the configurable salary split) ----
+
+  async getSalaryRules(): Promise<SalaryRules> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: SalaryRules }>(
+      `${API_BASE_URL}/payroll/salary-rules`,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async updateSalaryRules(payload: Partial<SalaryRules>): Promise<SalaryRules> {
+    const session = getSession();
+    const { data } = await axios.put<{ data: SalaryRules }>(
+      `${API_BASE_URL}/payroll/salary-rules`,
+      payload,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async previewSalarySplit(ctc: number): Promise<SalarySplitPreview> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: SalarySplitPreview }>(
+      `${API_BASE_URL}/payroll/salary-rules/preview`,
+      { ctc },
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async listPayheads(params: { activeOnly?: boolean } = {}): Promise<SalaryPayhead[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: SalaryPayhead[] }>(
+      `${API_BASE_URL}/payroll/payheads`,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` }, params }
+    );
+    return data.data;
+  },
+
+  async createPayhead(payload: {
+    code: string;
+    name: string;
+    type: 'EARNING' | 'DEDUCTION';
+    description?: string | null;
+    isFixedByDefault?: boolean;
+    sortOrder?: number;
+  }): Promise<SalaryPayhead> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: SalaryPayhead }>(
+      `${API_BASE_URL}/payroll/payheads`,
+      payload,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async updatePayhead(id: string, payload: {
+    name?: string;
+    type?: 'EARNING' | 'DEDUCTION';
+    description?: string | null;
+    isFixedByDefault?: boolean;
+    sortOrder?: number;
+    isActive?: boolean;
+  }): Promise<SalaryPayhead> {
+    const session = getSession();
+    const { data } = await axios.put<{ data: SalaryPayhead }>(
+      `${API_BASE_URL}/payroll/payheads/${id}`,
+      payload,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async deletePayhead(id: string): Promise<void> {
+    const session = getSession();
+    await axios.delete(`${API_BASE_URL}/payroll/payheads/${id}`, {
+      headers: { Authorization: `Bearer ${session?.accessToken}` },
     });
   },
 

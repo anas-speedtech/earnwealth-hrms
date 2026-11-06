@@ -5,6 +5,13 @@ const { logger } = require('../utils/logger');
 const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
 const PAGE_SIZE = 20;
 
+// Standard working window: in by 09:30, out at 18:30, lunch break after
+// 13:45. Used to classify matrix cells (late start -> FHDL, early end ->
+// SHDL) and to detect off-day (weekend/holiday) punch-ins that earn a
+// comp-off credit.
+const STANDARD_IN = '09:30';
+const STANDARD_OUT = '18:30';
+
 class AttendanceService {
   static canAccessAll(reqUser) {
     return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role);
@@ -24,6 +31,197 @@ class AttendanceService {
 
   static formatIstDate(value) {
     return new Date(new Date(value).getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
+  }
+
+  /**
+   * Month matrix: one row per employee, and for each day of the month the
+   * earliest punch-in and latest punch-out times plus a status. This is the
+   * data the Calendar view renders (Emp Code, Emp Name, 1..31 columns).
+   */
+  static async getMatrix(reqUser, { year, month }) {
+    if (!this.canAccessAll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view the attendance matrix.', 403);
+    }
+
+    const prisma = this.getPrisma();
+    const yearNum = Number(year);
+    const monthNum = Number(month);
+    if (!yearNum || !monthNum || monthNum < 1 || monthNum > 12) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'A valid year and month are required.', 400);
+    }
+
+    const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+    const monthStart = new Date(Date.UTC(yearNum, monthNum - 1, 1) - IST_OFFSET_MS);
+    const monthEnd = new Date(Date.UTC(yearNum, monthNum, 1) - IST_OFFSET_MS - 1);
+
+    const employees = await prisma.$queryRawUnsafe(
+      'SELECT id, employeeCode, name FROM employees WHERE isActive = 1 ORDER BY employeeCode ASC'
+    );
+
+    // All punch events in the month for active employees, in one query.
+    const logs = await prisma.$queryRawUnsafe(
+      `SELECT employeeId, punchTime, status FROM attendance_logs
+       WHERE punchTime >= ? AND punchTime <= ? AND status IN ('IN','OUT')
+       ORDER BY punchTime ASC`,
+      monthStart,
+      monthEnd
+    );
+
+    // Approved leaves overlapping the month — a leave day overrides punch
+    // data in the cell (matches the reference report where leave days show
+    // as solid red "Leave" cells). startDate/endDate are stored as the IST
+    // wall-clock dates the user chose, so compare against the IST dates of
+    // the month window.
+    const istMonthStart = new Date(Date.UTC(yearNum, monthNum - 1, 1, 0, 0, 0) + IST_OFFSET_MS);
+    const istMonthEnd = new Date(Date.UTC(yearNum, monthNum, 1, 0, 0, 0) + IST_OFFSET_MS - 1);
+    const leaves = await prisma.$queryRawUnsafe(
+      `SELECT employeeId, startDate, endDate, status FROM leaves
+       WHERE status = 'APPROVED' AND endDate >= ? AND startDate <= ?
+       ORDER BY startDate ASC`,
+      istMonthStart,
+      istMonthEnd
+    );
+
+    // Holidays listed in the month (off-day detection for comp-off
+    // eligibility). Matched by IST date key.
+    const holidays = await prisma.$queryRawUnsafe(
+      `SELECT date FROM holidays WHERE date >= ? AND date < ?`,
+      new Date(Date.UTC(yearNum, monthNum - 1, 1, 0, 0, 0)),
+      new Date(Date.UTC(yearNum, monthNum, 1, 0, 0, 0))
+    );
+    const holidaySet = new Set(
+      holidays.map((h) => {
+        const istDate = new Date(new Date(h.date).getTime() + IST_OFFSET_MS);
+        return `${istDate.getUTCFullYear()}-${String(istDate.getUTCMonth() + 1).padStart(2, '0')}-${String(istDate.getUTCDate()).padStart(2, '0')}`;
+      })
+    );
+
+    // employeeId -> Set of day numbers on approved leave.
+    const leaveDays = new Map();
+    for (const row of leaves) {
+      const empKey = String(row.employeeId);
+      // Dates come back as UTC-midnight Dates; convert to the IST wall-clock
+      // day numbers (same treatment as the punch times above).
+      const start = new Date(new Date(row.startDate).getTime() + IST_OFFSET_MS);
+      const end = new Date(new Date(row.endDate).getTime() + IST_OFFSET_MS);
+      if (start.getUTCFullYear() !== yearNum || (start.getUTCMonth() + 1) !== monthNum) continue;
+      if (!leaveDays.has(empKey)) leaveDays.set(empKey, new Set());
+      const set = leaveDays.get(empKey);
+      for (let d = start.getUTCDate(); d <= Math.min(end.getUTCDate(), daysInMonth); d++) {
+        set.add(d);
+      }
+    }
+
+    // employeeId -> day -> { firstIn, lastOut }
+    const byEmpDay = new Map();
+    for (const log of logs) {
+      const empId = String(log.employeeId);
+      const istDate = new Date(new Date(log.punchTime).getTime() + IST_OFFSET_MS);
+      const dayNum = istDate.getUTCDate();
+      // Only keep days that belong to the requested month (IST boundary).
+      if (istDate.getUTCFullYear() !== yearNum || (istDate.getUTCMonth() + 1) !== monthNum) continue;
+      if (!byEmpDay.has(empId)) byEmpDay.set(empId, new Map());
+      const dayMap = byEmpDay.get(empId);
+      let cell = dayMap.get(dayNum);
+      if (!cell) {
+        cell = { firstIn: null, lastOut: null };
+        dayMap.set(dayNum, cell);
+      }
+      // Format the punch time as a plain HH:MM string. `punchTime` comes back
+      // as a JS Date from the DATETIME column, so convert to the IST wall-clock
+      // time and take the hour/minute components.
+      const istWall = new Date(log.punchTime.getTime() + IST_OFFSET_MS);
+      const hh = String(istWall.getUTCHours()).padStart(2, '0');
+      const mm = String(istWall.getUTCMinutes()).padStart(2, '0');
+      const timeStr = hh + ':' + mm;
+      if (String(log.status).toUpperCase() === 'IN') {
+        if (!cell.firstIn || timeStr < cell.firstIn) cell.firstIn = timeStr;
+      } else if (cell.lastOut === null || timeStr > cell.lastOut) {
+        cell.lastOut = timeStr;
+      }
+    }
+
+    // Off-day flags per calendar day: weekends (Sat/Sun) and listed
+    // holidays. A punch-in on an off day earns the employee a comp-off
+    // credit (valid 3 months, per the comp-off policy).
+    const istDateOf = (d) => new Date(Date.UTC(yearNum, monthNum - 1, d) + IST_OFFSET_MS);
+    const offDays = new Set();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const istDate = istDateOf(d);
+      const weekday = istDate.getUTCDay(); // 0=Sun, 6=Sat
+      const dateKey = `${yearNum}-${String(monthNum).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      if (weekday === 0 || weekday === 6 || holidaySet.has(dateKey)) offDays.add(d);
+    }
+
+    const rows = employees.map((emp) => {
+      const dayMap = byEmpDay.get(String(emp.id));
+      const empLeaveDays = leaveDays.get(String(emp.id));
+      const days = [];
+      for (let d = 1; d <= daysInMonth; d++) {
+        const cell = dayMap?.get(d);
+        const firstIn = cell?.firstIn || null;
+        const lastOut = cell?.lastOut || null;
+        const hasIn = !!firstIn;
+        const hasOut = !!lastOut;
+        const onLeave = empLeaveDays?.has(d);
+        const isOffDay = offDays.has(d);
+
+        // Classification follows the standard 09:30–18:30 window:
+        //  - a first punch-in after 09:30 -> FHDL (First Half Day Leave)
+        //  - a last punch-out before 18:30 -> SHDL (Second Half Day Leave)
+        //  - both sides on time -> P (full day)
+        //  - only one side captured, or a mid-day start after the 13:45
+        //    lunch break -> HDL (generic half day)
+        const lateIn = hasIn && firstIn > STANDARD_IN;
+        const earlyOut = hasOut && lastOut < STANDARD_OUT;
+        const tags = [];
+        if (lateIn) tags.push('FHDL');
+        if (earlyOut) tags.push('SHDL');
+        // No data at all on an off day is expected — not a gap.
+        let status = '—';
+        let halfDay = false;
+        if (onLeave) {
+          status = 'L';
+        } else if (hasIn || hasOut) {
+          if (lateIn || earlyOut || (!hasIn || !hasOut)) {
+            status = 'H';
+            halfDay = true;
+            if (!lateIn && !earlyOut) tags.push('HDL');
+          } else {
+            status = 'P';
+          }
+        }
+        // Punched in on a weekend/holiday -> comp-off eligible (3-month
+        // validity matches comp_off_policy.expiryMonths).
+        const compOffEligible = isOffDay && hasIn && !onLeave;
+
+        days.push({
+          day: d,
+          in: firstIn,
+          out: lastOut,
+          status,
+          onLeave,
+          halfDay,
+          halfDayTags: tags,
+          isOffDay,
+          compOffEligible,
+          hasPunch: hasIn || hasOut,
+        });
+      }
+      return {
+        employeeId: String(emp.id),
+        employeeCode: emp.employeeCode,
+        name: emp.name,
+        days,
+      };
+    });
+
+    return {
+      year: yearNum,
+      month: monthNum,
+      daysInMonth,
+      rows,
+    };
   }
 
   static istDayRange(value, endOfDay = false) {

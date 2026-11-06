@@ -24,7 +24,7 @@ export default {
         }
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        sans: ['Geist', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
       },
     },
   },

@@ -125,29 +125,29 @@ export default function VerifyOtp() {
       <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-slate-100 mb-4">
-            <span className="text-2xl font-bold text-slate-700">E</span>
+            <span className="text-xl font-bold text-slate-700">E</span>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Enter verification code</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <h1 className="text-xl font-bold text-slate-900">Enter verification code</h1>
+          <p className="text-[13px] text-slate-500 mt-1">
             We sent a 6-digit code to your email. It expires in 5 minutes.
           </p>
         </div>
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg" role="alert">
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-[13px] text-red-700">{error}</p>
           </div>
         )}
 
         {notice && (
           <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg" role="status">
-            <p className="text-sm text-green-700">{notice}</p>
+            <p className="text-[13px] text-green-700">{notice}</p>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5" noValidate>
           <div>
-            <label htmlFor="otp-email" className="block text-sm font-medium text-slate-700 mb-1">
+            <label htmlFor="otp-email" className="block text-[13px] font-medium text-slate-700 mb-1">
               Email Address
             </label>
             <input
@@ -163,7 +163,7 @@ export default function VerifyOtp() {
           </div>
 
           <fieldset disabled={isLoading}>
-            <legend className="block text-sm font-medium text-slate-700 mb-2">Verification code</legend>
+            <legend className="block text-[13px] font-medium text-slate-700 mb-2">Verification code</legend>
             <div className="flex justify-between gap-2">
               {digits.map((digit, index) => (
                 <input
@@ -180,7 +180,7 @@ export default function VerifyOtp() {
                   onKeyDown={(e) => handleKeyDown(index, e)}
                   onPaste={handlePaste}
                   aria-label={`Digit ${index + 1} of ${OTP_LENGTH}`}
-                  className="w-12 h-14 text-center text-xl font-semibold border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+                  className="w-12 h-14 text-center text-lg font-semibold border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
                 />
               ))}
             </div>
@@ -196,7 +196,7 @@ export default function VerifyOtp() {
             type="button"
             onClick={handleResend}
             disabled={isResending || isLoading}
-            className="text-primary-600 hover:text-primary-700 font-medium disabled:text-slate-400"
+            className="text-cyan-600 hover:text-cyan-700 font-medium disabled:text-slate-400"
           >
             {isResending ? 'Sending...' : 'Send a new code'}
           </button>

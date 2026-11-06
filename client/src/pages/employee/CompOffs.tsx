@@ -73,12 +73,12 @@ export default function EmployeeCompOffPage() {
       onLogout={logout}
     >
       <Header title="Comp-Off" subtitle="Your comp-off balance and requests" />
-      <div className="p-8 max-w-6xl">
+      <div className="p-6 max-w-6xl">
         {isLoading && <p className="text-slate-500">Loading comp-off information…</p>}
 
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="rounded-xl border border-slate-200 bg-white p-6">
-            <h3 className="text-lg font-semibold text-slate-900">Available balance</h3>
+            <h3 className="text-[15px] font-semibold text-slate-900">Available balance</h3>
             {balance ? (
               <dl className="mt-4 space-y-2 text-sm">
                 <div className="flex justify-between">
@@ -95,21 +95,21 @@ export default function EmployeeCompOffPage() {
                 </div>
                 <div className="flex justify-between border-t border-slate-100 pt-2">
                   <dt className="font-medium text-slate-700">Available</dt>
-                  <dd className="text-lg font-bold text-primary-700">{balance.available} days</dd>
+                  <dd className="text-base font-bold text-cyan-700">{balance.available} days</dd>
                 </div>
               </dl>
             ) : (
-              <p className="mt-2 text-sm text-slate-500">Balance unavailable.</p>
+              <p className="mt-2 text-[13px] text-slate-500">Balance unavailable.</p>
             )}
           </section>
 
           <section className="rounded-xl border border-slate-200 bg-white p-6">
-            <h3 className="text-lg font-semibold text-slate-900">Eligibility for this month</h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <h3 className="text-[15px] font-semibold text-slate-900">Eligibility for this month</h3>
+            <p className="mt-1 text-[13px] text-slate-500">
               Days worked on weekends or holidays may earn comp-off credits.
             </p>
             {eligibleDates.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-500">No eligible days this month.</p>
+              <p className="mt-3 text-[13px] text-slate-500">No eligible days this month.</p>
             ) : (
               <ul className="mt-3 divide-y divide-slate-100 text-sm">
                 {eligibleDates.slice(0, 10).map((day) => (
@@ -124,9 +124,9 @@ export default function EmployeeCompOffPage() {
         </div>
 
         <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-          <h3 className="text-lg font-semibold text-slate-900">My comp-off credits</h3>
+          <h3 className="text-[15px] font-semibold text-slate-900">My comp-off credits</h3>
           {!creditsPage || (creditsPage.credits?.length ?? 0) === 0 ? (
-            <p className="mt-2 text-sm text-slate-500">No comp-off credits yet.</p>
+            <p className="mt-2 text-[13px] text-slate-500">No comp-off credits yet.</p>
           ) : (
             <ul className="mt-3 divide-y divide-slate-100 text-sm">
               {creditsPage.credits.map((credit) => (
@@ -143,9 +143,9 @@ export default function EmployeeCompOffPage() {
 
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
           <section className="rounded-xl border border-slate-200 bg-white p-6">
-            <h3 className="text-lg font-semibold text-slate-900">Ledger</h3>
+            <h3 className="text-[15px] font-semibold text-slate-900">Ledger</h3>
             {!ledgerPage || (ledgerPage.ledger?.length ?? 0) === 0 ? (
-              <p className="mt-2 text-sm text-slate-500">No ledger entries yet.</p>
+              <p className="mt-2 text-[13px] text-slate-500">No ledger entries yet.</p>
             ) : (
               <ul className="mt-3 divide-y divide-slate-100 text-sm">
                 {ledgerPage.ledger.map((entry) => (
@@ -159,9 +159,9 @@ export default function EmployeeCompOffPage() {
           </section>
 
           <section className="rounded-xl border border-slate-200 bg-white p-6">
-            <h3 className="text-lg font-semibold text-slate-900">Redeemed leave requests</h3>
+            <h3 className="text-[15px] font-semibold text-slate-900">Redeemed leave requests</h3>
             {!myLeaveRequests.length ? (
-              <p className="mt-2 text-sm text-slate-500">No redeemed-days leave requests yet.</p>
+              <p className="mt-2 text-[13px] text-slate-500">No redeemed-days leave requests yet.</p>
             ) : (
               <ul className="mt-3 divide-y divide-slate-100 text-sm">
                 {myLeaveRequests.map((request) => (
@@ -180,7 +180,7 @@ export default function EmployeeCompOffPage() {
         <button
           onClick={handleRequestCredit}
           disabled={!firstEligibleDay}
-          className="mt-6 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
+          className="mt-6 rounded-xl bg-cyan-600 px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-cyan-700 disabled:opacity-50"
         >
           {firstEligibleDay
             ? `Request credit for ${firstEligibleDay}`

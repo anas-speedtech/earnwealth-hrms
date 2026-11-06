@@ -24,15 +24,15 @@ export default function SuperAdminDashboardPage() {
   return (
     <DashboardShell role="SUPER_ADMIN" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="Super Admin Dashboard" />
-      <div className="mx-auto max-w-7xl px-4 py-8">
-        <p className="mb-6 text-sm text-slate-500">
+      <div className="mx-auto max-w-7xl px-5 py-6">
+        <p className="mb-5 text-[13px] text-slate-500">
           Oversight of every module: employees, approvals, payroll and the audit trail.
         </p>
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        <div className="space-y-6">
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700 ring-1 ring-inset ring-red-600/10">{error}</p>}
+        <div className="space-y-4">
           <StatGrid stats={stats} loading={loading} />
 
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-3">
             <Panel title="Department-wise Employees" className="lg:col-span-2">
               <DonutPanel
                 data={donutData(departments)}
@@ -52,7 +52,7 @@ export default function SuperAdminDashboardPage() {
             </Panel>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-3">
             <Panel
               title="Recent Activities"
               action={<ViewAll to="/super-admin/audit-logs" />}
@@ -61,7 +61,7 @@ export default function SuperAdminDashboardPage() {
               <ActivityTable rows={activities} columns={[['Activity', 'activity'], ['User', 'user']]} />
             </Panel>
             <Panel title="Reports">
-              <p className="text-sm text-slate-500">
+              <p className="text-[13px] text-slate-500">
                 Detailed reports per module are available under Reports.
               </p>
             </Panel>

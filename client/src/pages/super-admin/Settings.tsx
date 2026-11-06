@@ -2,6 +2,9 @@ import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
 
+const CARD =
+  'rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]';
+
 export default function SuperAdminSettingsPage() {
   const { user, logout } = useAuth();
 
@@ -18,29 +21,29 @@ export default function SuperAdminSettingsPage() {
       onLogout={logout}
     >
       <Header title="Settings" subtitle="Account and session information" />
-      <div className="p-8 max-w-3xl">
-        <div className="rounded-xl border border-slate-200 bg-white p-6">
-          <h3 className="mb-4 text-lg font-semibold text-slate-900">Signed in account</h3>
+      <div className="p-6 max-w-3xl">
+        <div className={`p-5 sm:p-6 ${CARD}`}>
+          <h3 className="mb-4 text-[15px] font-bold tracking-tight text-slate-900">Signed in account</h3>
           <dl className="space-y-3 text-sm">
             <div className="flex justify-between gap-4">
-              <dt className="text-slate-500">Name</dt>
-              <dd className="font-medium text-slate-800">{displayName}</dd>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Name</dt>
+              <dd className="font-semibold text-slate-900">{displayName}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-slate-500">Email</dt>
-              <dd className="font-medium text-slate-800">{user?.email}</dd>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Email</dt>
+              <dd className="font-semibold text-slate-900">{user?.email}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-slate-500">Role</dt>
-              <dd className="font-medium text-slate-800">{user?.role}</dd>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Role</dt>
+              <dd className="font-semibold text-slate-900">{user?.role}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-slate-500">Account ID</dt>
-              <dd className="font-medium text-slate-800">{user?.id}</dd>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Account ID</dt>
+              <dd className="font-semibold text-slate-900">{user?.id}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-slate-500">Session</dt>
-              <dd className="font-medium text-slate-800">Active</dd>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Session</dt>
+              <dd className="font-semibold text-slate-900">Active</dd>
             </div>
           </dl>
           <p className="mt-4 text-xs text-slate-400">

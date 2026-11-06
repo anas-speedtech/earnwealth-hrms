@@ -7,8 +7,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { organizationService, Designation } from '../../services/organization.service';
 import { roleService, RoleAccess } from '../../services/role.service';
 import toast from 'react-hot-toast';
+import StatusBadge from '../../components/shared/StatusBadge';
+import Button from '../../components/ui/Button';
 
 type Tab = 'role' | 'designation';
+
+const CARD =
+  'rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]';
 
 // Sub-menu selection is read from the query string (?tab=designation) so the
 // Designations sub-menu in the sidebar can deep-link straight to it.
@@ -186,17 +191,17 @@ export default function RoleDesignationPage() {
   return (
     <DashboardShell role={user?.role || 'SUPER_ADMIN'} userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="Role & Designation" subtitle="Manage access levels and job designations" />
-      <div className="p-8 max-w-6xl">
-        {/* Sub-menu: Role | Designation */}
-        <div className="mb-6 flex gap-6 border-b border-slate-200">
+      <div className="p-6 max-w-6xl">
+        {/* Sub-menu: Role | Designation — segmented control */}
+        <div className="mb-6 inline-flex rounded-xl bg-slate-100 p-1">
           {([['role', 'Role'], ['designation', 'Designation']] as [Tab, string][]).map(([key, label]) => (
             <button
               key={key}
               onClick={() => switchTab(key)}
-              className={`-mb-px border-b-2 px-1 pb-3 text-sm font-medium transition ${
+              className={`rounded-lg px-4 py-1.5 text-[13px] font-medium transition ${
                 tab === key
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               {label}
@@ -274,24 +279,24 @@ function RoleTab(props: {
 
   return (
     <div>
-      <p className="mb-4 text-sm text-slate-500">
+      <p className="mb-4 text-[13px] text-slate-500">
         Access levels and the View / Edit grants each holds. Super Admin and HR Admin always keep View; only Manager /
         Employee grants can be changed.
       </p>
 
-      {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-700 ring-1 ring-inset ring-red-100">{error}</p>}
       {loading ? (
         <p className="text-slate-500">Loading roles…</p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-slate-500">
-              <tr>
-                <th className="px-4 py-3 font-medium">Role</th>
-                <th className="px-4 py-3 font-medium">Description</th>
-                <th className="px-4 py-3 font-medium">View</th>
-                <th className="px-4 py-3 font-medium">Edit</th>
-                {canEditGrants && <th className="px-4 py-3 font-medium">Actions</th>}
+        <div className={`overflow-x-auto ${CARD}`}>
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                <th className="px-4 py-3">Role</th>
+                <th className="px-4 py-3">Description</th>
+                <th className="px-4 py-3">View</th>
+                <th className="px-4 py-3">Edit</th>
+                {canEditGrants && <th className="px-4 py-3">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -300,13 +305,19 @@ function RoleTab(props: {
                 const viewLocked = lockedView(r.key);
                 const editLocked = lockedEdit(r.key);
                 return (
-                  <tr key={r.key} className="border-t border-slate-100">
-                    <td className="px-4 py-3 font-medium text-slate-700">{r.label}</td>
+                  <tr key={r.key} className="border-t border-slate-100 text-[13px] hover:bg-slate-50/60">
+                    <td className="px-4 py-3 font-semibold text-slate-900">{r.label}</td>
                     <td className="px-4 py-3 text-slate-500">{r.description}</td>
                     <td className="px-4 py-3">
                       {isEditing && canEditGrants ? (
-                        <label className="flex items-center gap-1.5 text-sm">
-                          <input type="checkbox" checked={roleView} disabled={viewLocked} onChange={(e) => setView(e.target.checked)} />
+                        <label className="flex items-center gap-2 text-[13px] text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={roleView}
+                            disabled={viewLocked}
+                            onChange={(e) => setView(e.target.checked)}
+                            className="h-4 w-4 rounded accent-cyan-600"
+                          />
                           View
                         </label>
                       ) : (
@@ -315,8 +326,14 @@ function RoleTab(props: {
                     </td>
                     <td className="px-4 py-3">
                       {isEditing && canEditGrants ? (
-                        <label className="flex items-center gap-1.5 text-sm">
-                          <input type="checkbox" checked={roleEdit} disabled={editLocked} onChange={(e) => setEdit(e.target.checked)} />
+                        <label className="flex items-center gap-2 text-[13px] text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={roleEdit}
+                            disabled={editLocked}
+                            onChange={(e) => setEdit(e.target.checked)}
+                            className="h-4 w-4 rounded accent-cyan-600"
+                          />
                           Edit
                         </label>
                       ) : (
@@ -327,22 +344,16 @@ function RoleTab(props: {
                       <td className="px-4 py-3">
                         {isEditing ? (
                           <div className="flex gap-2">
-                            <button
-                              onClick={() => save(r.key)}
-                              disabled={saving}
-                              className="rounded-lg bg-primary-600 px-3 py-1 text-xs font-medium text-white hover:bg-primary-700 disabled:opacity-50"
-                            >
+                            <Button size="sm" onClick={() => save(r.key)} disabled={saving} isLoading={saving}>
                               {saving ? 'Saving…' : 'Save'}
-                            </button>
+                            </Button>
                           </div>
+                        ) : (viewLocked && editLocked) ? (
+                          <span className="text-xs text-slate-400">Locked</span>
                         ) : (
-                          (viewLocked && editLocked) ? (
-                            <span className="text-xs text-slate-400">Locked</span>
-                          ) : (
-                            <button onClick={() => beginEdit(r)} className="text-xs font-medium text-primary-600 hover:text-primary-700">
-                              Edit
-                            </button>
-                          )
+                          <Button variant="ghost" size="sm" onClick={() => beginEdit(r)}>
+                            <Pencil size={13} /> Edit
+                          </Button>
                         )}
                       </td>
                     )}
@@ -359,13 +370,7 @@ function RoleTab(props: {
 }
 
 function GrantBadge({ on }: { on: boolean }) {
-  return (
-    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-      on ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
-    }`}>
-      {on ? 'Granted' : '—'}
-    </span>
-  );
+  return <StatusBadge tone={on ? 'emerald' : 'slate'}>{on ? 'Granted' : '—'}</StatusBadge>;
 }
 
 // ------------------------------------------------------- Designation tab
@@ -397,39 +402,34 @@ function DesignationTab(props: {
 
   return (
     <div>
-      <p className="mb-4 text-sm text-slate-500">
+      <p className="mb-4 text-[13px] text-slate-500">
         Designations are job titles (Software Engineer, Manager, CTO, …) that can be assigned to employees. They do
         not grant login privileges; account access is managed separately in User Management.
       </p>
 
       {canManage && (
         <div className="mb-4">
-          <button
-            onClick={() => { resetForm(); setShowForm(!showForm); }}
-            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors ${
-              showForm
-                ? 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                : 'bg-primary-600 text-white hover:bg-primary-700'
-            }`}
-          >
+          <Button variant={showForm ? 'secondary' : 'primary'} onClick={() => { resetForm(); setShowForm(!showForm); }}>
             {showForm ? (
               <span className="inline-flex items-center gap-1"><Pencil size={14} /> Close</span>
             ) : (
               <span className="inline-flex items-center gap-1"><Plus size={14} /> New Designation</span>
             )}
-          </button>
+          </Button>
         </div>
       )}
 
       {showForm && canManage && (
-        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-6">
-          <h3 className="mb-4 text-lg font-semibold text-slate-900">{name ? 'Designation' : 'New Designation'}</h3>
-          {fieldError && <p className="mb-3 text-sm text-red-600">{fieldError}</p>}
+        <div className={`mb-6 p-4 sm:p-5 ${CARD}`}>
+          <h3 className="mb-4 text-[15px] font-bold tracking-tight text-slate-900">
+            {name ? 'Designation' : 'New Designation'}
+          </h3>
+          {fieldError && <p className="mb-3 text-[13px] text-red-600">{fieldError}</p>}
           <form onSubmit={submit} className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Name</label>
+              <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Name</label>
               <input
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-700 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Software Engineer"
@@ -437,82 +437,82 @@ function DesignationTab(props: {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Description</label>
+              <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Description</label>
               <textarea
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
                 rows={2}
                 value={desc}
                 onChange={(e) => setDesc(e.target.value)}
                 placeholder="What this designation does"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+            <label className="flex items-center gap-2 text-[13px] text-slate-700">
+              <input
+                type="checkbox"
+                checked={active}
+                onChange={(e) => setActive(e.target.checked)}
+                className="h-4 w-4 rounded accent-cyan-600"
+              />
               Active
             </label>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 transition-colors disabled:opacity-50"
-            >
-              {submitting ? 'Saving…' : 'Save'}
-            </button>
+            <div className="flex gap-2">
+              <Button type="submit" size="sm" disabled={submitting} isLoading={submitting}>
+                {submitting ? 'Saving…' : 'Save'}
+              </Button>
+              <Button variant="ghost" size="sm" type="button" onClick={() => { resetForm(); setShowForm(false); }}>
+                Cancel
+              </Button>
+            </div>
           </form>
         </div>
       )}
 
-      {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-700 ring-1 ring-inset ring-red-100">{error}</p>}
 
       {loading ? (
         <p className="text-slate-500">Loading designations…</p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-slate-500">
-              <tr>
-                <th className="px-4 py-3 font-medium">Designation</th>
-                <th className="px-4 py-3 font-medium">Description</th>
-                <th className="px-4 py-3 font-medium">Employees</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                {canManage && <th className="px-4 py-3 font-medium">Actions</th>}
+        <div className={`overflow-x-auto ${CARD}`}>
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                <th className="px-4 py-3">Designation</th>
+                <th className="px-4 py-3">Description</th>
+                <th className="px-4 py-3">Employees</th>
+                <th className="px-4 py-3">Status</th>
+                {canManage && <th className="px-4 py-3">Actions</th>}
               </tr>
             </thead>
             <tbody>
               {designations.map((d) => (
-                <tr key={d.id} className="border-t border-slate-100">
-                  <td className="px-4 py-3 font-medium text-slate-700">{d.name}</td>
+                <tr key={d.id} className="border-t border-slate-100 text-[13px] hover:bg-slate-50/60">
+                  <td className="px-4 py-3 font-semibold text-slate-900">{d.name}</td>
                   <td className="px-4 py-3 text-slate-500">{d.description || '—'}</td>
                   <td className="px-4 py-3 text-slate-600">{d.employeeCount}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${d.isActive ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${d.isActive ? 'bg-green-500' : 'bg-slate-400'}`} />
+                    <StatusBadge tone={d.isActive ? 'emerald' : 'slate'} dot>
                       {d.isActive ? 'Active' : 'Inactive'}
-                    </span>
+                    </StatusBadge>
                   </td>
                   {canManage && (
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => openEdit(d)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700"
-                        >
+                        <Button variant="secondary" size="sm" onClick={() => openEdit(d)}>
                           <Pencil size={13} /> Edit
-                        </button>
+                        </Button>
                         {d.employeeCount === 0 ? (
-                          <button
-                            onClick={() => remove(d)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 shadow-sm transition hover:bg-red-50"
-                          >
+                          <Button variant="danger" size="sm" onClick={() => remove(d)}>
                             <Trash2 size={13} /> Delete
-                          </button>
+                          </Button>
                         ) : (
-                          <button
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             disabled
                             title="Deactivate instead of deleting a designation in use"
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-400 cursor-not-allowed"
                           >
                             <Trash2 size={13} /> In use
-                          </button>
+                          </Button>
                         )}
                       </div>
                     </td>
@@ -526,4 +526,3 @@ function DesignationTab(props: {
     </div>
   );
 }
-

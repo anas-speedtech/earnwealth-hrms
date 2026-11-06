@@ -55,8 +55,10 @@ export default function AdminReportsPage() {
   return (
     <DashboardShell role="HR_ADMIN" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="Reports" subtitle="Reporting for administration" />
-      <div className="p-8 max-w-7xl">
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      <div className="mx-auto max-w-7xl p-6">
+        {error && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">{error}</div>
+        )}
         <div className="space-y-6">
           <StatGrid
             stats={[
@@ -111,7 +113,7 @@ export default function AdminReportsPage() {
               />
             </Panel>
             <Panel title="Notes">
-              <p className="text-sm text-slate-500">
+              <p className="text-[13px] text-slate-500">
                 Attendance review is available on the Attendance page. Detailed per-module
                 reports are produced by the Super Admin and HR roles.
               </p>

@@ -76,13 +76,13 @@ export default function HrCompOffPage() {
   return (
     <DashboardShell role="HR_ADMIN" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="Comp-Off" subtitle="Review comp-off credits and redeemed days" />
-      <div className="p-8 max-w-6xl">
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      <div className="p-6 max-w-6xl">
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700 ring-1 ring-inset ring-red-600/10">{error}</p>}
 
         <section className="mb-8">
-          <h3 className="mb-3 text-lg font-semibold text-slate-900">Pending credit reviews</h3>
+          <h3 className="mb-3 text-[15px] font-semibold text-slate-900">Pending credit reviews</h3>
           {pendingCredits.length === 0 ? (
-            <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+            <p className="rounded-xl border border-slate-200 bg-white p-6 text-[13px] text-slate-500">
               No comp-off credits waiting for review.
             </p>
           ) : (
@@ -90,7 +90,7 @@ export default function HrCompOffPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-left">
                   <tr>
-                    <th className="px-4 py-3 font-medium text-slate-500">Employee</th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wide text-slate-400">Employee</th>
                     <th className="px-4 py-3 font-medium text-slate-500">Source date</th>
                     <th className="px-4 py-3 font-medium text-slate-500">Days</th>
                     <th className="px-4 py-3 font-medium text-slate-500">Status</th>
@@ -114,7 +114,7 @@ export default function HrCompOffPage() {
                             setReviewTarget({ kind: 'credit', id: credit.id, approve: true });
                             setReviewComment('');
                           }}
-                          className="mr-2 rounded-lg border border-green-300 px-3 py-1 text-xs text-green-700 hover:bg-green-50"
+                          className="mr-2 rounded-lg border border-green-300 px-3 py-1 text-xs text-emerald-700 hover:bg-green-50"
                         >
                           Approve
                         </button>
@@ -137,9 +137,9 @@ export default function HrCompOffPage() {
         </section>
 
         <section className="mb-8">
-          <h3 className="mb-3 text-lg font-semibold text-slate-900">Pending comp-off leave requests</h3>
+          <h3 className="mb-3 text-[15px] font-semibold text-slate-900">Pending comp-off leave requests</h3>
           {pendingLeaves.length === 0 ? (
-            <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+            <p className="rounded-xl border border-slate-200 bg-white p-6 text-[13px] text-slate-500">
               No redeemed-days leave waiting for review.
             </p>
           ) : (
@@ -147,7 +147,7 @@ export default function HrCompOffPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-left">
                   <tr>
-                    <th className="px-4 py-3 font-medium text-slate-500">Employee</th>
+                    <th className="px-4 py-3 font-semibold uppercase tracking-wide text-slate-400">Employee</th>
                     <th className="px-4 py-3 font-medium text-slate-500">Period</th>
                     <th className="px-4 py-3 font-medium text-slate-500">Reason</th>
                     <th className="px-4 py-3 font-medium text-slate-500">Action</th>
@@ -169,7 +169,7 @@ export default function HrCompOffPage() {
                             setReviewTarget({ kind: 'leave', id: leave.id, approve: true });
                             setReviewComment('');
                           }}
-                          className="mr-2 rounded-lg border border-green-300 px-3 py-1 text-xs text-green-700 hover:bg-green-50"
+                          className="mr-2 rounded-lg border border-green-300 px-3 py-1 text-xs text-emerald-700 hover:bg-green-50"
                         >
                           Approve
                         </button>
@@ -193,15 +193,15 @@ export default function HrCompOffPage() {
 
         {reviewTarget && (
           <div className="mb-8 rounded-xl border border-slate-200 bg-white p-6">
-            <h3 className="text-lg font-semibold text-slate-900">
+            <h3 className="text-[15px] font-semibold text-slate-900">
               {reviewTarget.kind === 'credit' ? 'Review credit' : 'Review leave request'}
             </h3>
-            <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="comment">
+            <label className="mt-4 block text-[13px] font-medium text-slate-700" htmlFor="comment">
               Review comment (optional)
             </label>
             <textarea
               id="comment"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
               rows={3}
               value={reviewComment}
               onChange={(e) => setReviewComment(e.target.value)}
@@ -209,7 +209,7 @@ export default function HrCompOffPage() {
             <button
               onClick={handleReview}
               disabled={isSubmitting !== null}
-              className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+              className="mt-4 px-4 py-2 bg-cyan-600 text-white rounded-lg text-[13px] font-medium hover:bg-cyan-700 transition-colors disabled:opacity-50"
             >
               {isSubmitting ? 'Submitting…' : 'Submit Review'}
             </button>

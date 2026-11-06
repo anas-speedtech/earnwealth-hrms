@@ -22,6 +22,9 @@ const updateLeaveTypeSchema = z.object({
   classification: z.enum(['PAID', 'UNPAID']).optional(),
   isHalfDayAllowed: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  annualEntitlementDays: z.coerce.number().min(0).optional(),
+  isUnlimited: z.boolean().optional(),
+  appliesToBoardLevel: z.boolean().optional(),
 });
 
 const createLeaveTypeSchema = z.object({
@@ -32,15 +35,12 @@ const createLeaveTypeSchema = z.object({
   classification: z.enum(['PAID', 'UNPAID']).default('PAID'),
   isHalfDayAllowed: z.boolean().default(true),
   isActive: z.boolean().default(true),
+  // Organisation-wide policy: annual entitlement, and the two exception
+  // flags. `isUnlimited` means there is no cap; `appliesToBoardLevel` marks
+  // types that exist only for board-level designations.
   annualEntitlementDays: z.coerce.number().min(0).default(0),
-  accrualFrequency: z.enum(['ANNUAL', 'MONTHLY']).default('ANNUAL'),
-  monthlyAccrualDays: z.coerce.number().optional().nullable(),
-  carryForwardEnabled: z.boolean().default(false),
-  maxCarryForwardDays: z.coerce.number().optional().nullable(),
-  minDaysBeforeApply: z.coerce.number().int().min(0).default(0),
-  maxConsecutiveDays: z.coerce.number().int().optional().nullable(),
-  applicableTo: z.string().default('ALL'),
-  departmentIds: z.string().optional().nullable(),
+  isUnlimited: z.boolean().default(false),
+  appliesToBoardLevel: z.boolean().default(false),
   effectiveFrom: z.string().min(1),
 });
 
@@ -113,6 +113,25 @@ router.get('/leaves/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_
   try {
     const requests = await LeaveService.getPendingRequests(req.user);
     res.json(requests);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Leave-type tiles for the HR broad view: per-type counts for a month (or a
+// single day), plus the requests that back each tile for drill-down.
+router.get('/leaves/tiles', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateQuery(z.object({
+  year: z.coerce.number().int().positive().default(new Date().getFullYear()),
+  month: z.coerce.number().int().min(1).max(12).default(new Date().getMonth() + 1),
+  day: z.coerce.number().int().min(0).max(31).default(0),
+})), async (req, res, next) => {
+  try {
+    const result = await LeaveService.getTiles(req.user, {
+      year: req.query.year,
+      month: req.query.month,
+      day: req.query.day,
+    });
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -214,10 +233,23 @@ router.put('/leave-types/:id', authenticate, authorize(Role.SUPER_ADMIN, Role.HR
 
 // ============ BALANCE MANAGEMENT ============
 
-// Initialize balances for an employee
+// Initialise balances for a single employee (optional year)
 router.post('/leaves/employee/:employeeId/initialize', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    const result = await LeaveService.initializeBalances(req.user, req.params.employeeId);
+    const year = req.query.year ? Number(req.query.year) : undefined;
+    const result = await LeaveService.initializeBalances(req.user, req.params.employeeId, year);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Populate the year's balances for every active employee at once — the
+// organisation-wide "configure the system" action.
+router.post('/leaves/populate-yearly', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const year = req.body?.year ? Number(req.body.year) : undefined;
+    const result = await LeaveService.populateYearlyForAll(req.user, year);
     res.json(result);
   } catch (err) {
     next(err);
@@ -227,7 +259,9 @@ router.post('/leaves/employee/:employeeId/initialize', authenticate, authorize(R
 // Process monthly accrual
 router.post('/leaves/accrual/monthly', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
   try {
-    const result = await LeaveService.processMonthlyAccrual(req.user);
+    const year = req.body?.year ? Number(req.body.year) : undefined;
+    const month = req.body?.month ? Number(req.body.month) : undefined;
+    const result = await LeaveService.processMonthlyAccrual(req.user, year, month);
     res.json(result);
   } catch (err) {
     next(err);

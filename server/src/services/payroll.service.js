@@ -17,11 +17,350 @@ function getPrisma() {
 
 const PAGE_SIZE = 20;
 
+// Default standard salary split, matching the organisation's salary register:
+//   Basic = 50% of CTC; HRA = 30% of Basic; PF = 12% of min(Basic, cap 15,000)
+//   ESIC = 4% total (3.25% employer / 0.75% employee); Special = remainder.
+// Stored in a single-row `salary_rules` table so HR can reconfigure the
+// split from the Payroll page without touching code.
+const DEFAULT_SALARY_RULES = {
+  basicPct: 50,
+  hraPctOfBasic: 30,
+  pfPct: 12,
+  pfCap: 15000,
+  esicEmployerPct: 3.25,
+  esicEmployeePct: 0.75,
+  esicWageCeiling: 21000,
+  professionTax: 200,
+  workingDaysMonth: 31,
+  notes:
+    'PF: 12% of 15,000 (i.e. 1,800 fixed) if Basic Salary is 15,000 or more; otherwise 12% of the actual Basic Salary.\n' +
+    'ESIC: 4% of gross wages (0.75% employee & 3.25% employer).\n' +
+    'Employer PF and employer ESIC are reference contributions, not deducted from net pay.',
+};
+
+async function ensureSalaryRulesTable(prismaClient) {
+  try {
+    await prismaClient.$queryRawUnsafe('SELECT 1 FROM salary_rules LIMIT 1');
+  } catch {
+    await prismaClient.$queryRawUnsafe(`
+      CREATE TABLE salary_rules (
+        id INT NOT NULL DEFAULT 1 PRIMARY KEY,
+        basicPct DECIMAL(5,2) NOT NULL DEFAULT 50,
+        hraPctOfBasic DECIMAL(5,2) NOT NULL DEFAULT 30,
+        pfPct DECIMAL(5,2) NOT NULL DEFAULT 12,
+        pfCap DECIMAL(12,2) NOT NULL DEFAULT 15000,
+        esicEmployerPct DECIMAL(5,2) NOT NULL DEFAULT 3.25,
+        esicEmployeePct DECIMAL(5,2) NOT NULL DEFAULT 0.75,
+        esicWageCeiling DECIMAL(12,2) NOT NULL DEFAULT 21000,
+        professionTax DECIMAL(12,2) NOT NULL DEFAULT 200,
+        workingDaysMonth INT NOT NULL DEFAULT 31,
+        notes TEXT NULL,
+        updatedAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+      )
+    `);
+    const d = DEFAULT_SALARY_RULES;
+    await prismaClient.$executeRawUnsafe(
+      `INSERT INTO salary_rules (id, basicPct, hraPctOfBasic, pfPct, pfCap,
+        esicEmployerPct, esicEmployeePct, esicWageCeiling, professionTax,
+        workingDaysMonth, notes)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      d.basicPct, d.hraPctOfBasic, d.pfPct, d.pfCap,
+      d.esicEmployerPct, d.esicEmployeePct, d.esicWageCeiling, d.professionTax,
+      d.workingDaysMonth, d.notes
+    );
+  }
+}
+
+function readSalaryRulesRow(row) {
+  const d = DEFAULT_SALARY_RULES;
+  if (!row) return { ...d };
+  return {
+    basicPct: Number(row.basicPct) || 0,
+    hraPctOfBasic: Number(row.hraPctOfBasic) || 0,
+    pfPct: Number(row.pfPct) || 0,
+    pfCap: Number(row.pfCap) || 0,
+    esicEmployerPct: Number(row.esicEmployerPct) || 0,
+    esicEmployeePct: Number(row.esicEmployeePct) || 0,
+    esicWageCeiling: Number(row.esicWageCeiling) || 0,
+    professionTax: Number(row.professionTax) || 0,
+    workingDaysMonth: Number(row.workingDaysMonth) || 31,
+    notes: row.notes || d.notes,
+  };
+}
+
+// Pure split engine. The client mirrors these formulas in
+// client/src/utils/salary.ts so the HR form preview matches what is saved.
+function standardSalarySplit(ctc, rules) {
+  const ctcNum = Number(ctc) || 0;
+  const round = (n) => Math.round(n * 100) / 100;
+
+  const basic = round(ctcNum * (Number(rules.basicPct) || 0) / 100);
+  const hra = round(basic * (Number(rules.hraPctOfBasic) || 0) / 100);
+  const pfBase = Math.min(basic, Number(rules.pfCap) || 0);
+  const pfEmployee = round(pfBase * (Number(rules.pfPct) || 0) / 100);
+  const pfEmployer = pfEmployee;
+  const esicBase = Math.min(ctcNum, Number(rules.esicWageCeiling) || 0);
+  const esiEmployee = round(esicBase * (Number(rules.esicEmployeePct) || 0) / 100);
+  const esiEmployer = round(esicBase * (Number(rules.esicEmployerPct) || 0) / 100);
+  const pt = Number(rules.professionTax) || 0;
+
+  const special = Math.max(0, round(ctcNum - basic - hra - pfEmployee - esiEmployee - pt));
+
+  const earnings = [
+    { name: 'Basic Salary', code: 'BASIC', type: 'EARNING', amount: basic },
+    { name: 'House Rent Allowance', code: 'HRA', type: 'EARNING', amount: hra },
+    { name: 'Special Allowance', code: 'SPL', type: 'EARNING', amount: special },
+  ];
+  const deductions = [
+    { name: 'Provident Fund (Employee)', code: 'PF', type: 'DEDUCTION', amount: pfEmployee },
+    { name: 'ESI (Employee)', code: 'ESI_EMP', type: 'DEDUCTION', amount: esiEmployee },
+    { name: 'Profession Tax', code: 'PT', type: 'DEDUCTION', amount: pt },
+  ];
+  // Employer contributions are reference-only: shown on the payslip, not
+  // deducted from net pay (matches the register's Employer PF / ESI columns).
+  const employerContributions = [
+    { name: 'Provident Fund (Employer)', code: 'PF_ER', type: 'MEMO', amount: pfEmployer },
+    { name: 'ESI (Employer)', code: 'ESI_ER', type: 'MEMO', amount: esiEmployer },
+  ];
+
+  const grossEarnings = round(earnings.reduce((s, c) => s + c.amount, 0));
+  const totalDeductions = round(deductions.reduce((s, c) => s + c.amount, 0));
+  return {
+    ctc: ctcNum,
+    earnings,
+    deductions,
+    employerContributions,
+    grossEarnings,
+    totalDeductions,
+    netPay: round(grossEarnings - totalDeductions),
+  };
+}
+
+// Standard payhead catalog used to seed the table on first access — the
+// usual Indian payroll components. Editing the catalog in the HR UI then
+// customizes what every employee structure offers.
+const DEFAULT_PAYHEADS = [
+  { code: 'BASIC', name: 'Basic Salary', type: 'EARNING', sortOrder: 1 },
+  { code: 'HRA', name: 'House Rent Allowance', type: 'EARNING', sortOrder: 2 },
+  { code: 'DA', name: 'Dearness Allowance', type: 'EARNING', sortOrder: 3 },
+  { code: 'LWA', name: 'Leave Travel Allowance', type: 'EARNING', sortOrder: 4 },
+  { code: 'PLA', name: 'Professional Allowance', type: 'EARNING', sortOrder: 5 },
+  { code: 'CBA', name: 'Conveyance Allowance', type: 'EARNING', sortOrder: 6 },
+  { code: 'PF', name: 'Provident Fund', type: 'DEDUCTION', sortOrder: 20 },
+  { code: 'ESI', name: 'ESI Contribution', type: 'DEDUCTION', sortOrder: 21 },
+  { code: 'PT', name: 'Professional Tax', type: 'DEDUCTION', sortOrder: 22 },
+  { code: 'TDS', name: 'Tax Deducted at Source', type: 'DEDUCTION', sortOrder: 23 },
+];
+
+async function ensurePayheadTable(prismaClient) {
+  try {
+    await prismaClient.$queryRawUnsafe('SELECT 1 FROM salary_payheads LIMIT 1');
+  } catch {
+    await prismaClient.$queryRawUnsafe(`
+      CREATE TABLE salary_payheads (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(40) NOT NULL UNIQUE,
+        name VARCHAR(100) NOT NULL,
+        type ENUM('EARNING','DEDUCTION') NOT NULL DEFAULT 'EARNING',
+        description VARCHAR(255) NULL,
+        isFixedByDefault TINYINT(1) NOT NULL DEFAULT 0,
+        sortOrder INT NOT NULL DEFAULT 0,
+        isActive TINYINT(1) NOT NULL DEFAULT 1,
+        createdAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updatedAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+      )
+    `);
+    // Seed the standard catalog so the HR UI has a starting point to edit.
+    for (const seed of DEFAULT_PAYHEADS) {
+      await prismaClient.$queryRawUnsafe(
+        `INSERT INTO salary_payheads (code, name, type, description, isFixedByDefault, sortOrder, isActive, createdAt, updatedAt)
+         VALUES (?, ?, ?, NULL, 0, ?, 1, NOW(3), NOW(3)) ON DUPLICATE KEY UPDATE id = id`,
+        seed.code, seed.name, seed.type, seed.sortOrder
+      );
+    }
+  }
+}
+
 class PayrollService {
   // ---- Role checks ----
 
   static canManagePayroll(reqUser) {
     return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role);
+  }
+
+  // ---- Salary payheads (the configurable "salary headers") ----
+
+  static async listPayheads(reqUser, { activeOnly = false } = {}) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to manage salary payheads.', 403);
+    }
+    const prismaClient = getPrisma();
+    await ensurePayheadTable(prismaClient);
+    const rows = await prismaClient.$queryRawUnsafe(
+      activeOnly
+        ? `SELECT id, code, name, type, description, isFixedByDefault, sortOrder, isActive FROM salary_payheads
+           WHERE isActive = 1 ORDER BY type ASC, sortOrder ASC, id ASC`
+        : `SELECT id, code, name, type, description, isFixedByDefault, sortOrder, isActive FROM salary_payheads
+           ORDER BY type ASC, sortOrder ASC, id ASC`
+    );
+    return rows.map((r) => ({
+      id: String(r.id),
+      code: r.code,
+      name: r.name,
+      type: r.type,
+      description: r.description || '',
+      isFixedByDefault: Boolean(r.isFixedByDefault),
+      sortOrder: Number(r.sortOrder) || 0,
+      isActive: Boolean(r.isActive),
+    }));
+  }
+
+  static async createPayhead(reqUser, data) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to manage salary payheads.', 403);
+    }
+    const code = String(data.code || '').trim().toUpperCase();
+    const name = String(data.name || '').trim();
+    if (!code || !name) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Payhead code and name are required.', 400);
+    }
+    if (!['EARNING', 'DEDUCTION'].includes(data.type)) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, "Payhead type must be 'EARNING' or 'DEDUCTION'.", 400);
+    }
+    const prismaClient = getPrisma();
+    await ensurePayheadTable(prismaClient);
+    const dup = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM salary_payheads WHERE code = ? LIMIT 1',
+      code
+    );
+    if (dup && dup.length) {
+      throw new AppError(AppErrorCodes.CONFLICT, `Payhead code "${code}" already exists.`, 409);
+    }
+    await prismaClient.$executeRawUnsafe(
+      `INSERT INTO salary_payheads (code, name, type, description, isFixedByDefault, sortOrder, isActive, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, 1, NOW(3), NOW(3))`,
+      code,
+      name,
+      data.type,
+      data.description || null,
+      data.isFixedByDefault ? 1 : 0,
+      Number(data.sortOrder) || 0
+    );
+    const created = await prismaClient.$queryRawUnsafe('SELECT id FROM salary_payheads WHERE code = ? LIMIT 1', code);
+    logger.info('Salary payhead created', { code, by: reqUser.email });
+    return { id: String(created[0].id), code, name, type: data.type, description: data.description || '' };
+  }
+
+  static async updatePayhead(reqUser, id, data) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to manage salary payheads.', 403);
+    }
+    const prismaClient = getPrisma();
+    await ensurePayheadTable(prismaClient);
+    const existing = await prismaClient.$queryRawUnsafe(
+      'SELECT * FROM salary_payheads WHERE id = ? LIMIT 1',
+      Number(id)
+    );
+    if (!existing || !existing.length) {
+      throw new AppError(AppErrorCodes.NOT_FOUND, 'Salary payhead not found.', 404);
+    }
+    const sets = [];
+    const params = [];
+    const name = data.name !== undefined ? String(data.name).trim() : existing[0].name;
+    if (name !== existing[0].name) { sets.push('name = ?'); params.push(name); }
+    if (data.description !== undefined) { sets.push('description = ?'); params.push(data.description || null); }
+    if (data.isFixedByDefault !== undefined) { sets.push('isFixedByDefault = ?'); params.push(data.isFixedByDefault ? 1 : 0); }
+    if (data.sortOrder !== undefined) { sets.push('sortOrder = ?'); params.push(Number(data.sortOrder) || 0); }
+    // Type cannot change once in use: employee structures already reference
+    // the old value and payroll math would silently re-classify amounts.
+    if (data.type !== undefined && ['EARNING', 'DEDUCTION'].includes(data.type)) {
+      sets.push('type = ?'); params.push(data.type);
+    }
+    if (data.isActive !== undefined) { sets.push('isActive = ?'); params.push(data.isActive ? 1 : 0); }
+    if (sets.length) {
+      sets.push('updatedAt = NOW(3)');
+      params.push(Number(id));
+      await prismaClient.$executeRawUnsafe(
+        `UPDATE salary_payheads SET ${sets.join(', ')} WHERE id = ?`,
+        ...params
+      );
+    }
+    const updated = await prismaClient.$queryRawUnsafe(
+      'SELECT * FROM salary_payheads WHERE id = ? LIMIT 1',
+      Number(id)
+    );
+    logger.info('Salary payhead updated', { id, by: reqUser.email });
+    return updated[0];
+  }
+
+  static async deletePayhead(reqUser, id) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to manage salary payheads.', 403);
+    }
+    const prismaClient = getPrisma();
+    await ensurePayheadTable(prismaClient);
+    // Soft-delete only. Hard-removing a payhead would orphan the reference in
+    // any employee structure built from it.
+    await prismaClient.$executeRawUnsafe(
+      'UPDATE salary_payheads SET isActive = 0, updatedAt = NOW(3) WHERE id = ?',
+      Number(id)
+    );
+    logger.info('Salary payhead deactivated', { id, by: reqUser.email });
+  }
+
+  // ---- Salary rules (the configurable "salary configuration") ----
+
+  static async getSalaryRules(reqUser) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view salary rules.', 403);
+    }
+    const prismaClient = getPrisma();
+    await ensureSalaryRulesTable(prismaClient);
+    const rows = await prismaClient.$queryRawUnsafe('SELECT * FROM salary_rules WHERE id = 1 LIMIT 1');
+    return readSalaryRulesRow(rows && rows[0]);
+  }
+
+  static async updateSalaryRules(reqUser, data) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to update salary rules.', 403);
+    }
+    const prismaClient = getPrisma();
+    await ensureSalaryRulesTable(prismaClient);
+    const current = readSalaryRulesRow(
+      (await prismaClient.$queryRawUnsafe('SELECT * FROM salary_rules WHERE id = 1 LIMIT 1'))[0]
+    );
+    const next = { ...current };
+    for (const key of [
+      'basicPct', 'hraPctOfBasic', 'pfPct', 'pfCap',
+      'esicEmployerPct', 'esicEmployeePct', 'esicWageCeiling',
+      'professionTax', 'workingDaysMonth', 'notes',
+    ]) {
+      if (data[key] !== undefined) next[key] = data[key];
+    }
+    await prismaClient.$executeRawUnsafe(
+      `UPDATE salary_rules SET
+         basicPct = ?, hraPctOfBasic = ?, pfPct = ?, pfCap = ?,
+         esicEmployerPct = ?, esicEmployeePct = ?, esicWageCeiling = ?,
+         professionTax = ?, workingDaysMonth = ?, notes = ?, updatedAt = NOW(3)
+       WHERE id = 1`,
+      next.basicPct, next.hraPctOfBasic, next.pfPct, next.pfCap,
+      next.esicEmployerPct, next.esicEmployeePct, next.esicWageCeiling,
+      next.professionTax, next.workingDaysMonth, next.notes
+    );
+    logger.info('Salary rules updated', { by: reqUser.email });
+    return this.getSalaryRules(reqUser);
+  }
+
+  /** Preview split for a CTC using the current rules — the same engine the
+      structure-creation flow uses when HR accepts the standard split. */
+  static async previewSalarySplit(reqUser, ctc) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to preview salary splits.', 403);
+    }
+    const prismaClient = getPrisma();
+    await ensureSalaryRulesTable(prismaClient);
+    const row = await prismaClient.$queryRawUnsafe('SELECT * FROM salary_rules WHERE id = 1 LIMIT 1');
+    return standardSalarySplit(ctc, readSalaryRulesRow(row[0]));
   }
 
   static async getEmployeeProfileId(userId) {
@@ -57,7 +396,31 @@ class PayrollService {
       throw new AppError(PayrollErrorCodes.SALARY_STRUCTURE_EXISTS, 'A salary structure already exists for this employee.', 409);
     }
 
-    const structure = await getPrisma().salaryStructure.create({
+    const prismaClient = getPrisma();
+    const ruleRows = await prismaClient.$queryRawUnsafe('SELECT * FROM salary_rules WHERE id = 1 LIMIT 1').catch(() => []);
+    const rules = readSalaryRulesRow(ruleRows[0]);
+
+    // When HR does not supply explicit components, auto-generate the standard
+    // split (Basic / HRA / Special + PF / ESI / PT) from the configured rules
+    // — this is the salary-register behaviour the HR team expects.
+    let structureComponents = components || [];
+    if (structureComponents.length === 0) {
+      const split = standardSalarySplit(monthlyCTC, rules);
+      structureComponents = [
+        ...split.earnings,
+        ...split.deductions,
+      ].map((c, i) => ({
+        name: c.name,
+        description: c.code ? `Auto-split · ${c.code}` : null,
+        type: c.type,
+        calculationType: 'FIXED',
+        amount: c.amount,
+        sortOrder: i,
+        isActive: true,
+      }));
+    }
+
+    const structure = await prismaClient.salaryStructure.create({
       data: {
         employeeId,
         monthlyCTC,
@@ -66,7 +429,7 @@ class PayrollService {
         effectiveFrom: new Date(effectiveFrom),
         effectiveTo: effectiveTo ? new Date(effectiveTo) : null,
         components: {
-          create: (components || []).map((c) => ({
+          create: structureComponents.map((c) => ({
             name: c.name,
             description: c.description || null,
             type: c.type,
@@ -502,7 +865,7 @@ class PayrollService {
       throw new AppError(PayrollErrorCodes.PAYROLL_NOT_FOUND, 'Payroll not found.', 404);
     }
 
-    this.authorizePayrollAccess(reqUser, payroll);
+    await this.authorizePayrollAccess(reqUser, payroll);
 
     return this.formatPayrollRecord(payroll);
   }
@@ -660,7 +1023,7 @@ class PayrollService {
       throw new AppError(PayrollErrorCodes.PAYSLIP_NOT_FOUND, 'Payslip not found.', 404);
     }
 
-    this.authorizePayrollAccess(reqUser, payslip.payrollRecord);
+    await this.authorizePayrollAccess(reqUser, payslip.payrollRecord);
 
     return this.formatPayslip(payslip);
   }
@@ -749,7 +1112,7 @@ class PayrollService {
     }
 
     // Reuse existing authorization (covers all four roles)
-    this.authorizePayrollAccess(reqUser, payroll);
+    await this.authorizePayrollAccess(reqUser, payroll);
 
     // Load employee profile for display fields
     const profile = await prismaClient.employeeProfile.findUnique({
@@ -775,6 +1138,33 @@ class PayrollService {
         amount: Number(c.amount),
       }));
 
+    // Reference-only employer contributions (not deducted from net pay).
+    // Mirror the employee deduction where the codes match.
+    const employerContributions = [];
+    const pfEmp = deductions.find((d) => /PF|PROVIDENT/i.test(d.name));
+    if (pfEmp) {
+      employerContributions.push({ name: 'Provident Fund (Employer)', amount: pfEmp.amount });
+    }
+    const esiEmp = deductions.find((d) => /ESI|ESIC/i.test(d.name));
+    if (esiEmp) {
+      // 0.75% employee vs 3.25% employer -> employer ≈ 4.33x the employee share
+      employerContributions.push({ name: 'ESI (Employer)', amount: Math.round(Number(esiEmp.amount) * (3.25 / 0.75) * 100) / 100 });
+    }
+
+    // The configured PF/ESIC computation notes to print at the foot of the slip.
+    const ruleRows = await prismaClient.$queryRawUnsafe('SELECT notes FROM salary_rules WHERE id = 1 LIMIT 1').catch(() => []);
+    const rulesNotes = ruleRows[0] ? String(ruleRows[0].notes || '') : '';
+
+    // Date of joining from the legacy employees table via the profile's userId.
+    let dateOfJoining = null;
+    if (profile?.userId != null) {
+      const joinRows = await prismaClient.$queryRawUnsafe(
+        'SELECT joiningDate FROM employees WHERE userId = ? LIMIT 1',
+        profile.userId
+      ).catch(() => []);
+      if (joinRows[0]) dateOfJoining = joinRows[0].joiningDate;
+    }
+
     const pdfBuffer = await generatePayslipPDF({
       employeeCode: profile?.employeeCode || '—',
       employeeName: profile
@@ -791,6 +1181,9 @@ class PayrollService {
       netPay: payroll.netPay,
       earnings,
       deductions,
+      employerContributions,
+      dateOfJoining,
+      notes: rulesNotes,
       payslipGeneratedAt: payslip.generatedAt,
     });
 
@@ -802,12 +1195,17 @@ class PayrollService {
 
   // ---- Helpers ----
 
-  static authorizePayrollAccess(reqUser, payrollRecord) {
+  // `payrollRecord.employeeId` is the employeeProfile.id (INT), NOT the user.id
+  // that arrives on the request. For an EMPLOYEE, resolve their own profile
+  // id and compare that, otherwise a valid self-request is rejected with 403.
+  static async authorizePayrollAccess(reqUser, payrollRecord) {
     if ([Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role)) {
       return;
     }
     if (reqUser.role === Role.EMPLOYEE) {
-      if (payrollRecord.employeeId !== reqUser.id) {
+      const profile = await this.getEmployeeProfileId(reqUser.id);
+      const profileId = profile ? Number(profile.id) : null;
+      if (profileId === null || Number(payrollRecord.employeeId) !== profileId) {
         throw new AppError(AppErrorCodes.FORBIDDEN, 'You can only access your own payroll records.', 403);
       }
       return;

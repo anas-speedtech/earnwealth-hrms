@@ -88,9 +88,9 @@ export default function HrWFHPage() {
         <div className="flex items-center gap-1 mb-6 border-b border-slate-200">
           <button
             onClick={() => setActiveTab('WFH')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-4 py-3 text-[13px] font-medium border-b-2 transition-colors ${
               activeTab === 'WFH'
-                ? 'border-primary-500 text-primary-600'
+                ? 'border-cyan-500 text-cyan-600'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
@@ -98,9 +98,9 @@ export default function HrWFHPage() {
           </button>
           <button
             onClick={() => setActiveTab('Corrections')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-4 py-3 text-[13px] font-medium border-b-2 transition-colors ${
               activeTab === 'Corrections'
-                ? 'border-primary-500 text-primary-600'
+                ? 'border-cyan-500 text-cyan-600'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
@@ -111,7 +111,7 @@ export default function HrWFHPage() {
         {/* Pending Items */}
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="px-6 py-4 border-b border-slate-200">
-            <h3 className="text-lg font-semibold text-slate-900">
+            <h3 className="text-[15px] font-semibold text-slate-900">
               Pending {activeTab === 'WFH' ? 'WFH Requests' : 'Corrections'}
             </h3>
           </div>
@@ -129,11 +129,11 @@ export default function HrWFHPage() {
                         <p className="font-medium text-slate-900">
                           {req.employeeName} ({req.employeeCode})
                         </p>
-                        <p className="text-sm text-slate-500">{req.employeeEmail}</p>
-                        <p className="text-sm font-medium text-slate-700 mt-1">
+                        <p className="text-[13px] text-slate-500">{req.employeeEmail}</p>
+                        <p className="text-[13px] font-medium text-slate-700 mt-1">
                           {formatDate(req.requestDate)}
                         </p>
-                        <p className="text-sm text-slate-600 mt-2">{req.reason}</p>
+                        <p className="text-[13px] text-slate-600 mt-2">{req.reason}</p>
                       </div>
                       <div className="flex items-center gap-2 mt-2">
                         <button
@@ -166,11 +166,11 @@ export default function HrWFHPage() {
                         <p className="font-medium text-slate-900">
                           {c.employeeName} ({c.employeeCode})
                         </p>
-                        <p className="text-sm text-slate-500">{c.employeeEmail}</p>
-                        <p className="text-sm font-medium text-slate-700 mt-1">
+                        <p className="text-[13px] text-slate-500">{c.employeeEmail}</p>
+                        <p className="text-[13px] font-medium text-slate-700 mt-1">
                           {formatDate(c.date)}
                         </p>
-                        <p className="text-sm text-slate-600 mt-2">{c.reason}</p>
+                        <p className="text-[13px] text-slate-600 mt-2">{c.reason}</p>
                       </div>
                       <div className="flex items-center gap-2 mt-2">
                         <button
@@ -198,18 +198,18 @@ export default function HrWFHPage() {
         {reviewForm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">
+              <h3 className="text-[15px] font-semibold text-slate-900 mb-4">
                 {reviewForm.action === 'approve' ? 'Approve' : 'Reject'} {activeTab === 'WFH' ? 'WFH Request' : 'Correction'}
               </h3>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+                <label className="block text-[12px] font-medium text-slate-600 mb-1.5">
                   Comment {reviewForm.action === 'reject' && '(required)'}
                 </label>
                 <textarea
                   value={reviewForm.comment}
                   onChange={(e) => setReviewForm({ ...reviewForm, comment: e.target.value })}
                   rows={3}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   placeholder={reviewForm.action === 'approve' ? 'Optional note...' : 'Please provide a reason for rejection...'}
                   required={reviewForm.action === 'reject'}
                 />
@@ -218,7 +218,7 @@ export default function HrWFHPage() {
                 <button
                   onClick={handleReview}
                   disabled={reviewing || (reviewForm.action === 'reject' && !reviewForm.comment)}
-                  className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors ${
+                  className={`flex-1 px-4 py-2 rounded-lg text-[13px] font-medium disabled:opacity-50 transition-colors ${
                     reviewForm.action === 'approve'
                       ? 'bg-green-600 text-white hover:bg-green-700'
                       : 'bg-red-600 text-white hover:bg-red-700'
@@ -228,7 +228,7 @@ export default function HrWFHPage() {
                 </button>
                 <button
                   onClick={() => setReviewForm(null)}
-                  className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+                  className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-[13px] font-medium hover:bg-slate-50 transition-colors"
                 >
                   Cancel
                 </button>

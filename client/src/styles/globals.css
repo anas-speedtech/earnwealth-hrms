@@ -10,25 +10,56 @@
   }
 
   body {
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    color: #172033;
-    background: #f6f8fc;
+    font-family: 'Geist', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 13px;
+    font-feature-settings: 'cv11', 'ss01', 'tnum';
+    color: #0f172a;
+    background: #f8fafc;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.02em;
+  }
+
+  ::selection {
+    background: rgba(2, 132, 199, 0.16);
+  }
+
+  /* Slim, modern scrollbars */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+    background-clip: content-box;
+    border: 2px solid transparent;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-primary-600 text-white px-4 py-2 rounded-xl font-semibold shadow-sm shadow-primary-600/20 hover:bg-primary-700 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-cyan-600 text-white px-4 py-2 rounded-lg font-medium shadow-sm shadow-cyan-600/20 hover:bg-cyan-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-secondary {
-    @apply bg-slate-200 text-slate-800 px-4 py-2 rounded-lg font-medium hover:bg-slate-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .input-field {
-    @apply w-full px-4 py-2.5 border border-slate-200 bg-white rounded-xl focus:ring-4 focus:ring-primary-500/10 focus:border-primary-400 outline-none transition-all;
+    @apply w-full px-3.5 py-2.5 border border-slate-200 bg-white rounded-lg text-sm focus:ring-4 focus:ring-cyan-500/10 focus:border-cyan-500 outline-none transition-all;
   }
   .card {
-    @apply bg-white rounded-2xl shadow-sm border border-slate-200/80 p-6;
+    @apply bg-white rounded-2xl shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)] border border-slate-200/70 p-6;
   }
 }

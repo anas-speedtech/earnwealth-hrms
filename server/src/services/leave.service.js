@@ -72,7 +72,8 @@ class LeaveService {
     const prismaClient = getPrisma();
     const types = await prismaClient.$queryRawUnsafe(
       `SELECT id, name, displayName, description, code, classification,
-              isHalfDayAllowed, isActive
+              isHalfDayAllowed, isActive,
+              annualEntitlementDays, isUnlimited, appliesToBoardLevel
        FROM leave_types
        WHERE isActive = 1
        ORDER BY displayName ASC`
@@ -95,12 +96,18 @@ class LeaveService {
               COALESCE(lb.accruedBalance, 0)  AS accruedBalance,
               COALESCE(lb.usedBalance, 0)     AS usedBalance,
               COALESCE(lb.reservedBalance, 0) AS reservedBalance,
-              COALESCE(lb.availableBalance, 0) AS availableBalance
+              COALESCE(lb.availableBalance, 0) AS availableBalance,
+              CASE WHEN lb.id IS NOT NULL THEN 1 ELSE 0 END AS hasBalance,
+              EXISTS(
+                SELECT 1 FROM leave_balances lb_any
+                WHERE lb_any.employeeId = ? AND lb_any.leaveTypeId = lt.id
+              ) AS configured
        FROM leave_types lt
        LEFT JOIN leave_balances lb
          ON lb.leaveTypeId = lt.id AND lb.employeeId = ? AND lb.year = ?
        WHERE lt.isActive = 1
        ORDER BY lt.displayName ASC`,
+      employeeId,
       employeeId,
       year
     );
@@ -188,6 +195,77 @@ class LeaveService {
     return LeaveService.getRequests(prismaClient, reqUser, options);
   }
 
+  /**
+   * Leave-type tiles for the HR broad view. For the selected month (and, if a
+   * specific day is chosen, that day) it returns per-type counts plus the
+   * requests that back each tile so the UI can drill in. Counts are based on
+   * requests that overlap the period, which is what matters for planning.
+   */
+  static async getTiles(reqUser, { year, month, day }) {
+    if (!canAccessAll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view leave tiles.', 403);
+    }
+    const prismaClient = getPrisma();
+
+    const yearNum = Number(year) || new Date().getFullYear();
+    const monthNum = Number(month) || new Date().getMonth() + 1;
+    const dayNum = Number(day) || 0;
+
+    // Build the period window in UTC so it matches how the live DB stores
+    // dates (the app has historically written local IST as UTC).
+    let periodStart, periodEnd;
+    if (dayNum > 0) {
+      periodStart = new Date(Date.UTC(yearNum, monthNum - 1, dayNum));
+      periodEnd = new Date(Date.UTC(yearNum, monthNum - 1, dayNum + 1));
+    } else {
+      periodStart = new Date(Date.UTC(yearNum, monthNum - 1, 1));
+      periodEnd = new Date(Date.UTC(yearNum, monthNum, 1));
+    }
+
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT l.id, l.employeeId, e.employeeCode, e.name AS employeeName,
+              l.type, COALESCE(lt.displayName, l.type) AS leaveTypeName, lt.code AS leaveTypeCode,
+              l.status, l.startDate, l.endDate, l.reason
+       FROM leaves l
+       LEFT JOIN employees e ON e.id = l.employeeId
+       LEFT JOIN leave_types lt ON BINARY lt.name = BINARY l.type
+       WHERE l.endDate >= ? AND l.startDate < ?
+       ORDER BY l.startDate ASC`,
+      periodStart,
+      periodEnd
+    );
+
+    const byType = new Map();
+    for (const row of rows) {
+      const key = row.leaveTypeCode || row.type || 'OTHER';
+      if (!byType.has(key)) {
+        byType.set(key, {
+          key,
+          code: key,
+          name: row.leaveTypeName || row.type || 'Other',
+          total: 0,
+          pending: 0,
+          approved: 0,
+          rejected: 0,
+          requests: [],
+        });
+      }
+      const tile = byType.get(key);
+      tile.total++;
+      if (row.status === 'PENDING') tile.pending++;
+      else if (row.status === 'APPROVED') tile.approved++;
+      else if (row.status === 'REJECTED') tile.rejected++;
+      tile.requests.push(row);
+    }
+
+    return {
+      year: yearNum,
+      month: monthNum,
+      day: dayNum || null,
+      tiles: Array.from(byType.values()),
+    };
+  }
+
   static async getPendingRequests(reqUser) {
     const prismaClient = getPrisma();
     const rows = await prismaClient.$queryRawUnsafe(
@@ -233,7 +311,9 @@ class LeaveService {
    */
   static async applyLeave(reqUser, payload) {
     const prismaClient = getPrisma();
-    const { startDate, endDate, type, reason, isHalfDay = false } = payload;
+    // The client sends the leave type's uuid as `leaveTypeId`; the `leaves.type`
+    // column stores the type's NAME, so resolve the type row first.
+    const { startDate, endDate, leaveTypeId, reason, isHalfDay = false } = payload;
 
     const own = await prismaClient.$queryRawUnsafe(
       'SELECT id, userId FROM employees WHERE userId = ? LIMIT 1',
@@ -261,11 +341,27 @@ class LeaveService {
     }
 
     const typeRow = await prismaClient.$queryRawUnsafe(
-      'SELECT id, name FROM leave_types WHERE name = ? LIMIT 1',
-      type
+      'SELECT id, name FROM leave_types WHERE id = ? AND isActive = 1 LIMIT 1',
+      leaveTypeId
     );
     if (!typeRow.length) {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Unknown leave type.', 400);
+    }
+    const typeName = typeRow[0].name;
+
+    // Employees may only apply for leave types that are configured for them
+    // (a leave_balances row exists for this employee + type, in any year).
+    // The Apply Leave screen hides the rest, this closes the backend gap.
+    const configuredRows = await prismaClient.$queryRawUnsafe(
+      'SELECT 1 FROM leave_balances WHERE employeeId = ? AND leaveTypeId = ? LIMIT 1',
+      employeeId, typeRow[0].id
+    );
+    if (!configuredRows.length) {
+      throw new AppError(
+        AppErrorCodes.VALIDATION_ERROR,
+        'This leave type is not configured for your account.',
+        400
+      );
     }
 
     // Reject an exact duplicate: same employee, type and dates still open.
@@ -274,7 +370,7 @@ class LeaveService {
        WHERE employeeId = ? AND type = ? AND startDate = ? AND endDate = ?
          AND status IN ('PENDING', 'APPROVED')
        LIMIT 1`,
-      employeeId, type, start, end
+      employeeId, typeName, start, end
     );
     if (duplicate.length) {
       throw new AppError(
@@ -287,12 +383,15 @@ class LeaveService {
     // leaves.id is INT AUTO_INCREMENT in this database - do not supply an id.
     const year = start.getFullYear();
 
+    let newLeaveId = null;
     await prismaClient.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(
         `INSERT INTO leaves (employeeId, type, status, startDate, endDate, reason, createdAt, updatedAt)
          VALUES (?, ?, 'PENDING', ?, ?, ?, NOW(), NOW())`,
-        employeeId, type, start, end, reason
+        employeeId, typeName, start, end, reason
       );
+      const inserted = await tx.$queryRawUnsafe('SELECT LAST_INSERT_ID() AS id');
+      newLeaveId = Number(inserted[0].id);
 
       const balanceRows = await tx.$queryRawUnsafe(
         'SELECT id, availableBalance, reservedBalance FROM leave_balances WHERE employeeId = ? AND leaveTypeId = ? AND year = ? LIMIT 1',
@@ -316,8 +415,8 @@ class LeaveService {
       }
     });
 
-    logger.info('Leave applied', { leaveId: id, employeeId, type, days });
-    return LeaveService.getRequestById(reqUser, id);
+    logger.info('Leave applied', { leaveId: newLeaveId, employeeId, type: typeName, days });
+    return LeaveService.getRequestById(reqUser, newLeaveId);
   }
 
   // ---- Cancel ----
@@ -437,7 +536,10 @@ class LeaveService {
 
   static async createLeaveType(reqUser, payload) {
     const prismaClient = getPrisma();
-    const { name, displayName, description, code, classification = 'PAID', isHalfDayAllowed = false } = payload;
+    const {
+      name, displayName, description, code, classification = 'PAID', isHalfDayAllowed = false,
+      annualEntitlementDays = 0, isUnlimited = false, appliesToBoardLevel = false,
+    } = payload;
 
     const existing = await prismaClient.$queryRawUnsafe(
       'SELECT id FROM leave_types WHERE name = ? LIMIT 1',
@@ -449,14 +551,22 @@ class LeaveService {
 
     const id = crypto.randomUUID();
     await prismaClient.$executeRawUnsafe(
-      `INSERT INTO leave_types (id, name, displayName, description, code, classification, isHalfDayAllowed, isActive, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
-      id, name, displayName || name, description || null, code || null, classification, isHalfDayAllowed ? 1 : 0
+      `INSERT INTO leave_types
+         (id, name, displayName, description, code, classification, isHalfDayAllowed,
+          annualEntitlementDays, isUnlimited, appliesToBoardLevel, isActive, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
+      id, name, displayName || name, description || null, code || null, classification,
+      isHalfDayAllowed ? 1 : 0,
+      Number(annualEntitlementDays) || 0,
+      isUnlimited ? 1 : 0,
+      appliesToBoardLevel ? 1 : 0
     );
 
     logger.info('Leave type created', { leaveTypeId: id, by: reqUser.id });
     const rows = await prismaClient.$queryRawUnsafe(
-      'SELECT id, name, displayName, description, code, classification, isHalfDayAllowed, isActive FROM leave_types WHERE id = ?',
+      `SELECT id, name, displayName, description, code, classification, isHalfDayAllowed,
+              annualEntitlementDays, isUnlimited, appliesToBoardLevel, isActive
+       FROM leave_types WHERE id = ?`,
       id
     );
     return rows[0];
@@ -472,13 +582,24 @@ class LeaveService {
       throw new AppError(AppErrorCodes.NOT_FOUND, 'Leave type not found.', 404);
     }
 
-    const allowed = ['displayName', 'description', 'code', 'classification', 'isHalfDayAllowed', 'isActive'];
+    // Organisation-wide policy fields: the entitlement and the two exception
+    // flags (unlimited, board-level) can be changed here.
+    const allowed = [
+      'displayName', 'description', 'code', 'classification', 'isHalfDayAllowed', 'isActive',
+      'annualEntitlementDays', 'isUnlimited', 'appliesToBoardLevel',
+    ];
+    const booleanFields = ['isHalfDayAllowed', 'isActive', 'isUnlimited', 'appliesToBoardLevel'];
+    const numericFields = ['annualEntitlementDays'];
+
     const sets = [];
     const params = [];
     for (const key of allowed) {
       if (payload[key] !== undefined) {
         sets.push(`${key} = ?`);
-        params.push(payload[key]);
+        let value = payload[key];
+        if (booleanFields.includes(key)) value = value ? 1 : 0;
+        if (numericFields.includes(key)) value = Number(value) || 0;
+        params.push(value);
       }
     }
     if (!sets.length) {
@@ -492,7 +613,9 @@ class LeaveService {
 
     logger.info('Leave type updated', { leaveTypeId: id, by: reqUser.id });
     const rows = await prismaClient.$queryRawUnsafe(
-      'SELECT id, name, displayName, description, code, classification, isHalfDayAllowed, isActive FROM leave_types WHERE id = ?',
+      `SELECT id, name, displayName, description, code, classification, isHalfDayAllowed,
+              annualEntitlementDays, isUnlimited, appliesToBoardLevel, isActive
+       FROM leave_types WHERE id = ?`,
       id
     );
     return rows[0];
@@ -524,63 +647,126 @@ class LeaveService {
     return LeaveService.listLeaveTypes();
   }
 
-  // Initialize per-year balances for an employee from each leave type's policy.
-  // leave_balances has no policy table link in this DB, so entitlement values are
-  // read from leave_types.classification defaults configured by the Super Admin.
-  static async initializeBalances(reqUser, employeeId) {
+  // Initialize per-year balances for an employee from each leave type's
+  // configured annual entitlement. Entitlements are set organisation-wide on
+  // the leave type itself (annualEntitlementDays); unlimited leave types
+  // (board-level members) are not given a numeric balance, and board-level
+  // employees get those unlimited types instead.
+  static async initializeBalances(reqUser, employeeId, year) {
     const prismaClient = getPrisma();
 
     const emp = await prismaClient.$queryRawUnsafe(
-      'SELECT id, name FROM employees WHERE id = ? LIMIT 1',
+      'SELECT id, name, designation FROM employees WHERE id = ? LIMIT 1',
       employeeId
     );
     if (!emp.length) {
       throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
     }
+    const isBoardLevel = LeaveService.isBoardLevel(emp[0]);
 
-    const year = new Date().getFullYear();
+    const targetYear = Number(year) || new Date().getFullYear();
     const types = await prismaClient.$queryRawUnsafe(
-      'SELECT id, classification FROM leave_types WHERE isActive = 1'
+      'SELECT id, annualEntitlementDays, isUnlimited, appliesToBoardLevel FROM leave_types WHERE isActive = 1'
     );
     if (!types.length) {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'No active leave types configured.', 400);
     }
 
     let created = 0;
+    let skippedUnlimited = 0;
     for (const t of types) {
       const existing = await prismaClient.$queryRawUnsafe(
         'SELECT id FROM leave_balances WHERE employeeId = ? AND leaveTypeId = ? AND year = ? LIMIT 1',
-        employeeId, t.id, year
+        employeeId, t.id, targetYear
       );
       if (existing.length) continue;
 
+      // Unlimited types get no ledger row: they have no cap, so a balance
+      // number would be meaningless. The UI treats "unlimited" separately.
+      if (Number(t.isUnlimited) === 1 && !Number(t.appliesToBoardLevel)) {
+        skippedUnlimited += 1;
+        continue;
+      }
+
+      const opening = Number(t.annualEntitlementDays || 0);
       await prismaClient.$executeRawUnsafe(
         `INSERT INTO leave_balances
            (id, employeeId, leaveTypeId, openingBalance, accruedBalance, usedBalance, reservedBalance, availableBalance, year, lastAccruedAt, createdAt, updatedAt)
-         VALUES (?, ?, ?, 0.00, 0.00, 0.00, 0.00, 0.00, ?, NOW(), NOW(), NOW())`,
-        crypto.randomUUID(), employeeId, t.id, year
+         VALUES (?, ?, ?, ?, 0.00, 0.00, 0.00, ?, ?, NOW(), NOW(), NOW())`,
+        crypto.randomUUID(), employeeId, t.id, opening, opening, targetYear
       );
       created += 1;
     }
 
-    logger.info('Leave balances initialised', { employeeId, year, created, by: reqUser.id });
-    return { employeeId, year, created };
+    logger.info('Leave balances initialised', { employeeId, targetYear, created, skippedUnlimited, by: reqUser.id });
+    return { employeeId, year: targetYear, created, skippedUnlimited, isBoardLevel };
   }
 
-  // Monthly accrual. leave_balances has no per-type accrual rule column in this DB,
-  // so accrual is a no-op that reports the configured types rather than inventing
-  // entitlement numbers.
-  static async processMonthlyAccrual(reqUser) {
+  // Annual population: give every active employee their year's balances from
+  // the organisation-wide leave policy in one run. This is the "configure
+  // system widely" action — a single call covers the whole organisation.
+  static async populateYearlyForAll(reqUser, year) {
+    if (!canAccessAll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'Only HR Admin or Super Admin can populate leave balances.', 403);
+    }
     const prismaClient = getPrisma();
-    const types = await prismaClient.$queryRawUnsafe(
-      'SELECT id FROM leave_types WHERE isActive = 1'
+    const targetYear = Number(year) || new Date().getFullYear();
+
+    const employees = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM employees WHERE isActive = 1'
     );
-    logger.info('Monthly accrual requested', { typeCount: types.length, by: reqUser.id });
-    return {
-      message: 'No accrual rules are configured in this database. Set entitlements in leave policy before running accrual.',
-      leaveTypes: types.length,
-      processed: 0,
-    };
+    let processed = 0;
+    let failed = 0;
+    for (const emp of employees) {
+      try {
+        await LeaveService.initializeBalances(reqUser, emp.id, targetYear);
+        processed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+
+    logger.info('Yearly leave balances populated', { targetYear, processed, failed, by: reqUser.id });
+    return { year: targetYear, employees: employees.length, processed, failed };
+  }
+
+  // Monthly accrual now distributes a monthly share of the annual entitlement
+  // across the year, rather than being a no-op.
+  // Populates the yearly balances for every active employee at once. This is
+  // the "configure the system widely" action: entitlements are set on the
+  static async processMonthlyAccrual(reqUser, year, month) {
+    const prismaClient = getPrisma();
+    const targetYear = Number(year) || new Date().getFullYear();
+    const targetMonth = Number(month) || new Date().getMonth() + 1;
+
+    const types = await prismaClient.$queryRawUnsafe(
+      'SELECT id, annualEntitlementDays, isUnlimited FROM leave_types WHERE isActive = 1'
+    );
+    let accrued = 0;
+    for (const t of types) {
+      if (Number(t.isUnlimited) === 1) continue; // unlimited types have no accrual
+      const monthlyShare = (Number(t.annualEntitlementDays || 0) / 12).toFixed(2);
+      const affected = await prismaClient.$executeRawUnsafe(
+        `UPDATE leave_balances
+           SET accruedBalance = accruedBalance + ?, availableBalance = availableBalance + ?
+           WHERE leaveTypeId = ? AND year = ?`,
+        monthlyShare, monthlyShare, t.id, targetYear
+      );
+      accrued += Number(affected);
+    }
+
+    logger.info('Monthly accrual processed', { targetYear, targetMonth, rowsUpdated: accrued, by: reqUser.id });
+    return { year: targetYear, month: targetMonth, rowsUpdated: accrued };
+  }
+
+  // Board-level designation check. The live employees table has no dedicated
+  // "level" column, so board-level membership is inferred from the employee's
+  // designation string (CEO, C-suite, board titles). The designation value
+  // shown on the employee record is authoritative.
+  static isBoardLevel(empRow) {
+    const BOARD_TOKENS = ['ceo', 'cto', 'cfo', 'coo', 'chairman', 'founder', 'partner', 'director'];
+    const desig = String(empRow.designation || '').toLowerCase();
+    return BOARD_TOKENS.some((token) => desig.includes(token));
   }
 
   static async approveRequest(reqUser, id, comment) {

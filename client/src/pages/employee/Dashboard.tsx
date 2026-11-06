@@ -80,33 +80,33 @@ export default function EmployeeDashboardPage() {
   return (
     <DashboardShell role="EMPLOYEE" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="Employee Dashboard" subtitle="Your workday, all in one place." />
-      <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
-        <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
+      <div className="mx-auto max-w-7xl px-5 py-6">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-sm font-medium text-slate-500">Welcome back, <span className="font-semibold text-slate-700">{displayName.split(' ')[0]}</span>.</p>
-            <p className="mt-1 text-xs text-slate-400">Here’s a clear view of your workplace today.</p>
+            <p className="text-[13px] font-medium text-slate-500">Welcome back, <span className="font-semibold text-slate-700">{displayName.split(' ')[0]}</span>.</p>
+            <p className="mt-0.5 text-[11px] text-slate-400">Here’s a clear view of your workplace today.</p>
           </div>
-          <div className="rounded-full border border-primary-100 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700">Personal workspace</div>
+          <div className="rounded-full border border-cyan-100 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700">Personal workspace</div>
         </div>
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        <div className="space-y-6">
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700 ring-1 ring-inset ring-red-600/10">{error}</p>}
+        <div className="space-y-4">
           <StatGrid stats={stats} loading={loading} />
 
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-3">
             <Panel
               title="My Attendance"
               action={<ViewAll to="/employee/attendance" />}
               className="lg:col-span-2"
             >
               {history.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-500">No attendance records yet.</p>
+                <p className="py-6 text-center text-[13px] text-slate-500 text-[13px]">No attendance records yet.</p>
               ) : (
                 <AttendanceList rows={history} />
               )}
               {isPresentToday && (
                 <button
                   onClick={() => navigate('/employee/attendance')}
-                  className="mt-4 w-full rounded-xl bg-green-600 py-2.5 text-sm font-semibold text-white transition hover:bg-green-700"
+                  className="mt-4 w-full rounded-lg bg-emerald-600 py-2.5 text-[13px] font-semibold text-white transition hover:bg-emerald-700"
                 >
                   Continue your day
                 </button>
@@ -124,16 +124,16 @@ export default function EmployeeDashboardPage() {
             </Panel>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-3">
             <Panel title="Upcoming Holidays" action={<ViewAll to="/super-admin/holidays" />} className="lg:col-span-2">
               {holidays.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-500">No holidays configured.</p>
+                <p className="py-6 text-center text-[13px] text-slate-500 text-[13px]">No holidays configured.</p>
               ) : (
                 <HolidayList rows={holidays} />
               )}
             </Panel>
             <Panel title="Notifications">
-              <p className="text-sm text-slate-500">
+              <p className="text-[13px] text-slate-500">
                 Your notifications are listed on the Notifications page.
               </p>
             </Panel>
@@ -191,9 +191,22 @@ function formatTime(iso: string): string {
   return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
+const IST_OFFSET_MS = 5.5 * 3600 * 1000;
+
+// `record.date` is the UTC ISO instant of IST midnight for the attendance day
+// (the server serializes it as e.g. 2026-10-24T18:30:00.000Z). Reading the
+// date part straight off the string would shift the day, so shift the instant
+// into the IST wall clock first.
 function formatDay(dateIso: string): string {
-  const date = new Date(`${dateIso}T00:00:00+05:30`);
-  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const parsed = new Date(dateIso);
+  if (!Number.isNaN(parsed.getTime())) {
+    const istDay = new Date(parsed.getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
+    const date = new Date(`${istDay}T00:00:00+05:30`);
+    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  // Plain "YYYY-MM-DD" fallback.
+  const date = new Date(`${String(dateIso).slice(0, 10)}T00:00:00+05:30`);
+  return Number.isNaN(date.getTime()) ? String(dateIso) : date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function toDayStatus(status: string): HistoryRow['status'] {

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import DashboardShell from '../../components/layout/DashboardShell';
+import Button from '../../components/ui/Button';
 import { organizationService } from '../../services/organization.service';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -21,9 +22,8 @@ export default function EmployeeCreatePage() {
     lastName: '',
     designation: '',
     deviceEnrollNo: '',
-    basicSalary: '',
-    allowances: '',
-    deductions: '',
+    email: '',
+    password: '',
     departmentId: '',
     joiningDate: new Date().toISOString().split('T')[0],
     status: 'ACTIVE',
@@ -41,11 +41,20 @@ export default function EmployeeCreatePage() {
         // Non-critical
       }
       try {
-        const empPage = await organizationService.getEmployees({ page: 1 });
-        const items = empPage.data || [];
-        setEmployees(items.map((e: { id: string; firstName?: string; lastName?: string; name?: string; employeeCode?: string }) => ({
+        // Fetch every page so the manager picker lists all employees, not
+        // just the first 20.
+        let page = 1;
+        let items: { id: string; firstName?: string; lastName?: string; name?: string; employeeCode?: string }[] = [];
+        for (;;) {
+          const empPage = await organizationService.getEmployees({ page });
+          const rows = empPage.data || [];
+          items = items.concat(rows);
+          if (page >= empPage.pagination.pages || rows.length === 0) break;
+          page += 1;
+        }
+        setEmployees(items.map((e) => ({
           id: e.id,
-          name: (e.firstName && e.lastName) ? `${e.firstName} ${e.lastName}` : (e.name || 'Unknown'),
+          name: ((e.firstName || e.lastName) ? [e.firstName, e.lastName].filter(Boolean).join(' ') : '') || 'Unnamed employee',
           employeeCode: e.employeeCode || '',
         })));
       } catch {
@@ -70,10 +79,11 @@ export default function EmployeeCreatePage() {
     if (!form.designation.trim()) errors.designation = 'Designation is required.';
     if (!form.deviceEnrollNo.trim()) errors.deviceEnrollNo = 'Device enrollment number is required.';
     else if (!/^\d+$/.test(form.deviceEnrollNo)) errors.deviceEnrollNo = 'Device enrollment number must be a whole number.';
-    if (!form.basicSalary.trim()) errors.basicSalary = 'Basic salary is required.';
-    else if (Number.isNaN(Number(form.basicSalary)) || Number(form.basicSalary) < 0) errors.basicSalary = 'Basic salary must be a non-negative number.';
-    if (form.allowances && (Number.isNaN(Number(form.allowances)) || Number(form.allowances) < 0)) errors.allowances = 'Allowances must be a non-negative number.';
-    if (form.deductions && (Number.isNaN(Number(form.deductions)) || Number(form.deductions) < 0)) errors.deductions = 'Deductions must be a non-negative number.';
+    // Login credentials are optional; if a password is set, the email is
+    // required so the account is reachable.
+    if (form.password && form.password.length < 8) errors.password = 'Password must be at least 8 characters.';
+    if (form.password && !form.email.trim()) errors.email = 'Email is required when a password is provided.';
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = 'Enter a valid email address.';
     if (!form.joiningDate) errors.joiningDate = 'Joining date is required.';
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
@@ -94,14 +104,17 @@ export default function EmployeeCreatePage() {
         lastName: form.lastName,
         designation: form.designation,
         deviceEnrollNo: form.deviceEnrollNo,
-        basicSalary: form.basicSalary,
-        allowances: form.allowances || undefined,
-        deductions: form.deductions || undefined,
+        // Salary/allowances/deductions are configured in Payroll (salary
+        // structure) — the record is created with zeroed pay fields here.
+        basicSalary: '0',
         departmentId: form.departmentId || undefined,
         joiningDate: form.joiningDate,
         status: form.status,
         // Mandatory: every employee must map to a higher person.
         reportingManagerId: Number(form.reportingManagerId),
+        // Optional login credentials — creates the linked user account.
+        email: form.email || undefined,
+        password: form.password || undefined,
       });
       setSuccess('Employee created successfully.');
       setTimeout(() => navigate('/admin/employees'), 1500);
@@ -129,94 +142,100 @@ export default function EmployeeCreatePage() {
   return (
     <DashboardShell role={user?.role || ''} userName={user?.email || ''} userEmail={user?.email || ''} onLogout={async () => {}}>
       <Header title="Add Employee" subtitle="Create a new employee record" />
-      <div className="p-8">
+      <div className="p-6">
         <div className="max-w-2xl">
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-              <p className="text-sm text-red-700">{error}</p>
+            <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4">
+              <p className="text-[13px] text-red-700">{error}</p>
             </div>
           )}
           {success && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-              <p className="text-sm text-green-700">{success}</p>
+            <div className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+              <p className="text-[13px] text-emerald-700">{success}</p>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 p-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={handleSubmit} className="space-y-5 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+            <div>
+              <h3 className="text-[15px] font-bold tracking-tight text-slate-900">Employee Information</h3>
+              <p className="mt-0.5 text-xs text-slate-400">Fields marked required must be completed before saving.</p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <Field label="First Name" error={fieldErrors.firstName}>
-                <input type="text" value={form.firstName} onChange={(e) => update('firstName', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100" />
+                <input type="text" value={form.firstName} onChange={(e) => update('firstName', e.target.value)} disabled={isSubmitting} className={inputClass} />
               </Field>
               <Field label="Last Name" error={fieldErrors.lastName}>
-                <input type="text" value={form.lastName} onChange={(e) => update('lastName', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100" />
+                <input type="text" value={form.lastName} onChange={(e) => update('lastName', e.target.value)} disabled={isSubmitting} className={inputClass} />
               </Field>
             </div>
 
-            <Field label="Employee Code" error={fieldErrors.employeeCode}>
-              <input type="text" value={form.employeeCode} onChange={(e) => update('employeeCode', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100" />
+            <Field label="Employee Code" error={fieldErrors.employeeCode} helper="Unique identifier used for attendance devices.">
+              <input type="text" value={form.employeeCode} onChange={(e) => update('employeeCode', e.target.value)} disabled={isSubmitting} className={inputClass} />
             </Field>
 
             <Field label="Designation" error={fieldErrors.designation}>
-              <select value={form.designation} onChange={(e) => update('designation', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100">
+              <select value={form.designation} onChange={(e) => update('designation', e.target.value)} disabled={isSubmitting} className={inputClass}>
                 <option value="">Select designation…</option>
                 {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
               </select>
             </Field>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Device Enrollment Number" error={fieldErrors.deviceEnrollNo}>
-                <input type="number" min="1" step="1" value={form.deviceEnrollNo} onChange={(e) => update('deviceEnrollNo', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field label="Device Enrollment Number" error={fieldErrors.deviceEnrollNo} helper="Whole number only.">
+                <input type="number" min="1" step="1" value={form.deviceEnrollNo} onChange={(e) => update('deviceEnrollNo', e.target.value)} disabled={isSubmitting} className={inputClass} />
               </Field>
-              <Field label="Basic Salary" error={fieldErrors.basicSalary}>
-                <input type="number" min="0" step="0.01" value={form.basicSalary} onChange={(e) => update('basicSalary', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100" />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Allowances" error={fieldErrors.allowances}>
-                <input type="number" min="0" step="0.01" value={form.allowances} onChange={(e) => update('allowances', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100" />
-              </Field>
-              <Field label="Deductions" error={fieldErrors.deductions}>
-                <input type="number" min="0" step="0.01" value={form.deductions} onChange={(e) => update('deductions', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100" />
+              <Field label="Department">
+                <select value={form.departmentId} onChange={(e) => update('departmentId', e.target.value)} disabled={isSubmitting} className={inputClass}>
+                  <option value="">Select Department</option>
+                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
               </Field>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
-              <select value={form.departmentId} onChange={(e) => update('departmentId', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100">
-                <option value="">Select Department</option>
-                {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
+              <h4 className="mb-3 text-[13px] font-semibold text-slate-700">Login Account</h4>
+              <p className="mb-3 text-xs text-slate-400">
+                Optional — set an email and password so the employee can sign in immediately. Leave blank to invite them later.
+              </p>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Field label="Email" error={fieldErrors.email}>
+                  <input type="email" value={form.email} onChange={(e) => update('email', e.target.value)} disabled={isSubmitting} className={inputClass} placeholder="name@company.com" />
+                </Field>
+                <Field label="Password" error={fieldErrors.password} helper="At least 8 characters.">
+                  <input type="password" value={form.password} onChange={(e) => update('password', e.target.value)} disabled={isSubmitting} className={inputClass} />
+                </Field>
+              </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Reporting Manager (required)</label>
-              <select value={form.reportingManagerId} onChange={(e) => update('reportingManagerId', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100">
+              <label htmlFor="manager-select" className="mb-1.5 block text-[12px] font-medium text-slate-600">Reporting Manager (required)</label>
+              <select id="manager-select" value={form.reportingManagerId} onChange={(e) => update('reportingManagerId', e.target.value)} disabled={isSubmitting} className={inputClass}>
                 <option value="">Select a manager…</option>
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.name} ({e.employeeCode})</option>)}
               </select>
-              {fieldErrors.reportingManagerId && <p className="mt-1 text-sm text-red-600">{fieldErrors.reportingManagerId}</p>}
+              {fieldErrors.reportingManagerId && <p className="mt-1.5 text-xs text-red-600">{fieldErrors.reportingManagerId}</p>}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <Field label="Joining Date" error={fieldErrors.joiningDate}>
-                <input type="date" value={form.joiningDate} onChange={(e) => update('joiningDate', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100" />
+                <input type="date" value={form.joiningDate} onChange={(e) => update('joiningDate', e.target.value)} disabled={isSubmitting} className={inputClass} />
               </Field>
               <Field label="Status">
-                <select value={form.status} onChange={(e) => update('status', e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none disabled:bg-slate-100">
+                <select value={form.status} onChange={(e) => update('status', e.target.value)} disabled={isSubmitting} className={inputClass}>
                   <option value="ACTIVE">Active</option>
                   <option value="INACTIVE">Inactive</option>
                 </select>
               </Field>
             </div>
 
-            <div className="flex gap-3 pt-2">
-              <button type="submit" disabled={isSubmitting} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50">
+            <div className="flex items-center gap-3 border-t border-slate-100 pt-5">
+              <Button type="submit" isLoading={isSubmitting} className="min-w-[180px]">
                 {isSubmitting ? 'Creating...' : 'Create Employee'}
-              </button>
-              <button type="button" onClick={() => navigate('/admin/employees')} className="px-6 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => navigate('/admin/employees')}>
                 Cancel
-              </button>
+              </Button>
             </div>
           </form>
         </div>
@@ -225,12 +244,16 @@ export default function EmployeeCreatePage() {
   );
 }
 
-function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
+const inputClass =
+  'h-9 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 disabled:cursor-not-allowed disabled:bg-slate-100';
+
+function Field({ label, error, helper, children }: { label: string; error?: string; helper?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
+      <label className="mb-1.5 block text-[12px] font-medium text-slate-600">{label}</label>
       {children}
-      {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}
+      {!error && helper && <p className="mt-1.5 text-xs text-slate-400">{helper}</p>}
     </div>
   );
 }

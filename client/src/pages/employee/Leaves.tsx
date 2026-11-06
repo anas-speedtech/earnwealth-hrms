@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { leaveService, LeaveBalanceItem } from '../../services/leave.service';
 import { wfhService, WFHRequest } from '../../services/wfh.service';
 import { compoffService, CompOffBalance } from '../../services/compoff.service';
+import { formatISTDay, daysBetween } from '../../utils/dates';
 
 type LeavesTab = 'leave-requests' | 'balances' | 'wfh' | 'comp-off';
 
@@ -123,15 +124,15 @@ export default function EmployeeLeavesPage() {
       onLogout={logout}
     >
       <Header title="Leaves" subtitle="Leave requests, balances, WFH and comp-off" />
-      <div className="p-8 max-w-6xl">
+      <div className="p-6 max-w-6xl">
         <div className="mb-6 flex flex-wrap gap-2">
           {TABS.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
                 activeTab === tab.key
-                  ? 'bg-primary-600 text-white'
+                  ? 'bg-cyan-600 text-white'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
@@ -143,27 +144,32 @@ export default function EmployeeLeavesPage() {
         {/* Leave Requests Tab */}
         {activeTab === 'leave-requests' && (
           <section>
-            <h3 className="mb-3 text-base font-semibold text-slate-700">My Leave Requests</h3>
+            <h3 className="mb-3 text-[13px] font-semibold text-slate-900">My Leave Requests</h3>
             {requestsLoading ? (
               <p className="text-slate-500">Loading leave requests.</p>
             ) : requests.length === 0 ? (
               <p className="text-slate-500">No leave requests found.</p>
             ) : (
               <div className="space-y-3">
-                {requests.map((req: any) => (
-                  <div key={req.id} className="rounded-xl border border-slate-200 bg-white p-4">
-                    <div className="flex flex-wrap justify-between gap-2">
-                      <p className="font-medium text-slate-800">
-                        {req.leaveTypeName || req.type} - {req.startDate} to {req.endDate}
-                      </p>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                        {req.status}
-                      </span>
+                {requests.map((req: any) => {
+                  // The list endpoint does not compute totalDays — derive it
+                  // from the range (a single day shows as "1 day").
+                  const totalDays = req.totalDays != null ? req.totalDays : daysBetween(req.startDate, req.endDate);
+                  return (
+                    <div key={req.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex flex-wrap justify-between gap-2">
+                        <p className="font-medium text-slate-800">
+                          {req.leaveTypeName || req.type} - {formatISTDay(req.startDate)} to {formatISTDay(req.endDate)}
+                        </p>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                          {req.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[13px] text-slate-600">{req.reason}</p>
+                      <p className="mt-1 text-xs text-slate-400">{totalDays} day(s)</p>
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">{req.reason}</p>
-                    <p className="mt-1 text-xs text-slate-400">{req.totalDays} day(s)</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>
@@ -172,7 +178,7 @@ export default function EmployeeLeavesPage() {
         {/* Leave Balances Tab */}
         {activeTab === 'balances' && (
           <section>
-            <h3 className="mb-3 text-base font-semibold text-slate-700">Leave Balances</h3>
+            <h3 className="mb-3 text-[13px] font-semibold text-slate-900">Leave Balances</h3>
             {balancesLoading ? (
               <p className="text-slate-500">Loading balances.</p>
             ) : regularRows.length === 0 ? (
@@ -197,7 +203,7 @@ export default function EmployeeLeavesPage() {
                         </div>
                         <div>
                           <span className="text-slate-500">Remaining:</span>
-                          <span className={`ml-1 font-semibold ${b.available > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          <span className={`ml-1 font-semibold ${b.available > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                             {b.available.toFixed(2)}
                           </span>
                         </div>
@@ -206,7 +212,7 @@ export default function EmployeeLeavesPage() {
                   ))}
                 </div>
                 <div className="mt-6 px-6 py-4 border border-slate-200 rounded-xl bg-slate-50">
-                  <h4 className="mb-3 text-sm font-semibold text-slate-700">Regular Leave Total</h4>
+                  <h4 className="mb-3 text-[13px] font-semibold text-slate-700">Regular Leave Total</h4>
                   <table className="w-full text-sm">
                     <thead className="bg-slate-100 text-left text-slate-500">
                       <tr>
@@ -238,7 +244,7 @@ export default function EmployeeLeavesPage() {
         {/* WFH Tab */}
         {activeTab === 'wfh' && (
           <section>
-            <h3 className="mb-3 text-base font-semibold text-slate-700">WFH Requests</h3>
+            <h3 className="mb-3 text-[13px] font-semibold text-slate-900">WFH Requests</h3>
             {wfhLoading ? (
               <p className="text-slate-500">Loading WFH requests.</p>
             ) : wfhRequests.length === 0 ? (
@@ -249,7 +255,7 @@ export default function EmployeeLeavesPage() {
                   <div key={req.id} className="rounded-xl border border-slate-200 bg-white p-4">
                     <div className="flex flex-wrap justify-between gap-2">
                       <p className="font-medium text-slate-800">
-                        {req.requestDate} - {req.reason}
+                        {formatISTDay(req.requestDate)} - {req.reason}
                       </p>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
                         {req.status}
@@ -265,23 +271,23 @@ export default function EmployeeLeavesPage() {
         {/* Comp-Off Tab */}
         {activeTab === 'comp-off' && (
           <section>
-            <h3 className="mb-3 text-base font-semibold text-slate-700">Comp-Off</h3>
+            <h3 className="mb-3 text-[13px] font-semibold text-slate-900">Comp-Off</h3>
             {compOffLoading ? (
               <p className="text-slate-500">Loading comp-off balance.</p>
             ) : compOffBalance ? (
               <div className="bg-white rounded-xl border border-slate-200 p-6">
                 <div className="grid grid-cols-3 gap-4 text-center">
                   <div>
-                    <p className="text-sm text-slate-500">Earned</p>
-                    <p className="text-2xl font-bold text-slate-900">{compOffBalance.totalEarned}</p>
+                    <p className="text-[13px] text-slate-500">Earned</p>
+                    <p className="text-xl font-bold text-slate-900">{compOffBalance.totalEarned}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">Used</p>
-                    <p className="text-2xl font-bold text-slate-900">{compOffBalance.totalUsed}</p>
+                    <p className="text-[13px] text-slate-500">Used</p>
+                    <p className="text-xl font-bold text-slate-900">{compOffBalance.totalUsed}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">Available</p>
-                    <p className="text-2xl font-bold text-green-600">{compOffBalance.available}</p>
+                    <p className="text-[13px] text-slate-500">Available</p>
+                    <p className="text-xl font-bold text-emerald-600">{compOffBalance.available}</p>
                   </div>
                 </div>
                 <p className="mt-4 text-xs text-slate-500">

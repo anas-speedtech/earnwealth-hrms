@@ -76,6 +76,41 @@ export interface AttendanceImport {
   importedAt: string;
 }
 
+export interface MatrixDay {
+  day: number;
+  in: string | null;
+  out: string | null;
+  // 'L' = approved leave day, 'P' = full present (in by 09:30, out at/after
+  // 18:30), 'H' = half day (FHDL / SHDL / incomplete), '—' = no data.
+  status: 'P' | 'H' | 'L' | '—';
+  onLeave: boolean;
+  halfDay: boolean;
+  // Half-day markers shown in the cell: 'FHDL' = first punch-in after 09:30
+  // (first half missed), 'SHDL' = last punch-out before 18:30 (second half
+  // missed), 'HDL' = generic half day (only one side captured).
+  halfDayTags: string[];
+  // Weekend or listed holiday.
+  isOffDay: boolean;
+  // Punched in on an off day -> eligible for a comp-off credit (valid 3
+  // months).
+  compOffEligible: boolean;
+  hasPunch: boolean;
+}
+
+export interface MatrixRow {
+  employeeId: string;
+  employeeCode: string;
+  name: string;
+  days: MatrixDay[];
+}
+
+export interface AttendanceMatrix {
+  year: number;
+  month: number;
+  daysInMonth: number;
+  rows: MatrixRow[];
+}
+
 export const attendanceService = {
   async punchIn(payload: PunchInPayload) {
     const { data } = await api.post('/attendance/punch-in', payload);
@@ -135,5 +170,16 @@ export const attendanceService = {
       params: { startDate, endDate },
     });
     return data as AttendanceSummary;
+  },
+
+  /**
+   * Month matrix for the Calendar view: one row per active employee with the
+   * in/out times for each day 1..N of the month.
+   */
+  async getMatrix(year: number, month: number): Promise<AttendanceMatrix> {
+    const { data } = await api.get('/attendance/matrix', {
+      params: { year, month },
+    });
+    return data;
   },
 };

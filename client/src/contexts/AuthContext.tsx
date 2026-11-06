@@ -50,7 +50,7 @@ export interface AuthContextValue {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (role: string, email: string, accessToken: string, refreshToken: string) => Promise<void>;
+  login: (user: { id: string; email: string; role: string }, accessToken: string, refreshToken: string) => Promise<void>;
   fetchProfile: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -62,17 +62,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAuthenticated = !!user && !!token;
 
-  const login = useCallback(async (role: string, email: string, accessToken: string, refreshToken: string) => {
+  const login = useCallback(async (user: { id: string; email: string; role: string }, accessToken: string, refreshToken: string) => {
     const refreshTokenId = extractTokenId(refreshToken);
     const session: SessionData = {
-      user: { id: '', email, role: role as User['role'], profile: {} },
+      // Persist the real user id returned by the login endpoint so a page
+      // reload keeps the full session — a blank id only triggers a profile
+      // refetch on mount.
+      user: { id: user.id, email: user.email, role: user.role as User['role'], profile: {} },
       accessToken,
       refreshToken,
       refreshTokenId,
     };
     setSession(session);
     // Claim the device lock for this user.
-    localStorage.setItem(LOCK_KEY, email);
+    localStorage.setItem(LOCK_KEY, user.email);
     setToken(accessToken);
     setUser(session.user);
   }, []);
@@ -96,10 +99,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
       setSession(updatedSession);
       setUser(updatedUser);
-    } catch {
-      clearSession();
-      setUser(null);
-      setToken(null);
+    } catch (err) {
+      // Only a genuine 401 (token invalid/expired/revoked) ends the session.
+      // A transient 5xx or a brief network drop must not log the user out —
+      // that is what made logins feel "unstable": any hiccup on /auth/me
+      // wiped the session.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 401 || status === 403) {
+        clearSession();
+        localStorage.removeItem(LOCK_KEY);
+        setUser(null);
+        setToken(null);
+      }
     } finally {
       setIsLoading(false);
     }

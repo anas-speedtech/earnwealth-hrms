@@ -17,6 +17,9 @@ const listSchema = z.object({
 
 const createSchema = z.object({
   email: z.string().email().optional(),
+  // Optional login credentials: when a password (and email) are supplied the
+  // employee record gets a linked user account so the person can log in.
+  password: z.string().min(8).max(128).optional(),
   employeeCode: z.string().min(1),
   firstName: z.string().min(1),
   lastName: z.string().min(1),

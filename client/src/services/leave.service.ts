@@ -8,6 +8,10 @@ export interface LeaveTypeItem {
   code: string;
   classification: string;
   isHalfDayAllowed: boolean;
+  // Organisation-wide policy: annual entitlement plus the two exception flags.
+  annualEntitlementDays: number;
+  isUnlimited: boolean;
+  appliesToBoardLevel: boolean;
   policy: {
     id: string;
     annualEntitlementDays: number;
@@ -30,16 +34,55 @@ export interface LeaveBalanceItem {
   usedBalance: number;
   reservedBalance: number;
   availableBalance: number;
+  // Set by the balances endpoint: 1 when the employee has a leave_balances
+  // row for this type (in the current year / any year). Used by the
+  // Apply Leave screen to offer only the types configured for this
+  // employee instead of every active leave type. MySQL returns these as
+  // 0/1 numbers — coerce with Number() before comparing.
+  hasBalance?: number | boolean;
+  configured?: number | boolean;
   // Legacy aliases for compatibility
   leaveTypeName?: string;
   leaveTypeCode?: string;
 }
 
+export interface LeaveTileRequest {
+  id: string;
+  employeeId: string;
+  employeeCode?: string | null;
+  employeeName?: string | null;
+  type?: string | null;
+  leaveTypeName?: string | null;
+  leaveTypeCode?: string | null;
+  status: string;
+  startDate: string;
+  endDate: string;
+  reason?: string | null;
+}
+
+export interface LeaveTile {
+  key: string;
+  code: string;
+  name: string;
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  requests: LeaveTileRequest[];
+}
+
+export interface LeaveTiles {
+  year: number;
+  month: number;
+  day: number | null;
+  tiles: LeaveTile[];
+}
+
 export interface LeaveRequestItem {
   id: string;
-  leaveTypeId: string;
-  leaveTypeName: string;
-  leaveTypeCode: string;
+  leaveTypeId?: string;
+  leaveTypeName?: string;
+  leaveTypeCode?: string;
   type?: string;
   employeeName?: string;
   employeeCode?: string;
@@ -105,6 +148,15 @@ export const leaveService = {
     return data;
   },
 
+  // HR/Admin: leave-type tiles for a month or a single day, with drill-down
+  // request lists attached to each tile.
+  async getTiles(params: { year: number; month: number; day?: number }): Promise<LeaveTiles> {
+    const { data } = await api.get<LeaveTiles>('/leaves/tiles', {
+      params: { day: params.day || 0 },
+    });
+    return data;
+  },
+
   // HR/Admin/SuperAdmin: Get all leave requests
   async getAllRequests(params?: { page?: number; status?: string; employeeId?: string }): Promise<{ requests: LeaveRequestItem[]; pagination: Record<string, unknown> }> {
     const { data } = await api.get('/leaves/all', { params });
@@ -138,6 +190,13 @@ export const leaveService = {
   // Admin/HR/SuperAdmin: Create leave type
   async createLeaveType(payload: Record<string, unknown>): Promise<{ id: string; name: string; displayName: string; code: string }> {
     const { data } = await api.post('/leave-types', payload);
+    return data;
+  },
+
+  // Admin/HR/SuperAdmin: populate the year's balances for every active
+  // employee at once (organisation-wide "configure the system" action).
+  async populateYearlyBalances(year?: number): Promise<{ year: number; employees: number; processed: number; failed: number }> {
+    const { data } = await api.post('/leaves/populate-yearly', { year });
     return data;
   },
 

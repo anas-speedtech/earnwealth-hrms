@@ -82,28 +82,28 @@ export default function EmployeePayslipsPage() {
 
   const renderPayrollDetails = (payroll: PayrollRecordItem) => (
     <div>
-      <h4 className="text-sm font-medium text-slate-700 mb-2">Salary Components</h4>
+      <h4 className="text-[13px] font-medium text-slate-700 mb-2">Salary Components</h4>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="bg-slate-50">
             <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Name</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Type</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Amount</th>
+              <th className="px-4 py-2 text-left text-[12px] font-medium text-slate-500 uppercase">Name</th>
+              <th className="px-4 py-2 text-left text-[12px] font-medium text-slate-500 uppercase">Type</th>
+              <th className="px-4 py-2 text-right text-[12px] font-medium text-slate-500 uppercase">Amount</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
             {payroll.components.map((comp) => (
               <tr key={comp.id}>
-                <td className="px-4 py-3 text-sm text-slate-900">{comp.name}</td>
+                <td className="px-4 py-3 text-[13px] text-slate-900">{comp.name}</td>
                 <td className="px-4 py-3">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    comp.type === 'EARNING' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    comp.type === 'EARNING' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
                   }`}>
                     {comp.type}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-sm text-slate-900 text-right">{formatCurrency(comp.amount)}</td>
+                <td className="px-4 py-3 text-[13px] text-slate-900 text-right">{formatCurrency(comp.amount)}</td>
               </tr>
             ))}
           </tbody>
@@ -111,16 +111,16 @@ export default function EmployeePayslipsPage() {
       </div>
       <div className="bg-slate-50 rounded-lg p-4 mt-4">
         <div className="flex justify-between mb-1">
-          <span className="text-sm text-slate-600">Gross Earnings</span>
-          <span className="text-sm font-medium text-slate-900">{formatCurrency(payroll.grossEarnings)}</span>
+          <span className="text-[13px] text-slate-600">Gross Earnings</span>
+          <span className="text-[13px] font-medium text-slate-900">{formatCurrency(payroll.grossEarnings)}</span>
         </div>
         <div className="flex justify-between mb-1">
-          <span className="text-sm text-slate-600">Total Deductions</span>
-          <span className="text-sm font-medium text-slate-900">{formatCurrency(payroll.totalDeductions)}</span>
+          <span className="text-[13px] text-slate-600">Total Deductions</span>
+          <span className="text-[13px] font-medium text-slate-900">{formatCurrency(payroll.totalDeductions)}</span>
         </div>
         <div className="border-t border-slate-200 pt-1 mt-1 flex justify-between">
-          <span className="text-sm font-semibold text-slate-900">Net Pay</span>
-          <span className="text-sm font-bold text-slate-900">{formatCurrency(payroll.netPay)}</span>
+          <span className="text-[13px] font-semibold text-slate-900">Net Pay</span>
+          <span className="text-[13px] font-bold text-slate-900">{formatCurrency(payroll.netPay)}</span>
         </div>
       </div>
     </div>
@@ -134,7 +134,7 @@ export default function EmployeePayslipsPage() {
       return (
         <button
           disabled
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-slate-100 text-slate-400 cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md bg-slate-100 text-slate-400 cursor-not-allowed"
           title="Payslip not yet approved"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -149,7 +149,7 @@ export default function EmployeePayslipsPage() {
       <button
         onClick={() => downloadPayslip(payslip)}
         disabled={isDownloading}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
         {isDownloading ? (
           <>
@@ -181,16 +181,16 @@ export default function EmployeePayslipsPage() {
       onLogout={logout}
     >
       <Header title="My Payslips" subtitle="View and download your approved payslips" />
-      <div className="p-8 max-w-5xl">
+      <div className="p-6 max-w-5xl">
         {/* Filter */}
         <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6">
           <div className="flex items-center gap-3 flex-wrap">
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Month</label>
+              <label className="block text-[12px] font-medium text-slate-500 mb-1">Month</label>
               <select
                 value={filterMonth || ''}
                 onChange={(e) => setFilterMonth(e.target.value ? parseInt(e.target.value) : '')}
-                className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
               >
                 <option value="">All</option>
                 {MONTH_NAMES.map((m, i) => (
@@ -199,11 +199,11 @@ export default function EmployeePayslipsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Year</label>
+              <label className="block text-[12px] font-medium text-slate-500 mb-1">Year</label>
               <select
                 value={filterYear || ''}
                 onChange={(e) => setFilterYear(e.target.value ? parseInt(e.target.value) : '')}
-                className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
               >
                 <option value="">All</option>
                 {[currentYear, currentYear - 1, currentYear - 2].map((y) => (
@@ -214,13 +214,13 @@ export default function EmployeePayslipsPage() {
             <div className="flex items-end gap-2 pt-4">
               <button
                 onClick={handleFilter}
-                className="px-4 py-2 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700"
+                className="px-4 py-2 bg-cyan-600 text-white text-[13px] rounded-lg hover:bg-cyan-700"
               >
                 Filter
               </button>
               <button
                 onClick={clearFilter}
-                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800"
+                className="px-4 py-2 text-[13px] text-slate-600 hover:text-slate-800"
               >
                 Clear
               </button>
@@ -231,15 +231,15 @@ export default function EmployeePayslipsPage() {
         {/* Payslips */}
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="px-6 py-4 border-b border-slate-200">
-            <h3 className="text-lg font-semibold text-slate-900">Approved Payslips</h3>
+            <h3 className="text-[15px] font-semibold text-slate-900">Approved Payslips</h3>
           </div>
           {loading ? (
             <div className="p-8 text-center text-slate-500">Loading...</div>
           ) : payslips.length === 0 ? (
-            <div className="p-8">
+            <div className="p-6">
               <div className="text-center">
                 <div className="text-4xl mb-2">📄</div>
-                <p className="text-sm font-medium text-slate-700">No payslips available</p>
+                <p className="text-[13px] font-medium text-slate-700">No payslips available</p>
                 <p className="text-xs text-slate-500 mt-1">
                   Approved payslips will appear here once payroll is processed.
                 </p>
@@ -250,12 +250,12 @@ export default function EmployeePayslipsPage() {
               <table className="w-full">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Period</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">Gross</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">Deductions</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">Net Pay</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Generated</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">Actions</th>
+                    <th className="px-6 py-3 text-left text-[12px] font-medium text-slate-500 uppercase">Period</th>
+                    <th className="px-6 py-3 text-right text-[12px] font-medium text-slate-500 uppercase">Gross</th>
+                    <th className="px-6 py-3 text-right text-[12px] font-medium text-slate-500 uppercase">Deductions</th>
+                    <th className="px-6 py-3 text-right text-[12px] font-medium text-slate-500 uppercase">Net Pay</th>
+                    <th className="px-6 py-3 text-left text-[12px] font-medium text-slate-500 uppercase">Generated</th>
+                    <th className="px-6 py-3 text-right text-[12px] font-medium text-slate-500 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -264,12 +264,12 @@ export default function EmployeePayslipsPage() {
                     if (!payroll) return null;
                     return (
                       <tr key={payslip.id} className="hover:bg-slate-50">
-                        <td className="px-6 py-4 text-sm text-slate-900 font-medium">
+                        <td className="px-6 py-4 text-[13px] text-slate-900 font-medium">
                           {MONTH_NAMES[payslip.month - 1]} {payslip.year}
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatCurrency(payroll.grossEarnings)}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatCurrency(payroll.totalDeductions)}</td>
-                        <td className="px-6 py-4 text-sm font-medium text-slate-900 text-right">{formatCurrency(payroll.netPay)}</td>
+                        <td className="px-6 py-4 text-[13px] text-slate-600 text-right">{formatCurrency(payroll.grossEarnings)}</td>
+                        <td className="px-6 py-4 text-[13px] text-slate-600 text-right">{formatCurrency(payroll.totalDeductions)}</td>
+                        <td className="px-6 py-4 text-[13px] font-medium text-slate-900 text-right">{formatCurrency(payroll.netPay)}</td>
                         <td className="px-6 py-4 text-xs text-slate-500">
                           {new Date(payslip.generatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                         </td>
@@ -277,7 +277,7 @@ export default function EmployeePayslipsPage() {
                           <div className="flex items-center justify-end gap-2">
                             <button
                               onClick={() => setSelectedPayslip(payslip)}
-                              className="text-xs text-primary-600 hover:text-primary-700"
+                              className="text-xs text-cyan-600 hover:text-cyan-700"
                             >
                               View
                             </button>
@@ -300,7 +300,7 @@ export default function EmployeePayslipsPage() {
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-slate-900">
+                <h3 className="text-[15px] font-semibold text-slate-900">
                   Payslip — {MONTH_NAMES[selectedPayslip.month - 1]} {selectedPayslip.year}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">

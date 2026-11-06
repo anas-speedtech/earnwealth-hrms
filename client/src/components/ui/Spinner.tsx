@@ -16,7 +16,7 @@ const Spinner = forwardRef<HTMLDivElement, SpinnerProps>(
     return (
       <div
         ref={ref}
-        className={`${sizeClasses[size]} border-slate-200 border-t-primary-600 rounded-full animate-spin ${className}`}
+        className={`${sizeClasses[size]} border-slate-200 border-t-cyan-600 rounded-full animate-spin ${className}`}
         role="status"
         aria-label="Loading"
       />

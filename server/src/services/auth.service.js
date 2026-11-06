@@ -9,6 +9,7 @@ const {
   signRefreshToken,
   signPasswordResetVerifyToken,
   verifyPasswordResetVerifyToken,
+  verifyRefreshToken,
   Role,
 } = require('../utils/jwt');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
@@ -381,8 +382,20 @@ class AuthService {
     return { accessToken, refreshToken: newRefreshToken };
   }
 
-  static async logout(tokenId) {
+  /**
+   * `token` is the refresh JWT the client stores. Decode its tokenId (the
+   * refresh_tokens row id) so the session is actually revoked; falling back
+   * to the raw value keeps the call safe if the token shape ever changes.
+   */
+  static async logout(token) {
     const prismaClient = getPrisma();
+    let tokenId = token;
+    try {
+      const decoded = verifyRefreshToken(token);
+      if (decoded && decoded.tokenId) tokenId = decoded.tokenId;
+    } catch {
+      // Not a refresh JWT (already an id, or malformed) — use as-is.
+    }
     try {
       // Raw SQL: matches the live schema, where users.id is INT.
       const now = new Date();

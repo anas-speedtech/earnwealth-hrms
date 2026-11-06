@@ -30,14 +30,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         toastOptions={{
           duration: 4000,
           style: {
-            background: '#1e293b',
+            background: '#0f172a',
             color: '#f8fafc',
-            borderRadius: '8px',
-            padding: '12px 16px',
-            fontSize: '14px',
+            borderRadius: '10px',
+            padding: '10px 14px',
+            fontSize: '13px',
+            fontWeight: '500',
+            boxShadow: '0 12px 32px -8px rgba(15,23,42,0.35)',
+            border: '1px solid rgba(148,163,184,0.14)',
           },
-          success: { iconTheme: { primary: '#22c55e', secondary: '#f8fafc' } },
-          error: { iconTheme: { primary: '#ef4444', secondary: '#f8fafc' } },
+          success: { iconTheme: { primary: '#34d399', secondary: '#f8fafc' } },
+          error: { iconTheme: { primary: '#f87171', secondary: '#f8fafc' } },
         }}
       />
     </ToastContext.Provider>

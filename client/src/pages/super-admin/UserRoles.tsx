@@ -126,7 +126,7 @@ export default function SuperAdminUserRolesPage() {
                 resetForm();
                 setShowForm(!showForm);
               }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
             >
               {showForm ? 'Close' : '+ New Role'}
             </button>
@@ -135,13 +135,13 @@ export default function SuperAdminUserRolesPage() {
 
         {showForm && canManage && (
           <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">
+            <h3 className="text-[15px] font-semibold text-slate-900 mb-4">
               {editingId ? 'Edit Role' : 'New Role'}
             </h3>
-            {fieldError && <p className="mb-3 text-sm text-red-600">{fieldError}</p>}
+            {fieldError && <p className="mb-3 text-[13px] text-red-600">{fieldError}</p>}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Role name</label>
+                <label className="block text-[13px] font-medium text-slate-700 mb-1">Role name</label>
                 <input
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   value={formName}
@@ -151,7 +151,7 @@ export default function SuperAdminUserRolesPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                <label className="block text-[13px] font-medium text-slate-700 mb-1">Description</label>
                 <textarea
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   value={formDesc}
@@ -167,12 +167,12 @@ export default function SuperAdminUserRolesPage() {
                   checked={formActive}
                   onChange={(e) => setFormActive(e.target.checked)}
                 />
-                <label htmlFor="role-active" className="text-sm text-slate-700">Active</label>
+                <label htmlFor="role-active" className="text-[13px] text-slate-700">Active</label>
               </div>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-[13px] font-medium hover:bg-cyan-700 transition-colors disabled:opacity-50"
               >
                 {isSubmitting ? 'Saving…' : editingId ? 'Update Role' : 'Create Role'}
               </button>
@@ -180,7 +180,7 @@ export default function SuperAdminUserRolesPage() {
           </div>
         )}
 
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</p>}
 
         {isLoading ? (
           <p className="text-slate-500">Loading roles…</p>
@@ -188,7 +188,7 @@ export default function SuperAdminUserRolesPage() {
           <p className="text-slate-500">No role definitions found.</p>
         ) : (
           <div className="space-y-6">
-            <p className="text-sm text-slate-500">
+            <p className="text-[13px] text-slate-500">
               Role definitions are shared — many employees can hold the same role. These definitions
               do not grant login privileges; account access is managed separately in HR Staff/Employee
               Management.
@@ -214,7 +214,7 @@ export default function SuperAdminUserRolesPage() {
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full ${
                             desig.isActive
-                              ? 'bg-green-100 text-green-700'
+                              ? 'bg-emerald-100 text-emerald-700'
                               : 'bg-slate-100 text-slate-700'
                           }`}
                         >
@@ -226,14 +226,14 @@ export default function SuperAdminUserRolesPage() {
                           <div className="flex items-center gap-3">
                             <button
                               onClick={() => handleEdit(desig)}
-                              className="text-sm text-primary-600 hover:text-primary-700"
+                              className="text-[13px] text-cyan-600 hover:text-cyan-700"
                             >
                               Edit
                             </button>
                             {desig.employeeCount === 0 && (
                               <button
                                 onClick={() => handleDelete(desig)}
-                                className="text-sm text-red-600 hover:text-red-700"
+                                className="text-[13px] text-red-600 hover:text-red-700"
                               >
                                 Delete
                               </button>

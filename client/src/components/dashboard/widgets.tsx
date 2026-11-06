@@ -1,5 +1,23 @@
 import { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  CalendarDays,
+  CircleDollarSign,
+  Clock3,
+  FolderKanban,
+  LifeBuoy,
+  ShieldCheck,
+  Briefcase,
+  FileBarChart,
+  FileText,
+  Home,
+  Hourglass,
+  ListChecks,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react';
 import { BarChart, BarLegend, DonutChart, DonutLegend, type BarGroup, type DonutSlice } from './charts';
 
 export type { DonutSlice };
@@ -34,13 +52,36 @@ export interface NotificationRow {
  * same visual language (panels, tinted stat cards, status chips, lists).
  * ------------------------------------------------------------------------- */
 
-const TONES: Record<string, { bg: string; text: string; border: string; icon: string }> = {
-  blue: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-100', icon: 'bg-blue-100' },
-  green: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-100', icon: 'bg-green-100' },
-  purple: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-100', icon: 'bg-purple-100' },
-  yellow: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-100', icon: 'bg-amber-100' },
-  red: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-100', icon: 'bg-red-100' },
-  slate: { bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200', icon: 'bg-slate-200' },
+const TONES: Record<string, { chipBg: string; chipText: string; text: string }> = {
+  blue: { chipBg: 'bg-cyan-50', chipText: 'text-cyan-600', text: 'text-slate-900' },
+  green: { chipBg: 'bg-emerald-50', chipText: 'text-emerald-600', text: 'text-slate-900' },
+  purple: { chipBg: 'bg-violet-50', chipText: 'text-violet-600', text: 'text-slate-900' },
+  yellow: { chipBg: 'bg-amber-50', chipText: 'text-amber-600', text: 'text-slate-900' },
+  red: { chipBg: 'bg-red-50', chipText: 'text-red-600', text: 'text-slate-900' },
+  slate: { chipBg: 'bg-slate-100', chipText: 'text-slate-600', text: 'text-slate-900' },
+};
+
+const TONE_ICONS: Record<string, LucideIcon> = {
+  blue: Clock3,
+  green: ShieldCheck,
+  purple: LifeBuoy,
+  yellow: CalendarDays,
+  red: Hourglass,
+  slate: Briefcase,
+};
+
+const QUICK_ACTION_ICONS: Record<string, LucideIcon> = {
+  leave: LifeBuoy,
+  wfh: Home,
+  payslip: FileText,
+  holiday: CalendarDays,
+  approve: ListChecks,
+  payroll: CircleDollarSign,
+  report: FileBarChart,
+  employee: UserRound,
+  department: FolderKanban,
+  clock: Clock3,
+  list: ListChecks,
 };
 
 export function Panel({
@@ -55,10 +96,10 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={`rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(15,23,42,0.28)] ${className}`}>
+    <section className={`rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)] ${className}`}>
       {(title || action) && (
         <div className="mb-4 flex items-center justify-between">
-          {title && <h2 className="text-[15px] font-bold tracking-tight text-slate-900">{title}</h2>}
+          {title && <h2 className="text-[13px] font-semibold text-slate-900">{title}</h2>}
           {action}
         </div>
       )}
@@ -69,8 +110,8 @@ export function Panel({
 
 export function ViewAll({ to, label = 'View All' }: { to: string; label?: string }) {
   return (
-    <Link to={to} className="rounded-lg px-2 py-1 text-xs font-semibold text-primary-600 transition hover:bg-primary-50">
-      {label} <span aria-hidden="true">→</span>
+    <Link to={to} className="rounded-lg px-1.5 py-1 text-xs font-semibold text-cyan-600 transition hover:text-cyan-700">
+      {label} <ArrowUpRight className="inline h-3.5 w-3.5" aria-hidden="true" />
     </Link>
   );
 }
@@ -92,7 +133,7 @@ export function StatGrid({ stats, loading }: { stats: TitledStat[]; loading: boo
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="h-36 animate-pulse rounded-3xl border border-slate-200 bg-slate-100" />
+          <div key={i} className="h-36 animate-pulse rounded-2xl border border-slate-200/80 bg-slate-100/60" />
         ))}
       </div>
     );
@@ -101,27 +142,33 @@ export function StatGrid({ stats, loading }: { stats: TitledStat[]; loading: boo
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {stats.map((s) => {
         const t = TONES[s.tone] ?? TONES.slate;
+        const Icon = TONE_ICONS[s.tone] ?? TONE_ICONS.slate;
         const inner = (
-          <div className={`relative overflow-hidden rounded-3xl border ${t.border} bg-white p-5 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.35)] transition duration-300 hover:-translate-y-1 hover:shadow-lg`}>
-            <span className={`absolute -right-6 -top-6 h-24 w-24 rounded-full ${t.icon} opacity-40`} />
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="truncate text-xs font-medium text-slate-500">{s.label}</p>
-                <p className={`mt-2 text-3xl font-bold ${t.text}`}>{s.value}</p>
-              </div>
-              <span className={`relative grid h-10 w-10 shrink-0 place-items-center rounded-2xl ${t.icon} ${t.text}`}>
-                <span className="h-2.5 w-2.5 rounded-md bg-current opacity-80" />
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+            <div className="flex items-start justify-between gap-3">
+              <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">{s.label}</p>
+              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${t.chipBg}`}>
+                <Icon className={`h-4 w-4 ${t.chipText}`} aria-hidden="true" />
               </span>
             </div>
+            <p className={`mt-3 text-[26px] font-bold leading-8 tracking-tight ${t.text}`}>{s.value}</p>
             {s.trend && (
-              <p className={`mt-2 flex items-center gap-1 text-xs font-medium ${s.trend.tone === 'up' ? 'text-green-600' : 'text-red-600'}`}>
-                <span>{s.trend.tone === 'up' ? '↑' : '↓'}</span>
+              <span
+                className={`mt-2 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${
+                  s.trend.tone === 'up' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200/60' : 'bg-red-50 text-red-700 ring-red-200/60'
+                }`}
+              >
+                {s.trend.tone === 'up' ? (
+                  <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                ) : (
+                  <ArrowDownRight className="h-3 w-3" aria-hidden="true" />
+                )}
                 {s.trend.label}
-              </p>
+              </span>
             )}
-            {s.subLabel && !s.trend && <p className="mt-2 text-xs text-slate-400">{s.subLabel}</p>}
+            {s.subLabel && !s.trend && <p className="mt-2 text-[11px] text-slate-400">{s.subLabel}</p>}
             {s.available === false && (
-              <p className="mt-2 text-xs text-slate-400">Module not configured in this deployment</p>
+              <p className="mt-2 text-[11px] text-slate-400">Module not configured in this deployment</p>
             )}
           </div>
         );
@@ -138,19 +185,23 @@ export function StatGrid({ stats, loading }: { stats: TitledStat[]; loading: boo
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  Pending: 'bg-amber-50 text-amber-700',
-  Approved: 'bg-green-50 text-green-700',
-  Rejected: 'bg-red-50 text-red-700',
-  Present: 'bg-green-50 text-green-700',
-  Absent: 'bg-red-50 text-red-700',
-  Late: 'bg-amber-50 text-amber-700',
-  'On Leave': 'bg-blue-50 text-blue-700',
-  WFH: 'bg-purple-50 text-purple-700',
+  Pending: 'bg-amber-50 text-amber-700 ring-amber-200/70',
+  Approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200/70',
+  Rejected: 'bg-red-50 text-red-700 ring-red-200/70',
+  Present: 'bg-emerald-50 text-emerald-700 ring-emerald-200/70',
+  Absent: 'bg-red-50 text-red-700 ring-red-200/70',
+  Late: 'bg-amber-50 text-amber-700 ring-amber-200/70',
+  'On Leave': 'bg-cyan-50 text-cyan-700 ring-cyan-200/70',
+  WFH: 'bg-cyan-50 text-cyan-700 ring-cyan-200/70',
 };
 
 export function StatusChip({ status }: { status: string }) {
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${STATUS_STYLES[status] ?? 'bg-slate-100 text-slate-600'}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${
+        STATUS_STYLES[status] ?? 'bg-slate-50 text-slate-600 ring-slate-200/70'
+      }`}
+    >
       {status}
     </span>
   );
@@ -235,7 +286,7 @@ export function LeaveTable({ rows }: { rows: { employee: string; type: string; d
 }
 
 export function AttendanceList({ rows }: { rows: AttendanceDay[] }) {
-  const dot: Record<string, string> = { Present: 'bg-green-500', Absent: 'bg-red-500', Late: 'bg-amber-500', WFH: 'bg-purple-500' };
+  const dot: Record<string, string> = { Present: 'bg-emerald-500', Absent: 'bg-red-500', Late: 'bg-amber-500', WFH: 'bg-purple-500' };
   return (
     <ul className="divide-y divide-slate-100">
       {rows.map((r, i) => (
@@ -255,7 +306,7 @@ export function AttendanceList({ rows }: { rows: AttendanceDay[] }) {
 }
 
 export function StatusSummary({ counts }: { counts: Record<string, number> }) {
-  const dot: Record<string, string> = { Present: 'bg-green-500', Absent: 'bg-red-500', Late: 'bg-amber-500', 'On Leave': 'bg-blue-500' };
+  const dot: Record<string, string> = { Present: 'bg-emerald-500', Absent: 'bg-red-500', Late: 'bg-amber-500', 'On Leave': 'bg-blue-500' };
   return (
     <ul className="divide-y divide-slate-100">
       {Object.entries(counts).map(([label, value]) => (
@@ -286,7 +337,7 @@ export function HolidayList({ rows }: { rows: HolidayRow[] }) {
     <ul className="divide-y divide-slate-100">
       {rows.map((r, i) => (
         <li key={i} className="flex items-center gap-3 py-2.5 text-sm">
-          <span className="grid h-8 shrink-0 place-items-center rounded-lg bg-primary-50 px-2 text-center text-[10px] font-bold leading-tight text-primary-700">
+          <span className="grid h-9 shrink-0 place-items-center rounded-lg bg-cyan-50 px-2 text-center text-[10px] font-bold leading-tight text-cyan-700">
             {formatHolidayDate(r.date)}
           </span>
           <span className="min-w-0 flex-1 text-slate-700">{r.name}</span>
@@ -297,7 +348,7 @@ export function HolidayList({ rows }: { rows: HolidayRow[] }) {
 }
 
 export function NotificationList({ rows }: { rows: NotificationRow[] }) {
-  const dot = ['bg-primary-500', 'bg-purple-500', 'bg-amber-500', 'bg-green-500'];
+  const dot = ['bg-cyan-500', 'bg-violet-500', 'bg-amber-500', 'bg-emerald-500'];
   return (
     <ul className="divide-y divide-slate-100">
       {rows.map((r, i) => (
@@ -314,21 +365,28 @@ export function NotificationList({ rows }: { rows: NotificationRow[] }) {
 }
 
 export function QuickActions({ actions }: { actions: { label: string; to: string; tone: keyof typeof TONES }[] }) {
+  const iconFor = (label: string): LucideIcon => {
+    const normalized = label.toLowerCase();
+    for (const [key, Icon] of Object.entries(QUICK_ACTION_ICONS)) {
+      if (normalized.includes(key)) return Icon;
+    }
+    return ListChecks;
+  };
   return (
-    <div className="grid gap-2.5">
+    <div className="grid grid-cols-2 gap-4">
       {actions.map((a) => {
         const t = TONES[a.tone] ?? TONES.slate;
+        const Icon = iconFor(a.label);
         return (
           <Link
             key={a.label}
             to={a.to}
-            className="group flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/50 px-3.5 py-3 text-sm font-semibold text-slate-700 transition duration-200 hover:-translate-y-0.5 hover:border-primary-200 hover:bg-primary-50 hover:shadow-sm"
+            className="group flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)] transition duration-200 hover:border-slate-300"
           >
-            <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${t.icon} ${t.text}`}>
-              <span className="h-2.5 w-2.5 rounded-md bg-current opacity-80" />
+            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${t.chipBg}`}>
+              <Icon className={`h-4 w-4 ${t.chipText}`} aria-hidden="true" />
             </span>
-            {a.label}
-            <span className="ml-auto text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-primary-500">→</span>
+            <span className="truncate text-[13px] font-medium text-slate-700 group-hover:text-slate-900">{a.label}</span>
           </Link>
         );
       })}

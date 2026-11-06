@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import Header from '../../components/layout/Header';
 import DashboardShell from '../../components/layout/DashboardShell';
+import Button from '../../components/ui/Button';
+import Spinner from '../../components/ui/Spinner';
+import EmptyState from '../../components/ui/EmptyState';
 import { organizationService } from '../../services/organization.service';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Department } from '../../services/organization.service';
@@ -99,83 +102,98 @@ export default function DepartmentListPage() {
   return (
     <DashboardShell role={userRole} userName={user?.email || ''} userEmail={user?.email || ''} onLogout={async () => {}}>
       <Header title="Departments" subtitle="Manage organizational departments" />
-      <div className="p-8">
+      <div className="p-6">
         {canManage && (
-          <div className="mb-4">
-            <button
+          <div className="mb-5">
+            <Button
               onClick={() => { resetForm(); setShowForm(!showForm); }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              variant={showForm ? 'secondary' : 'primary'}
             >
               {showForm ? 'Cancel' : '+ New Department'}
-            </button>
+            </Button>
           </div>
         )}
 
         {showForm && (
-          <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">{editingId ? 'Edit Department' : 'New Department'}</h3>
-            {fieldError && <p className="text-sm text-red-600 mb-3">{fieldError}</p>}
+          <div className="mb-5 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+            <h3 className="text-[15px] font-bold tracking-tight text-slate-900 mb-4">{editingId ? 'Edit Department' : 'New Department'}</h3>
+            {fieldError && <p className="mb-3 text-[13px] text-red-600">{fieldError}</p>}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
-                <input type="text" value={formName} onChange={(e) => setFormName(e.target.value)} disabled={isSubmitting} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none" />
+                <label htmlFor="dept-name" className="mb-1.5 block text-[12px] font-medium text-slate-600">Name</label>
+                <input id="dept-name" type="text" value={formName} onChange={(e) => setFormName(e.target.value)} disabled={isSubmitting} className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 disabled:bg-slate-100" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
-                <textarea value={formDesc} onChange={(e) => setFormDesc(e.target.value)} disabled={isSubmitting} rows={3} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none" />
+                <label htmlFor="dept-desc" className="mb-1.5 block text-[12px] font-medium text-slate-600">Description</label>
+                <textarea id="dept-desc" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} disabled={isSubmitting} rows={3} className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10 disabled:bg-slate-100" />
               </div>
               <div className="flex items-center gap-2">
-                <input type="checkbox" id="isActive" checked={formActive} onChange={(e) => setFormActive(e.target.checked)} disabled={isSubmitting} />
-                <label htmlFor="isActive" className="text-sm text-slate-700">Active</label>
+                <input type="checkbox" id="isActive" checked={formActive} onChange={(e) => setFormActive(e.target.checked)} disabled={isSubmitting} className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500/20" />
+                <label htmlFor="isActive" className="text-[13px] text-slate-700">Active</label>
               </div>
-              <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">
-                {isSubmitting ? 'Saving...' : editingId ? 'Update' : 'Create'}
-              </button>
+              <div className="flex items-center gap-3 pt-1">
+                <Button type="submit" isLoading={isSubmitting}>
+                  {isSubmitting ? 'Saving...' : editingId ? 'Update' : 'Create'}
+                </Button>
+                {editingId && (
+                  <Button type="button" variant="secondary" onClick={resetForm}>Cancel</Button>
+                )}
+              </div>
             </form>
           </div>
         )}
 
-        {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6"><p className="text-sm text-red-700">{error}</p></div>}
+        {error && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4"><p className="text-[13px] text-red-700">{error}</p></div>}
 
         {isLoading ? (
-          <div className="flex items-center justify-center py-12"><div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" /></div>
+          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+            <div className="flex items-center justify-center gap-2.5 py-12 text-[13px] text-slate-500">
+              <Spinner size="md" /> Loading…
+            </div>
+          </div>
         ) : departments.length === 0 ? (
-          <div className="text-center py-12"><p className="text-slate-500">No departments found.</p></div>
+          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+            <EmptyState title="No departments found" description="Create a department to start organizing employees." />
+          </div>
         ) : (
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+            <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-slate-50 border-b border-slate-200">
+              <thead className="bg-slate-50/60">
                 <tr>
-                  <th className="text-left px-6 py-3 text-sm font-medium text-slate-500">Name</th>
-                  <th className="text-left px-6 py-3 text-sm font-medium text-slate-500">Description</th>
-                  <th className="text-left px-6 py-3 text-sm font-medium text-slate-500">Employees</th>
-                  <th className="text-left px-6 py-3 text-sm font-medium text-slate-500">Status</th>
-                  {canManage && <th className="text-left px-6 py-3 text-sm font-medium text-slate-500">Actions</th>}
+                  <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Name</th>
+                  <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Description</th>
+                  <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Employees</th>
+                  <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Status</th>
+                  {canManage && <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Actions</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {departments.map((dept) => (
-                  <tr key={dept.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4 text-sm font-medium text-slate-900">{dept.name}</td>
-                    <td className="px-6 py-4 text-sm text-slate-500">{dept.description || '—'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{dept.employeeCount}</td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${dept.isActive ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-800'}`}>
+                  <tr key={dept.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/60">
+                    <td className="px-4 py-3 text-[13px] font-semibold text-slate-900">{dept.name}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-500">{dept.description || '—'}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600">{dept.employeeCount}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${dept.isActive ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-slate-100 text-slate-600 ring-slate-200'}`}>
                         {dept.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                     {canManage && (
-                      <td className="px-6 py-4 flex gap-3">
-                        <button onClick={() => handleEdit(dept)} className="text-sm text-primary-600 hover:text-primary-700">Edit</button>
-                        {dept.employeeCount === 0 && (
-                          <button onClick={() => handleDelete(dept.id)} className="text-sm text-red-600 hover:text-red-700">Delete</button>
-                        )}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-4">
+                          <button onClick={() => handleEdit(dept)} className="text-[13px] font-medium text-cyan-600 hover:text-cyan-700">Edit</button>
+                          {dept.employeeCount === 0 && (
+                            <button onClick={() => handleDelete(dept.id)} className="text-[13px] font-medium text-red-600 hover:text-red-700">Delete</button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </div>

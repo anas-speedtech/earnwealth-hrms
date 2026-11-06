@@ -42,17 +42,17 @@ export default function ForgotPassword() {
       <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-slate-100 mb-4">
-            <span className="text-2xl font-bold text-slate-700">E</span>
+            <span className="text-xl font-bold text-slate-700">E</span>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Reset your password</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <h1 className="text-xl font-bold text-slate-900">Reset your password</h1>
+          <p className="text-[13px] text-slate-500 mt-1">
             Enter your email and we will send you a verification code.
           </p>
         </div>
 
         {submitted ? (
           <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg" role="status">
-            <p className="text-sm text-green-700">
+            <p className="text-[13px] text-green-700">
               If an account exists for <strong>{email}</strong>, a verification code has been sent.
               It expires in <strong>5 minutes</strong>. Please check your inbox.
             </p>
@@ -61,7 +61,7 @@ export default function ForgotPassword() {
           <>
             {error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg" role="alert">
-                <p className="text-sm text-red-700">{error}</p>
+                <p className="text-[13px] text-red-700">{error}</p>
               </div>
             )}
 
@@ -86,7 +86,7 @@ export default function ForgotPassword() {
           <button
             type="button"
             onClick={() => navigate('/verify-otp', { state: { email } })}
-            className="text-primary-600 hover:text-primary-700 font-medium"
+            className="text-cyan-600 hover:text-cyan-700 font-medium"
           >
             I have a code — enter it
           </button>

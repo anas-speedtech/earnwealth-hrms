@@ -69,7 +69,7 @@ export default function EmployeeLeaveBalancesPage() {
       <div className="p-8 max-w-4xl">
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="px-6 py-4 border-b border-slate-200">
-            <h3 className="text-lg font-semibold text-slate-900">Current Balances</h3>
+            <h3 className="text-[15px] font-semibold text-slate-900">Current Balances</h3>
           </div>
           {loading ? (
             <div className="p-8 text-center text-slate-500">Loading...</div>
@@ -96,7 +96,7 @@ export default function EmployeeLeaveBalancesPage() {
                         </div>
                         <div>
                           <span className="text-slate-500">Remaining:</span>
-                          <span className={`ml-1 font-semibold ${b.available > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          <span className={`ml-1 font-semibold ${b.available > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                             {b.available.toFixed(2)}
                           </span>
                         </div>
@@ -106,7 +106,7 @@ export default function EmployeeLeaveBalancesPage() {
                 ))}
               </div>
               <div className="mt-6 px-6 py-4 border border-slate-200 rounded-xl bg-slate-50">
-                <h4 className="mb-3 text-sm font-semibold text-slate-700">Totals</h4>
+                <h4 className="mb-3 text-[13px] font-semibold text-slate-700">Totals</h4>
                 <table className="w-full text-sm">
                   <thead className="bg-slate-100 text-left text-slate-500">
                     <tr>

@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react';
+import { CalendarX2, Inbox } from 'lucide-react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
 import { leaveService, LeaveRequestItem, LeaveBalanceItem } from '../../services/leave.service';
-import { wfhService } from '../../services/wfh.service';
-import { compoffService } from '../../services/compoff.service';
+import { wfhService, WFHRequest } from '../../services/wfh.service';
+import { compoffService, CompOffCreditItem } from '../../services/compoff.service';
+import { formatISTDay } from '../../utils/dates';
 import { organizationService } from '../../services/organization.service';
+import StatusBadge, { StatusBadgeTone } from '../../components/shared/StatusBadge';
+import Button from '../../components/ui/Button';
+import Spinner from '../../components/ui/Spinner';
+import EmptyState from '../../components/ui/EmptyState';
 import toast from 'react-hot-toast';
 
 type LeavesTab = 'leave-requests' | 'balances' | 'wfh' | 'comp-off';
@@ -16,6 +22,9 @@ const TABS: { key: LeavesTab; label: string }[] = [
   { key: 'wfh', label: 'WFH' },
   { key: 'comp-off', label: 'Comp-Off' },
 ];
+
+const CARD =
+  'rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]';
 
 export default function HrLeavesPage() {
   const { user, logout } = useAuth();
@@ -31,10 +40,11 @@ export default function HrLeavesPage() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [balancesLoading, setBalancesLoading] = useState(false);
 
-  const [wfhRequests, setWfhRequests] = useState<unknown[]>([]);
+  type WfhRow = WFHRequest & { employeeName?: string; startDate?: string; endDate?: string };
+  const [wfhRequests, setWfhRequests] = useState<WfhRow[]>([]);
   const [wfhLoading, setWfhLoading] = useState(true);
 
-  const [pendingCredits, setPendingCredits] = useState<unknown[]>([]);
+  const [pendingCredits, setPendingCredits] = useState<CompOffCreditItem[]>([]);
   const [compOffLoading, setCompOffLoading] = useState(true);
 
   const userRole = user?.role || '';
@@ -201,16 +211,15 @@ export default function HrLeavesPage() {
       onLogout={logout}
     >
       <Header title="Leaves" subtitle="Leave requests, balances, WFH and comp-off" />
-      <div className="p-8 max-w-6xl">
-        <div className="mb-6 flex flex-wrap gap-2">
+      <div className="p-6 max-w-6xl">
+        {/* segmented tab control */}
+        <div className="mb-5 inline-flex rounded-xl bg-slate-100 p-1">
           {TABS.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === tab.key
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              className={`rounded-lg px-4 py-1.5 text-[13px] font-medium transition ${
+                activeTab === tab.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               {tab.label}
@@ -221,41 +230,44 @@ export default function HrLeavesPage() {
         {activeTab === 'leave-requests' && (
           <section>
             {requestsLoading ? (
-              <p className="text-slate-500">Loading leave requests…</p>
+              <div className="flex items-center justify-center gap-2.5 py-12 text-[13px] text-slate-500">
+                <Spinner size="md" />
+                Loading requests…
+              </div>
             ) : (
               <>
-                <h3 className="mb-3 text-base font-semibold text-slate-700">Pending requests</h3>
+                <h3 className="mb-3 text-[15px] font-bold tracking-tight text-slate-900">Pending requests</h3>
                 {pendingRequests.length === 0 ? (
-                  <p className="text-slate-500">No pending leave requests.</p>
+                  <div className={CARD}>
+                    <EmptyState icon={<Inbox size={20} />} title="No pending leave requests" description="Everything is caught up — nothing is waiting on review." />
+                  </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {pendingRequests.map((request) => (
-                      <div key={request.id} className="rounded-xl border border-slate-200 bg-white p-4">
-                        <div className="flex flex-wrap justify-between gap-2">
-                          <p className="font-medium text-slate-800">
-                            {request.leaveTypeName} — {request.startDate} to {request.endDate}
-                          </p>
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{request.status}</span>
+                      <div key={request.id} className={`p-4 ${CARD}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-[13px] font-semibold text-slate-800">
+                              {request.leaveTypeName || request.type} — {formatISTDay(request.startDate)} to {formatISTDay(request.endDate)}
+                            </p>
+                            {request.employeeName && (
+                              <p className="mt-0.5 text-xs text-slate-500">{request.employeeName}</p>
+                            )}
+                          </div>
+                          <StatusBadge tone="amber" dot>{request.status}</StatusBadge>
                         </div>
-                        <p className="mt-1 text-sm text-slate-600">{request.reason}</p>
+                        {request.reason && <p className="mt-1.5 text-[13px] text-slate-600">{request.reason}</p>}
                         {userRole !== 'SUPER_ADMIN' && (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <button
-                              onClick={() => handleApproveLeave(request.id)}
-                              disabled={submitting === request.id}
-                              className="px-3 py-1 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-50"
-                            >
+                          <div className="mt-3 flex flex-wrap items-start gap-2">
+                            <Button size="sm" onClick={() => handleApproveLeave(request.id)} disabled={submitting === request.id} isLoading={submitting === request.id}>
                               Approve
-                            </button>
-                            <button
-                              onClick={() => setRejectFor(rejectFor === request.id ? null : request.id)}
-                              className="px-3 py-1 rounded-lg border border-slate-300 text-sm text-slate-700"
-                            >
+                            </Button>
+                            <Button variant="secondary" size="sm" onClick={() => setRejectFor(rejectFor === request.id ? null : request.id)}>
                               Reject
-                            </button>
+                            </Button>
                             {rejectFor === request.id && (
                               <textarea
-                                className="w-full max-w-md rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                className="h-fit w-full max-w-md rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-700 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
                                 rows={2}
                                 value={rejectComment}
                                 onChange={(event) => setRejectComment(event.target.value)}
@@ -263,13 +275,9 @@ export default function HrLeavesPage() {
                               />
                             )}
                             {rejectFor === request.id && (
-                              <button
-                                onClick={() => handleRejectLeave(request.id)}
-                                disabled={submitting === request.id}
-                                className="px-3 py-1 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-50"
-                              >
+                              <Button variant="danger" size="sm" onClick={() => handleRejectLeave(request.id)} disabled={submitting === request.id}>
                                 Confirm rejection
-                              </button>
+                              </Button>
                             )}
                           </div>
                         )}
@@ -284,10 +292,10 @@ export default function HrLeavesPage() {
 
         {activeTab === 'balances' && (
           <section>
-            <h3 className="mb-3 text-base font-semibold text-slate-700">Leave balances</h3>
             <div className="mb-4 max-w-xs">
+              <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Employee</label>
               <select
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-700 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
                 value={selectedEmployeeId}
                 onChange={(event) => setSelectedEmployeeId(event.target.value)}
               >
@@ -298,37 +306,46 @@ export default function HrLeavesPage() {
                 ))}
               </select>
             </div>
-            {balancesLoading || regularBalances.length === 0 ? (
-              <p className="text-slate-500">No balances available.</p>
+            {balancesLoading ? (
+              <div className="flex items-center justify-center gap-2.5 py-12 text-[13px] text-slate-500">
+                <Spinner size="md" />
+                Loading balances…
+              </div>
+            ) : regularBalances.length === 0 ? (
+              <div className={CARD}>
+                <EmptyState icon={<CalendarX2 size={20} />} title="No balances available" description="This employee has no leave balances recorded." />
+              </div>
             ) : (
               <>
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-slate-500">
-                    <tr>
-                      <th className="px-3 py-2">Leave type</th>
-                      <th className="px-3 py-2 text-right">Allocated</th>
-                      <th className="px-3 py-2 text-right">Used</th>
-                      <th className="px-3 py-2 text-right">Remaining</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {regularBalances.map((row) => (
-                      <tr key={row.code || row.leaveTypeId} className="border-t border-slate-100">
-                        <td className="px-3 py-2 text-slate-700">{row.displayName || row.name}</td>
-                        <td className="px-3 py-2 text-right text-slate-600">{Number(row.openingBalance || 0).toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right text-slate-600">{row.usedBalance}</td>
-                        <td className="px-3 py-2 text-right font-medium text-slate-800">{row.availableBalance}</td>
+                <div className={`overflow-hidden ${CARD}`}>
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50/60 text-left">
+                      <tr>
+                        <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Leave type</th>
+                        <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400">Allocated</th>
+                        <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400">Used</th>
+                        <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-400">Remaining</th>
                       </tr>
-                    ))}
-                    <tr className="border-t border-slate-200 bg-slate-50 font-semibold">
-                      <td className="px-3 py-2 text-slate-700">Total (PL / CL / EL)</td>
-                      <td className="px-3 py-2 text-right">{totals.totalAllocated.toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right">{totals.totalUsed}</td>
-                      <td className="px-3 py-2 text-right">{totals.totalRemaining}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <p className="mt-3 text-xs text-slate-500">
+                    </thead>
+                    <tbody>
+                      {regularBalances.map((row) => (
+                        <tr key={row.code || row.leaveTypeId} className="border-t border-slate-100 transition hover:bg-slate-50/60">
+                          <td className="px-4 py-3 text-slate-700">{row.displayName || row.name}</td>
+                          <td className="px-4 py-3 text-right text-slate-600">{Number(row.openingBalance || 0).toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right text-slate-600">{row.usedBalance}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-slate-900">{row.availableBalance}</td>
+                        </tr>
+                      ))}
+                      <tr className="border-t border-slate-200 bg-slate-50 font-semibold">
+                        <td className="px-4 py-3 text-slate-700">Total (PL / CL / EL)</td>
+                        <td className="px-4 py-3 text-right text-slate-900">{totals.totalAllocated.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right text-slate-900">{totals.totalUsed.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right text-slate-900">{totals.totalRemaining.toFixed(2)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-3 text-xs text-slate-400">
                   Totals cover regular leave types (PL, CL, EL) only. Comp-Off credits are tracked separately under Comp-Off and
                   WFH does not affect leave balances.
                 </p>
@@ -340,52 +357,58 @@ export default function HrLeavesPage() {
         {activeTab === 'wfh' && (
           <section>
             {wfhLoading ? (
-              <p className="text-slate-500">Loading WFH requests…</p>
+              <div className="flex items-center justify-center gap-2.5 py-12 text-[13px] text-slate-500">
+                <Spinner size="md" />
+                Loading WFH requests…
+              </div>
             ) : (
               <>
-                <h3 className="mb-3 text-base font-semibold text-slate-700">All WFH requests</h3>
+                <h3 className="mb-3 text-[15px] font-bold tracking-tight text-slate-900">All WFH requests</h3>
                 {wfhRequests.length === 0 ? (
-                  <p className="text-slate-500">No WFH requests.</p>
+                  <div className={CARD}>
+                    <EmptyState icon={<Inbox size={20} />} title="No WFH requests" description="Nothing has been requested yet." />
+                  </div>
                 ) : (
-                  <div className="space-y-3">
-                    {wfhRequests.map((request) => {
-                      const item = request as {
-                        id: string;
-                        employeeName?: string;
-                        startDate: string;
-                        endDate: string;
-                        reason: string;
-                        status: string;
-                      };
+                  <div className="space-y-4">
+                    {wfhRequests.map((item) => {
+                      // WFH requests are single-day: show the request day
+                      // (ISO-normalized), or a range if the backend ever returns one.
+                      const range = item.startDate && item.endDate
+                        ? ` — ${formatISTDay(item.startDate)} to ${formatISTDay(item.endDate)}`
+                        : item.requestDate ? ` — ${formatISTDay(item.requestDate)}` : '';
                       return (
-                        <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-4">
-                          <div className="flex flex-wrap justify-between gap-2">
-                            <p className="font-medium text-slate-800">
-                              {item.employeeName} — {item.startDate} to {item.endDate}
-                            </p>
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{item.status}</span>
+                        <div key={item.id} className={`p-4 ${CARD}`}>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-[13px] font-semibold text-slate-800">
+                                {item.employeeName || 'Employee'}{range}
+                              </p>
+                            </div>
+                            <StatusBadge tone={statusTone(item.status)} dot>{item.status}</StatusBadge>
                           </div>
-                          <p className="mt-1 text-sm text-slate-600">{item.reason}</p>
+                          <p className="mt-1 text-[13px] text-slate-600">{item.reason}</p>
                           {userRole !== 'SUPER_ADMIN' && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <button
+                            <div className="mt-3 flex flex-wrap items-start gap-2">
+                              <Button
+                                size="sm"
                                 onClick={() => handleApproveWfh(item.id)}
                                 disabled={submitting === item.id}
-                                className="px-3 py-1 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-50"
+                                isLoading={submitting === item.id}
                               >
                                 Approve
-                              </button>
-                              <button
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                size="sm"
                                 onClick={() =>
                                   setRejectFor(rejectFor === item.id ? null : item.id)
                                 }
-                                className="px-3 py-1 rounded-lg border border-slate-300 text-sm text-slate-700"
                               >
                                 Reject
-                              </button>
+                              </Button>
                               {rejectFor === item.id && (
                                 <textarea
-                                  className="w-full max-w-md rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                  className="h-fit w-full max-w-md rounded-lg border border-slate-200 px-3 py-2 text-[13px] text-slate-700 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
                                   rows={2}
                                   value={rejectComment}
                                   onChange={(event) => setRejectComment(event.target.value)}
@@ -393,13 +416,14 @@ export default function HrLeavesPage() {
                                 />
                               )}
                               {rejectFor === item.id && (
-                                <button
+                                <Button
+                                  variant="danger"
+                                  size="sm"
                                   onClick={() => handleRejectWfh(item.id)}
                                   disabled={submitting === item.id}
-                                  className="px-3 py-1 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-50"
                                 >
                                   Confirm rejection
-                                </button>
+                                </Button>
                               )}
                             </div>
                           )}
@@ -416,33 +440,44 @@ export default function HrLeavesPage() {
         {activeTab === 'comp-off' && (
           <section>
             {compOffLoading ? (
-              <p className="text-slate-500">Loading comp-off credits…</p>
+              <div className="flex items-center justify-center gap-2.5 py-12 text-[13px] text-slate-500">
+                <Spinner size="md" />
+                Loading comp-off credits…
+              </div>
             ) : (
               <>
-                <h3 className="mb-3 text-base font-semibold text-slate-700">Pending comp-off credits</h3>
+                <h3 className="mb-3 text-[15px] font-bold tracking-tight text-slate-900">Pending comp-off credits</h3>
                 {pendingCredits.length === 0 ? (
-                  <p className="text-slate-500">No pending comp-off credits.</p>
+                  <div className={CARD}>
+                    <EmptyState icon={<Inbox size={20} />} title="No pending comp-off credits" description="Nothing is waiting on review." />
+                  </div>
                 ) : (
-                  <div className="space-y-3">
-                    {pendingCredits.map((credit) => {
-                      const item = credit as { id: number; employeeName?: string; sourceDate: string };
-                      return (
-                        <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-4">
-                          <div className="flex flex-wrap justify-between gap-2">
-                            <p className="font-medium text-slate-800">
-                              {item.employeeName || 'Employee'} — from {item.sourceDate}
+                  <div className="space-y-4">
+                    {pendingCredits.map((credit) => (
+                      <div key={credit.id} className={`p-4 ${CARD}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-[13px] font-semibold text-slate-800">
+                              {credit.employeeName || 'Employee'} — from {formatISTDay(String(credit.sourceDate))}
+                            </p>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              {credit.earnedDays} earned · {credit.usedDays} used · {credit.remaining} remaining
                             </p>
                           </div>
-                          <button
-                            onClick={() => handleApproveCredit(item.id, 'APPROVE')}
-                            disabled={submitting === String(item.id)}
-                            className="mt-3 px-3 py-1 rounded-lg bg-primary-600 text-white text-sm disabled:opacity-50"
+                          <StatusBadge tone="amber" dot>Pending</StatusBadge>
+                        </div>
+                        <div className="mt-3">
+                          <Button
+                            size="sm"
+                            onClick={() => handleApproveCredit(credit.id, 'APPROVE')}
+                            disabled={submitting === String(credit.id)}
+                            isLoading={submitting === String(credit.id)}
                           >
                             Approve
-                          </button>
+                          </Button>
                         </div>
-                      );
-                    })}
+                      </div>
+                    ))}
                   </div>
                 )}
               </>
@@ -455,15 +490,25 @@ export default function HrLeavesPage() {
 }
 
 function computeTotals(balances: LeaveBalanceItem[]) {
+  // Balance figures are MySQL DECIMALs that arrive as strings — coerce every
+  // column or `+=` concatenates text ("5.00" + "3.00" -> "5.003.00").
   let allocated = 0;
   let used = 0;
   let available = 0;
   for (const row of balances) {
     allocated += Number(row.openingBalance || 0);
-    used += row.usedBalance;
-    available += row.availableBalance;
+    used += Number(row.usedBalance || 0);
+    available += Number(row.availableBalance || 0);
   }
   return { totalAllocated: allocated, totalUsed: used, totalRemaining: available };
+}
+
+function statusTone(status: string): StatusBadgeTone {
+  const s = status.toUpperCase();
+  if (s === 'APPROVED' || s === 'ACTIVE') return 'emerald';
+  if (s === 'REJECTED' || s === 'CANCELLED') return 'red';
+  if (s === 'PENDING' || s === 'ON HOLD') return 'amber';
+  return 'slate';
 }
 
 function errorMessage(err: unknown, fallback: string) {

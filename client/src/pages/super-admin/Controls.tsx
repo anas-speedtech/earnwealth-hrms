@@ -4,6 +4,11 @@ import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
 import { roleService, RoleAccess } from '../../services/role.service';
 import toast from 'react-hot-toast';
+import StatusBadge from '../../components/shared/StatusBadge';
+import Spinner from '../../components/ui/Spinner';
+
+const CARD =
+  'rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]';
 
 export default function ControlsPage() {
   const { user, logout } = useAuth();
@@ -49,23 +54,25 @@ export default function ControlsPage() {
   return (
     <DashboardShell role={user?.role || 'SUPER_ADMIN'} userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="Controls" subtitle="View and Edit access per role, tied to the side menu" />
-      <div className="p-8 max-w-3xl">
-        <p className="mb-4 text-sm text-slate-500">
+      <div className="p-6 max-w-3xl">
+        <p className="mb-4 text-[13px] text-slate-500">
           Grant or remove View and Edit for each role. Super Admin and HR Admin always keep View; only Manager and
           Employee grants can be changed.
         </p>
 
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-700 ring-1 ring-inset ring-red-100">{error}</p>}
         {loading ? (
-          <p className="text-slate-500">Loading controls…</p>
+          <div className="flex items-center justify-center gap-2.5 py-12 text-[13px] text-slate-500">
+            <Spinner size="md" /> Loading…
+          </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Role</th>
-                  <th className="px-4 py-3 font-medium">View</th>
-                  <th className="px-4 py-3 font-medium">Edit</th>
+          <div className={`overflow-x-auto ${CARD}`}>
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  <th className="px-4 py-3">Role</th>
+                  <th className="px-4 py-3">View</th>
+                  <th className="px-4 py-3">Edit</th>
                 </tr>
               </thead>
               <tbody>
@@ -73,24 +80,30 @@ export default function ControlsPage() {
                   const viewLocked = r.key === 'SUPER_ADMIN' || r.key === 'HR_ADMIN';
                   const editLocked = r.key === 'SUPER_ADMIN';
                   return (
-                    <tr key={r.key} className="border-t border-slate-100">
+                    <tr key={r.key} className="border-t border-slate-100 text-[13px] hover:bg-slate-50/60">
                       <td className="px-4 py-3">
-                        <p className="font-medium text-slate-700">{r.label}</p>
+                        <p className="font-semibold text-slate-900">{r.label}</p>
                         <p className="text-xs text-slate-400">{r.description}</p>
                       </td>
                       <td className="px-4 py-3">
-                        <Toggle
-                          on={r.view}
-                          locked={viewLocked || !canEdit}
-                          onToggle={(v) => toggle(r.key, 'view', v)}
-                        />
+                        <div className="flex items-center gap-2">
+                          <Toggle
+                            on={r.view}
+                            locked={viewLocked || !canEdit}
+                            onToggle={(v) => toggle(r.key, 'view', v)}
+                          />
+                          {viewLocked && <StatusBadge tone="slate">Locked</StatusBadge>}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
-                        <Toggle
-                          on={r.edit}
-                          locked={editLocked || !canEdit}
-                          onToggle={(v) => toggle(r.key, 'edit', v)}
-                        />
+                        <div className="flex items-center gap-2">
+                          <Toggle
+                            on={r.edit}
+                            locked={editLocked || !canEdit}
+                            onToggle={(v) => toggle(r.key, 'edit', v)}
+                          />
+                          {editLocked && <StatusBadge tone="slate">Locked</StatusBadge>}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -116,7 +129,7 @@ function Toggle({ on, locked, onToggle }: { on: boolean; locked: boolean; onTogg
       onClick={() => onToggle(!on)}
       disabled={locked}
       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-        on ? 'bg-green-500' : 'bg-slate-300'
+        on ? 'bg-emerald-500' : 'bg-slate-300'
       } ${locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
       aria-pressed={on}
       aria-label={on ? 'Enabled' : 'Disabled'}

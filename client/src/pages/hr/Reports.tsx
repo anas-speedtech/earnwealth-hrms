@@ -56,8 +56,8 @@ export default function HrReportsPage() {
   return (
     <DashboardShell role="HR_ADMIN" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="Reports" subtitle="Reporting for HR operations" />
-      <div className="p-8 max-w-7xl">
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      <div className="p-6 max-w-7xl">
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700 ring-1 ring-inset ring-red-600/10">{error}</p>}
         <div className="space-y-6">
           <StatGrid
             stats={[
@@ -115,7 +115,7 @@ export default function HrReportsPage() {
               </dl>
             </Panel>
             <Panel title="Approvals awaiting action">
-              <p className="text-sm text-slate-500">
+              <p className="text-[13px] text-slate-500">
                 The counts above come from the live queues. Open the Approvals pages for the
                 pending leave requests, WFH requests and comp-off reviews.
               </p>

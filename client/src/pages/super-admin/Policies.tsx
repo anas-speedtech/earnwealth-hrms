@@ -68,18 +68,18 @@ export default function SuperAdminPoliciesPage() {
     <DashboardShell role="SUPER_ADMIN" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="Policies" subtitle="Comp-off credit policy" />
       <div className="p-8 max-w-3xl">
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</p>}
 
         {isLoading || !policy ? (
           <p className="text-slate-500">Loading policy…</p>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6 rounded-xl border border-slate-200 bg-white p-6">
             <div>
-              <h3 className="text-lg font-semibold text-slate-900">Credit expiry</h3>
-              <p className="mt-1 text-sm text-slate-500">
+              <h3 className="text-[15px] font-semibold text-slate-900">Credit expiry</h3>
+              <p className="mt-1 text-[13px] text-slate-500">
                 Comp-off days expire this many months after they are earned.
               </p>
-              <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="expiry">
+              <label className="mt-4 block text-[13px] font-medium text-slate-700" htmlFor="expiry">
                 Expiry months
               </label>
               <input
@@ -93,13 +93,13 @@ export default function SuperAdminPoliciesPage() {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-slate-900">Working hours rule</h3>
-              <p className="mt-1 text-sm text-slate-500">
+              <h3 className="text-[15px] font-semibold text-slate-900">Working hours rule</h3>
+              <p className="mt-1 text-[13px] text-slate-500">
                 Only days with sufficient office hours count towards earned comp-off.
               </p>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700" htmlFor="minHours">
+                  <label className="block text-[13px] font-medium text-slate-700" htmlFor="minHours">
                     Minimum worked hours
                   </label>
                   <input
@@ -112,7 +112,7 @@ export default function SuperAdminPoliciesPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700" htmlFor="maxDays">
+                  <label className="block text-[13px] font-medium text-slate-700" htmlFor="maxDays">
                     Maximum days per month
                   </label>
                   <input
@@ -131,12 +131,12 @@ export default function SuperAdminPoliciesPage() {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-[13px] font-medium hover:bg-cyan-700 transition-colors disabled:opacity-50"
               >
                 {isSubmitting ? 'Saving…' : 'Save Policy'}
               </button>
             ) : (
-              <p className="text-sm text-slate-400">Only Super Admins and Admins can change this policy.</p>
+              <p className="text-[13px] text-slate-400">Only Super Admins and Admins can change this policy.</p>
             )}
           </form>
         )}

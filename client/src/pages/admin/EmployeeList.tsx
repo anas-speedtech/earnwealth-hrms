@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import DashboardShell from '../../components/layout/DashboardShell';
+import Button from '../../components/ui/Button';
+import Spinner from '../../components/ui/Spinner';
+import EmptyState from '../../components/ui/EmptyState';
 import { organizationService } from '../../services/organization.service';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Employee, Department, Designation, PaginatedResponse } from '../../services/organization.service';
@@ -85,25 +88,27 @@ export default function EmployeeListPage() {
   return (
     <DashboardShell role={user?.role || ''} userName={user?.email || ''} userEmail={user?.email || ''} onLogout={async () => {}}>
       <Header title="Employee Management" subtitle={canCreate ? 'View, create, and manage employee records' : 'View employee records'} />
-      <div className="p-8">
-        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
-          <form onSubmit={handleSearch} className="flex flex-wrap gap-4 items-end">
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Search</label>
+      <div className="p-6">
+        <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)] p-5 mb-5">
+          <form onSubmit={handleSearch} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="sm:col-span-2 lg:col-span-1">
+              <label htmlFor="employee-search" className="mb-1.5 block text-[12px] font-medium text-slate-600">Search</label>
               <input
+                id="employee-search"
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Name, email, or employee code"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
+              <label htmlFor="filter-department" className="mb-1.5 block text-[12px] font-medium text-slate-600">Department</label>
               <select
+                id="filter-department"
                 value={departmentFilter}
                 onChange={(e) => { setDepartmentFilter(e.target.value); setPage(1); }}
-                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
               >
                 <option value="">All Departments</option>
                 {departments.filter(d => d.isActive).map((d) => (
@@ -112,11 +117,12 @@ export default function EmployeeListPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
+              <label htmlFor="filter-designation" className="mb-1.5 block text-[12px] font-medium text-slate-600">Designation</label>
               <select
+                id="filter-designation"
                 value={designationFilter}
                 onChange={(e) => { setDesignationFilter(e.target.value); setPage(1); }}
-                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
               >
                 <option value="">All Designations</option>
                 {designations.filter(d => d.isActive).map((d) => (
@@ -125,84 +131,91 @@ export default function EmployeeListPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
+              <label htmlFor="filter-status" className="mb-1.5 block text-[12px] font-medium text-slate-600">Status</label>
               <select
+                id="filter-status"
                 value={statusFilter}
                 onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
               >
                 {STATUS_OPTIONS.map((s) => (
                   <option key={s.value} value={s.value}>{s.label}</option>
                 ))}
               </select>
             </div>
-            <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
-              Search
-            </button>
+            <div className="flex items-end sm:col-span-2 lg:col-span-4">
+              <Button type="submit" size="md">Search</Button>
+            </div>
           </form>
         </div>
 
         {canCreate && (
-          <div className="mb-4">
-            <Link to="/admin/employees/new" className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
+          <div className="mb-5">
+            <Link
+              to="/admin/employees/new"
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-3.5 text-[13px] font-medium text-white shadow-sm transition-colors hover:bg-slate-700"
+            >
               + Add Employee
             </Link>
           </div>
         )}
 
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-sm text-red-700">{error}</p>
-            <button onClick={fetchEmployees} className="mt-2 text-sm text-red-600 underline">Retry</button>
+          <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4">
+            <p className="text-[13px] text-red-700">{error}</p>
+            <button onClick={fetchEmployees} className="mt-2 text-[13px] text-red-600 underline">Retry</button>
           </div>
         )}
 
         {isLoading && (
-          <div className="flex items-center justify-center py-12">
-            <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+          <div className="flex items-center justify-center gap-2.5 py-12 text-[13px] text-slate-500">
+            <Spinner size="md" /> Loading…
           </div>
         )}
 
         {!isLoading && !error && employees.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-slate-500">No employees found matching your criteria.</p>
+          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+            <EmptyState
+              title="No employees found"
+              description="No employees match the current search and filter criteria."
+            />
           </div>
         )}
 
         {!isLoading && employees.length > 0 && (
           <>
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200">
+                  <thead className="bg-slate-50/60">
                     <tr>
-                      <th className="text-left px-6 py-3 text-sm font-medium text-slate-500">Employee</th>
-                      <th className="text-left px-6 py-3 text-sm font-medium text-slate-500">Code</th>
-                      <th className="text-left px-6 py-3 text-sm font-medium text-slate-500">Department</th>
-                      <th className="text-left px-6 py-3 text-sm font-medium text-slate-500">Designation</th>
-                      <th className="text-left px-6 py-3 text-sm font-medium text-slate-500">Status</th>
-                      <th className="text-left px-6 py-3 text-sm font-medium text-slate-500">Actions</th>
+                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Employee</th>
+                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Code</th>
+                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Department</th>
+                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Designation</th>
+                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Status</th>
+                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody>
                     {employees.map((emp) => (
-                      <tr key={emp.id} className="hover:bg-slate-50">
-                        <td className="px-6 py-4">
+                      <tr key={emp.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/60">
+                        <td className="px-4 py-3">
                           <div>
-                            <p className="text-sm font-medium text-slate-900">{emp.firstName} {emp.lastName}</p>
-                            <p className="text-sm text-slate-500">{emp.email}</p>
+                            <p className="text-[13px] font-semibold text-slate-900">{emp.firstName} {emp.lastName}</p>
+                            <p className="text-xs text-slate-400">{emp.email}</p>
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{emp.employeeCode}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{emp.department?.name || '—'}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{emp.designation?.name || '—'}</td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(emp.status)}`}>
+                        <td className="px-4 py-3 text-[13px] text-slate-600">{emp.employeeCode}</td>
+                        <td className="px-4 py-3 text-[13px] text-slate-600">{emp.department?.name || '—'}</td>
+                        <td className="px-4 py-3 text-[13px] text-slate-600">{emp.designation?.name || '—'}</td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusColor(emp.status)}`}>
                             {emp.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
-                          <Link to={`/admin/employees/${emp.id}`} className="text-sm text-primary-600 hover:text-primary-700">
+                        <td className="px-4 py-3">
+                          <Link to={`/admin/employees/${emp.id}`} className="text-[13px] font-medium text-cyan-600 hover:text-cyan-700">
                             View
                           </Link>
                         </td>
@@ -214,22 +227,14 @@ export default function EmployeeListPage() {
             </div>
 
             {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="px-4 py-2 border border-slate-300 rounded-lg disabled:opacity-50 hover:bg-slate-50"
-                >
+              <div className="mt-4 flex items-center justify-between">
+                <Button variant="secondary" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
                   Previous
-                </button>
-                <span className="text-sm text-slate-600">Page {page} of {totalPages}</span>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="px-4 py-2 border border-slate-300 rounded-lg disabled:opacity-50 hover:bg-slate-50"
-                >
+                </Button>
+                <span className="text-[13px] text-slate-600">Page {page} of {totalPages}</span>
+                <Button variant="secondary" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
                   Next
-                </button>
+                </Button>
               </div>
             )}
           </>
@@ -241,10 +246,10 @@ export default function EmployeeListPage() {
 
 function getStatusColor(status: string): string {
   switch (status) {
-    case 'ACTIVE': return 'bg-green-100 text-green-800';
-    case 'INACTIVE': return 'bg-slate-100 text-slate-800';
-    case 'SUSPENDED': return 'bg-red-100 text-red-800';
-    case 'ON_LEAVE': return 'bg-yellow-100 text-yellow-800';
-    default: return 'bg-slate-100 text-slate-800';
+    case 'ACTIVE': return 'bg-emerald-50 text-emerald-700 ring-emerald-200';
+    case 'INACTIVE': return 'bg-slate-100 text-slate-600 ring-slate-200';
+    case 'SUSPENDED': return 'bg-red-50 text-red-700 ring-red-200';
+    case 'ON_LEAVE': return 'bg-amber-50 text-amber-700 ring-amber-200';
+    default: return 'bg-slate-100 text-slate-600 ring-slate-200';
   }
 }

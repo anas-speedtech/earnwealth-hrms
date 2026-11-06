@@ -56,7 +56,7 @@ export default function SuperAdminReportsPage() {
     <DashboardShell role="SUPER_ADMIN" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="Reports" subtitle="Cross-module reporting for oversight" />
       <div className="p-8 max-w-7xl">
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</p>}
         <div className="space-y-6">
           <StatGrid
             stats={[
@@ -112,7 +112,7 @@ export default function SuperAdminReportsPage() {
             </Panel>
             <Panel title="Employees by Designation">
               {designations.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-500">No designations configured.</p>
+                <p className="py-6 text-center text-[13px] text-slate-500">No designations configured.</p>
               ) : (
                 <ul className="divide-y divide-slate-100">
                   {designations.map((designation) => (

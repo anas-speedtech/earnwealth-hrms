@@ -49,7 +49,7 @@ export default function SuperAdminHrStaffPage() {
     <DashboardShell role="SUPER_ADMIN" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="HR Staff" subtitle="Privileged accounts that handle HR work" />
       <div className="p-8 max-w-6xl">
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</p>}
 
         {isLoading ? (
           <p className="text-slate-500">Loading accounts…</p>
@@ -78,7 +78,7 @@ export default function SuperAdminHrStaffPage() {
                       <span
                         className={`text-xs px-2 py-0.5 rounded-full ${
                           account.isActive
-                            ? 'bg-green-100 text-green-700'
+                            ? 'bg-emerald-100 text-emerald-700'
                             : 'bg-red-100 text-red-700'
                         }`}
                       >

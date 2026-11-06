@@ -1,31 +1,104 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { CalendarX2, Info } from 'lucide-react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
+import Spinner from '../../components/ui/Spinner';
+import EmptyState from '../../components/ui/EmptyState';
 import { useAuth } from '../../contexts/AuthContext';
-import { attendanceService, AttendanceRecord, AttendanceImport } from '../../services/attendance.service';
-import { organizationService } from '../../services/organization.service';
+import {
+  attendanceService,
+  AttendanceImport,
+  AttendanceMatrix,
+  MatrixDay,
+} from '../../services/attendance.service';
 import toast from 'react-hot-toast';
 
-interface EmployeeOption {
-  id: string;
-  employeeCode: string;
-  name: string;
-  designation: string;
-}
+type ViewMode = 'calendar' | 'import';
 
-type ViewMode = 'rows' | 'import' | 'history';
+const CARD =
+  'rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]';
+
+const SELECT =
+  'h-9 w-40 rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-700 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10';
+
+const MONTH_NAMES = [
+  'January','February','March','April','May','June','July','August','September','October','November','December',
+];
+
+// Hover tooltip that explains the cell colours without taking up space under
+// the grid. The full rule set (working hours, FHDL/SHDL, comp-off, editable
+// empty days) is shown on demand.
+function CellLegendTip() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative mt-3 inline-block">
+      <button
+        type="button"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
+      >
+        <Info size={13} />
+        Legend
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-2 w-[26rem] max-w-[90vw] rounded-xl border border-slate-200/90 bg-white p-4 text-left shadow-[0_12px_32px_-8px_rgba(15,23,42,0.16)]">
+          <p className="mb-2.5 text-[13px] font-semibold text-slate-900">How cells are marked</p>
+          <ul className="space-y-2 text-[12px] leading-relaxed text-slate-600">
+            <li>
+              <span className="font-medium text-slate-700">Working day:</span> 09:30 in, 18:30 out, with a break
+              after 13:45.
+            </li>
+            <li>
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-100 ring-1 ring-inset ring-emerald-300" />{' '}
+              <span className="font-medium text-slate-700">Green</span> — first in by 09:30 and last out at or after
+              18:30 (full day present).
+            </li>
+            <li>
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-orange-100 ring-1 ring-inset ring-orange-300" />{' '}
+              <span className="font-medium text-slate-700">Orange</span> — half day.{' '}
+              <span className="mx-1 rounded-sm bg-orange-100 px-1 text-[10px] font-semibold text-orange-700">FHDL</span>
+              first in after 09:30,{' '}
+              <span className="mx-1 rounded-sm bg-orange-100 px-1 text-[10px] font-semibold text-orange-700">SHDL</span>{' '}
+              last out before 18:30,{' '}
+              <span className="mx-1 rounded-sm bg-orange-100 px-1 text-[10px] font-semibold text-orange-700">HDL</span>{' '}
+              only one side captured.
+            </li>
+            <li>
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-red-500" />{' '}
+              <span className="font-medium text-slate-700">Red</span> — approved leave day.
+            </li>
+            <li>
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-100 ring-1 ring-inset ring-violet-300" />{' '}
+              <span className="font-medium text-slate-700">Purple (CO)</span> — punched in on a weekend/holiday;
+              comp-off credit (valid 3 months).
+            </li>
+            <li>
+              <span className="inline-block h-2.5 w-2.5 rounded-sm border border-dashed border-slate-300" />{' '}
+              <span className="font-medium text-slate-700">Empty dashed box</span> — no device entry that day
+              (full-day leave or WFH); the employee can update the punch times from their own Attendance page.
+            </li>
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function HRAttendancePage() {
   const { user, logout } = useAuth();
-  const [view, setView] = useState<ViewMode>('rows');
+  const [view, setView] = useState<ViewMode>('calendar');
 
-  // --- row-based view (all employees, filterable) ---
-  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
-  const [selectedCode, setSelectedCode] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [rows, setRows] = useState<AttendanceRecord[]>([]);
-  const [rowsLoading, setRowsLoading] = useState(false);
+  // --- calendar view state ---
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [matrix, setMatrix] = useState<AttendanceMatrix | null>(null);
+  const [matrixLoading, setMatrixLoading] = useState(false);
+  const [matrixError, setMatrixError] = useState<string | null>(null);
 
   // --- upload ---
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -34,55 +107,25 @@ export default function HRAttendancePage() {
 
   const displayName = (user?.profile?.fullName as string) || user?.email || 'HR Admin';
 
-  const loadEmployees = useCallback(async () => {
-    try {
-      const page = await organizationService.getEmployees({ page: 1 });
-      setEmployees((page.data || []).map((e) => ({
-        id: e.id,
-        employeeCode: e.employeeCode || '',
-        name: e.firstName && e.lastName ? `${e.firstName} ${e.lastName}` : 'Unknown',
-        designation: e.designation?.name || '',
-      })));
-    } catch {
-      setEmployees([]);
-    }
-  }, []);
+  // ============ calendar (month matrix) ============
 
-  useEffect(() => {
-    loadEmployees();
-  }, [loadEmployees]);
-
-  const loadRows = useCallback(async () => {
-    setRowsLoading(true);
+  const loadMatrix = useCallback(async () => {
+    setMatrixLoading(true);
+    setMatrixError(null);
     try {
-      if (selectedCode) {
-        const emp = employees.find((e) => e.employeeCode === selectedCode);
-        if (emp) {
-          const result = await attendanceService.getEmployeeHistory(emp.id, 1, startDate || undefined, endDate || undefined);
-          setRows(result.records);
-          return;
-        }
-      }
-      // No filter: pull history for each employee (paginated on the server side
-      // per employee; for the row view we aggregate the first page each).
-      const settled = await Promise.allSettled(
-        employees.map((e) => attendanceService.getEmployeeHistory(e.id, 1, startDate || undefined, endDate || undefined))
-      );
-      const collected: AttendanceRecord[] = [];
-      for (const r of settled) {
-        if (r.status === 'fulfilled') collected.push(...r.value.records);
-      }
-      setRows(collected);
+      setMatrix(await attendanceService.getMatrix(year, month));
     } catch {
-      toast.error('Failed to load attendance rows.');
+      setMatrixError('Could not load the attendance calendar.');
     } finally {
-      setRowsLoading(false);
+      setMatrixLoading(false);
     }
-  }, [employees, selectedCode, startDate, endDate]);
+  }, [year, month]);
 
   useEffect(() => {
-    if (view === 'rows') loadRows();
-  }, [view, loadRows]);
+    if (view === 'calendar') loadMatrix();
+  }, [view, loadMatrix]);
+
+  // ============ import ============
 
   const loadImports = useCallback(async () => {
     try {
@@ -113,7 +156,7 @@ export default function HRAttendancePage() {
       }
       setImportFile(null);
       loadImports();
-      loadRows();
+      loadMatrix();
     } catch (err: unknown) {
       const message =
         (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
@@ -124,36 +167,92 @@ export default function HRAttendancePage() {
     }
   };
 
-  const formatTime = (iso: string) => (iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—');
-  const formatDate = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-  const formatMinutes = (mins: number) => {
-    if (!mins) return '—';
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  // ============ matrix cell rendering ============
+
+  // Working window is 09:30 in / 18:30 out, lunch break after 13:45.
+  //  - approved leave day      -> solid red "Leave"
+  //  - punched on an off day   -> purple "CO" marker (comp-off eligible)
+  //  - full present            -> green, both punch times
+  //  - FHDL / SHDL / HDL       -> orange with the matching tag
+  //  - no data on a working day -> grey dashed box: no device entry for that
+  //    day (full-day leave, WFH, or an un-imported day) — the employee can
+  //    still update the punch times from their own Attendance page.
+  const renderDayCell = (cell: MatrixDay) => {
+    if (cell.onLeave) {
+      return (
+        <div className="flex h-full min-h-[2.75rem] items-center justify-center rounded-sm bg-red-500 px-1 py-1">
+          <span className="text-[11px] font-medium leading-tight text-white">Leave</span>
+        </div>
+      );
+    }
+
+    if (cell.compOffEligible) {
+      return (
+        <div className="flex min-h-[2.75rem] flex-col justify-between rounded-sm bg-violet-100 px-1.5 py-1 text-violet-900">
+          <div className="space-y-px text-[10px] leading-tight tabular-nums">
+            {cell.in && <span>{cell.in}</span>}
+            {cell.out && <span>{cell.out}</span>}
+          </div>
+          <span className="rounded-sm bg-violet-200/70 px-1 text-[9px] font-semibold text-violet-700">CO</span>
+        </div>
+      );
+    }
+
+    if (!cell.hasPunch) {
+      return (
+        <div className="min-h-[2.75rem] rounded-sm border border-dashed border-slate-200" />
+      );
+    }
+
+    const isHdl = cell.halfDay;
+
+    return (
+      <div
+        className={`flex min-h-[2.75rem] flex-col justify-between rounded-sm px-1.5 py-1 ${
+          isHdl ? 'bg-orange-100 text-orange-900' : 'bg-emerald-100 text-emerald-900'
+        }`}
+      >
+        <div className="space-y-px text-[10px] leading-tight tabular-nums">
+          {cell.in && <span>{cell.in}</span>}
+          {cell.out && <span>{cell.out}</span>}
+        </div>
+        {isHdl && (
+          <div className="flex flex-wrap gap-0.5">
+            {cell.halfDayTags.map((tag) => (
+              <span key={tag} className="rounded-sm bg-orange-200/70 px-1 text-[9px] font-semibold text-orange-700">
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   };
 
-  const statusColor = (status: string) => {
-    switch (status) {
-      case 'PRESENT': return 'bg-green-100 text-green-700';
-      case 'PARTIAL': return 'bg-yellow-100 text-yellow-700';
-      case 'MISSED_PUNCH': return 'bg-red-100 text-red-700';
-      default: return 'bg-blue-100 text-blue-700';
-    }
-  };
+  const dayNumbers = useMemo(() => {
+    const days = matrix?.daysInMonth ?? new Date(year, month, 0).getDate();
+    return Array.from({ length: days }, (_, i) => i + 1);
+  }, [matrix, year, month]);
+
+  // ============ view ============
+
+  const views: [ViewMode, string][] = [
+    ['calendar', 'Calendar'],
+    ['import', 'Upload & Imports'],
+  ];
 
   return (
     <DashboardShell role="HR_ADMIN" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
-      <Header title="Attendance" subtitle="Upload biometric data and review row-level attendance" />
-      <div className="p-8 max-w-6xl">
+      <Header title="Attendance" subtitle="Month-by-month punch calendar and biometric imports" />
+      <div className="p-6 max-w-[92rem]">
         {/* view tabs */}
         <div className="mb-6 flex gap-6 border-b border-slate-200">
-          {([['rows', 'Row View'], ['import', 'Upload & Imports'], ['history', 'Single Employee']] as [ViewMode, string][]).map(([key, label]) => (
+          {views.map(([key, label]) => (
             <button
               key={key}
               onClick={() => setView(key)}
-              className={`-mb-px border-b-2 px-1 pb-3 text-sm font-medium transition ${
-                view === key ? 'border-primary-500 text-primary-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+              className={`-mb-px border-b-2 px-1 pb-3 text-[13px] font-medium transition ${
+                view === key ? 'border-cyan-500 text-cyan-600' : 'border-transparent text-slate-500 hover:text-slate-800'
               }`}
             >
               {label}
@@ -161,86 +260,117 @@ export default function HRAttendancePage() {
           ))}
         </div>
 
-        {view === 'rows' && (
+        {/* ================= CALENDAR VIEW ================= */}
+        {view === 'calendar' && (
           <div>
-            <div className="mb-4 flex flex-wrap items-end gap-4 rounded-xl border border-slate-200 bg-white p-4">
+            <div className={`mb-4 flex flex-wrap items-end gap-4 p-4 sm:p-5 ${CARD}`}>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">Employee (code)</label>
-                <select
-                  value={selectedCode}
-                  onChange={(e) => setSelectedCode(e.target.value)}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">All employees</option>
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.employeeCode}>
-                      {e.name} ({e.employeeCode})
-                    </option>
+                <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Month</label>
+                <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className={SELECT}>
+                  {MONTH_NAMES.map((name, i) => (
+                    <option key={name} value={i + 1}>{name}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">From</label>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Year</label>
+                <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={SELECT}>
+                  {[year - 1, year, year + 1].map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">To</label>
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <div className="ml-auto flex flex-wrap items-center gap-4 self-end pb-2 text-xs text-slate-500">
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-100 ring-1 ring-inset ring-emerald-300" /> Present
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-2.5 w-2.5 rounded-sm bg-orange-100 ring-1 ring-inset ring-orange-300" /> Half day
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-2.5 w-2.5 rounded-sm bg-red-500" /> Leave
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-100 ring-1 ring-inset ring-violet-300" /> Comp-off
+                </span>
               </div>
-              <button onClick={loadRows} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
-                Refresh
-              </button>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-              {rowsLoading ? (
-                <div className="p-8 text-center text-sm text-slate-500">Loading…</div>
-              ) : rows.length === 0 ? (
-                <div className="p-8 text-center text-sm text-slate-500">No attendance rows found. Upload a biometric file first.</div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-slate-500">
+            {matrixError && (
+              <p className="mb-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700 ring-1 ring-inset ring-red-100">
+                {matrixError}
+              </p>
+            )}
+
+            {matrixLoading ? (
+              <div className="flex items-center justify-center gap-2.5 py-12 text-[13px] text-slate-500">
+                <Spinner size="md" />
+                Loading calendar…
+              </div>
+            ) : !matrix || matrix.rows.length === 0 ? (
+              <div className={CARD}>
+                <EmptyState
+                  icon={<CalendarX2 size={20} />}
+                  title="No employees to display"
+                  description="Add employees and import biometric data first."
+                />
+              </div>
+            ) : (
+              <div className={`overflow-x-auto ${CARD}`}>
+                <table className="w-full border-collapse text-xs">
+                  <thead>
                     <tr>
-                      <th className="px-4 py-3 font-medium">Date</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 font-medium">Punch In</th>
-                      <th className="px-4 py-3 font-medium">Punch Out</th>
-                      <th className="px-4 py-3 font-medium">Sessions</th>
-                      <th className="px-4 py-3 font-medium">Duration</th>
+                      <th className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        Emp Code
+                      </th>
+                      <th className="sticky left-[4.75rem] z-10 border-r border-slate-100 bg-white px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        Emp Name
+                      </th>
+                      {dayNumbers.map((d) => (
+                        <th key={d} className="min-w-[2.5rem] px-1 py-2.5 text-center text-[11px] font-semibold text-slate-400">
+                          {d}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.id} className="border-t border-slate-100">
-                        <td className="px-4 py-3 text-slate-700">{formatDate(r.date)}</td>
-                        <td className="px-4 py-3">
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor(r.status)}`}>
-                            {r.status.replace('_', ' ')}
-                          </span>
+                    {matrix.rows.map((row) => (
+                      <tr key={row.employeeId} className="border-t border-slate-100">
+                        <td className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2 font-medium text-slate-700">
+                          {row.employeeCode}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">{formatTime(r.sessions[0]?.punchIn || '')}</td>
-                        <td className="px-4 py-3 text-slate-600">{formatTime(r.sessions[0]?.punchOut || '')}</td>
-                        <td className="px-4 py-3 text-slate-600">{r.sessions.length}</td>
-                        <td className="px-4 py-3 text-slate-600">{formatMinutes(r.totalMinutes)}</td>
+                        <td className="sticky left-[4.75rem] z-10 border-r border-slate-100 bg-white px-3 py-2 text-slate-600">
+                          {row.name}
+                        </td>
+                        {row.days.map((cell) => (
+                          <td key={cell.day} className="min-w-[2.5rem] px-0.5 py-1">
+                            {renderDayCell(cell)}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              )}
-            </div>
+              </div>
+            )}
+
+            {!matrixLoading && matrix && matrix.rows.length > 0 && (
+              <CellLegendTip />
+            )}
           </div>
         )}
 
+        {/* ================= IMPORT VIEW ================= */}
         {view === 'import' && (
           <div>
             <div className="mb-6 rounded-xl border border-slate-200 bg-white p-6">
-              <h3 className="mb-1 text-lg font-semibold text-slate-900">Upload Biometric File</h3>
-              <p className="mb-4 text-sm text-slate-500">
+              <h3 className="mb-1 text-[15px] font-semibold text-slate-900">Upload Biometric File</h3>
+              <p className="mb-4 text-[13px] text-slate-500">
                 Upload a raw <code>.dat</code> export from the biometric device. Each row is matched to an
                 employee by Employee Code and stored as a punch event.
               </p>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">.dat file</label>
+                <label className="mb-1 block text-[12px] font-medium text-slate-500">.dat file</label>
                 <input
                   type="file"
                   accept=".dat,.txt"
@@ -256,7 +386,7 @@ export default function HRAttendancePage() {
               <button
                 onClick={handleImport}
                 disabled={importBusy || !importFile}
-                className="mt-4 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+                className="mt-4 rounded-lg bg-cyan-600 px-4 py-2 text-[13px] font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
               >
                 {importBusy ? 'Importing…' : 'Import File'}
               </button>
@@ -264,13 +394,13 @@ export default function HRAttendancePage() {
 
             <div className="rounded-xl border border-slate-200 bg-white">
               <div className="border-b border-slate-200 px-6 py-4">
-                <h3 className="text-lg font-semibold text-slate-900">Recent Imports</h3>
+                <h3 className="text-[15px] font-semibold text-slate-900">Recent Imports</h3>
               </div>
               {imports.length === 0 ? (
-                <div className="p-8 text-center text-sm text-slate-500">No imports yet.</div>
+                <div className="p-8 text-center text-[13px] text-slate-500">No imports yet.</div>
               ) : (
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-slate-500">
+                  <thead className="bg-slate-50/60 text-left">
                     <tr>
                       <th className="px-4 py-3 font-medium">When</th>
                       <th className="px-4 py-3 font-medium">File</th>
@@ -296,13 +426,6 @@ export default function HRAttendancePage() {
                 </table>
               )}
             </div>
-          </div>
-        )}
-
-        {view === 'history' && (
-          <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-            Use the <strong>Row View</strong> tab with the Employee filter to review a single employee's
-            punches in detail.
           </div>
         )}
       </div>
