@@ -13,8 +13,10 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ title, subtitle, onSubmit, isLoading, error }: LoginPageProps) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  // UAT convenience: the admin account is baked into the build via client/.env
+  // (VITE_ADMIN_EMAIL / VITE_ADMIN_PASSWORD). Undefined in dev unless set.
+  const [email, setEmail] = useState<string>(import.meta.env.VITE_ADMIN_EMAIL ?? '');
+  const [password, setPassword] = useState<string>(import.meta.env.VITE_ADMIN_PASSWORD ?? '');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
