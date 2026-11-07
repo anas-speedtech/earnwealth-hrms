@@ -73,10 +73,20 @@ class AttendanceImportService {
       }
 
       const employeeCode = parts[0];
-      const timePart = parts.slice(1).join(' ');
-      const parsedTime = this.parseTimestamp(timePart);
+      // Device exports (ZKTeco-style .dat) carry extra fields AFTER the
+      // timestamp (verify mode, state, door no, ...), and may split the
+      // date and time into separate columns. So try, in order: just the
+      // second field, the second + third, then everything after the code.
+      // The timestamp regexes are anchored, so trailing device fields can
+      // never make a longer join match — the first valid parse wins.
+      const candidates = [
+        parts[1] || '',
+        parts.slice(1, 3).join(' '),
+        parts.slice(1).join(' '),
+      ];
+      const parsedTime = candidates.map((c) => this.parseTimestamp(c)).find(Boolean);
       if (!parsedTime) {
-        skipped.push({ line, reason: 'Unrecognized timestamp: "' + timePart + '"' });
+        skipped.push({ line, reason: 'Unrecognized timestamp: "' + parts.slice(1).join(' ') + '"' });
         continue;
       }
 
@@ -134,25 +144,37 @@ class AttendanceImportService {
 
     const prisma = this.getPrisma();
 
-    // Resolve employee codes to employee ids.
+    // Resolve the file's codes to employee ids.
     //
-    // The live MariaDB server rejects a multi-value `IN (?, ?)` placeholder
-    // list in $queryRawUnsafe (it parses the list of bare `?` as a syntax
-    // error), so each code is resolved individually instead. The code set is
-    // small (distinct employees in one file), so the extra round-trips are
-    // negligible.
+    // Device exports report the number as it is stored on the device (e.g.
+    // "3"), while the DB may hold the zero-padded form ("003") — or vice
+    // versa. So each code is matched on two keys: the code exactly as
+    // stored, and its numeric value with leading zeros stripped. Codes that
+    // match neither key (old / deleted employees) are intentionally NOT
+    // written to attendance_logs; they only surface in "Unknown Codes".
     const codes = Array.from(new Set(rows.map((r) => r.employeeCode)));
-    const empByCode = new Map();
-    for (const code of codes) {
-      const rows_ = await prisma.$queryRawUnsafe(
-        'SELECT id, employeeCode FROM employees WHERE employeeCode = ? AND isActive = 1 LIMIT 1',
-        code
-      );
-      if (rows_ && rows_.length) {
-        empByCode.set(code, Number(rows_[0].id));
+    const allEmployees = await prisma.$queryRawUnsafe(
+      'SELECT id, employeeCode FROM employees WHERE isActive = 1'
+    );
+    const empByExact = new Map();
+    const empByNumber = new Map();
+    for (const e of allEmployees) {
+      if (e.employeeCode == null) continue;
+      const dbCode = String(e.employeeCode).trim();
+      if (!dbCode) continue;
+      if (!empByExact.has(dbCode)) empByExact.set(dbCode, Number(e.id));
+      if (/^\d+$/.test(dbCode) && !empByNumber.has(Number(dbCode))) {
+        empByNumber.set(Number(dbCode), Number(e.id));
       }
     }
-    const codeToEmployee = empByCode;
+    const codeToEmployee = new Map();
+    for (const code of codes) {
+      let empId = empByExact.get(code);
+      if (empId === undefined && /^\d+$/.test(code)) {
+        empId = empByNumber.get(Number(code));
+      }
+      if (empId !== undefined) codeToEmployee.set(code, empId);
+    }
     const unmatchedCodes = codes.filter((c) => !codeToEmployee.has(c));
 
     // Determine IN/OUT by ordering that employee's punches for the day: the
