@@ -202,10 +202,27 @@ export default function SuperAdminAdminsPage() {
       return;
     }
     // The employee code is entered manually and is required for every account
-    // created here (HR Admin and Employee). The server enforces uniqueness
-    // and treats it as immutable.
-    if (!form.employeeCode.trim()) {
+    // created here (HR Admin and Employee). Rules: digits only, min 3 digits
+    // (may start with 0), and unique across all existing accounts + employees.
+    // The server enforces the same rules; this is the fast, friendly check.
+    const code = form.employeeCode.trim();
+    if (!code) {
       setFieldError('Employee code is required. Enter the code manually — it is not auto-generated.');
+      return;
+    }
+    if (!/^\d+$/.test(code)) {
+      setFieldError('Employee code must contain numbers only.');
+      return;
+    }
+    if (code.length < 3) {
+      setFieldError('Employee code must be at least 3 digits.');
+      return;
+    }
+    const usedCodes = new Set<string>();
+    accounts.forEach((a) => { if (a.employeeCode) usedCodes.add(a.employeeCode); });
+    employees.forEach((e) => { if (e.employeeCode) usedCodes.add(e.employeeCode); });
+    if (usedCodes.has(code)) {
+      setFieldError(`Employee code ${code} is already in use. Choose a different code.`);
       return;
     }
     // Every Employee must map to a higher person.
@@ -337,13 +354,16 @@ export default function SuperAdminAdminsPage() {
                   <Input
                     label="Employee Code"
                     value={form.employeeCode}
-                    onChange={(e) => setForm({ ...form, employeeCode: e.target.value })}
-                    placeholder="EMP-1001"
+                    onChange={(e) =>
+                      setForm({ ...form, employeeCode: e.target.value.replace(/\D/g, '') })
+                    }
+                    placeholder="e.g. 1001"
+                    inputMode="numeric"
                     required
                   />
                   <p className="mt-1 text-xs text-slate-400">
-                    Enter the code manually. It must be unique and cannot be
-                    changed once the account is created.
+                    Numbers only, minimum 3 digits (may start with 0). It must
+                    be unique and cannot be changed once the account is created.
                   </p>
                 </div>
                 <Select

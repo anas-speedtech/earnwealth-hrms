@@ -19,7 +19,13 @@ const createSchema = z.object({
   // The employee code is entered manually by the HR Admin; it is unique and
   // immutable. A linked employee record is created for HR Admin and Employee
   // accounts alike — the Super Admin never reaches this path.
-  employeeCode: z.string().trim().min(1).max(50),
+  // Rules: numbers only, at least 3 digits (leading zeros allowed), max 50.
+  employeeCode: z
+    .string()
+    .trim()
+    .regex(/^\d+$/, 'Employee code must contain numbers only.')
+    .min(3, 'Employee code must be at least 3 digits.')
+    .max(50, 'Employee code must be at most 50 digits.'),
   designation: z.string().trim().max(100).optional(),
   reportingManager: z.string().trim().max(120).optional(),
 });

@@ -113,6 +113,14 @@ class UserManagementService {
         400
       );
     }
+    // Numbers only, minimum 3 digits (leading zeros allowed).
+    if (!/^\d+$/.test(code) || code.length < 3) {
+      throw new AppError(
+        AppErrorCodes.VALIDATION_ERROR,
+        'Employee code must be numeric and at least 3 digits (may start with 0).',
+        400
+      );
+    }
     const dup = await prismaClient.$queryRawUnsafe(
       'SELECT id FROM employees WHERE employeeCode = ? LIMIT 1',
       code
