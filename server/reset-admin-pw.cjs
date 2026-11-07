@@ -14,7 +14,7 @@ const url =
 
 const p = new PrismaClient({ datasources: { db: { url } } });
 
-(async () => {
+async function main() {
   const [match] = await p.$queryRawUnsafe(
     'SELECT id, email, role, isActive FROM users WHERE email = ? LIMIT 1',
     email
@@ -42,7 +42,9 @@ const p = new PrismaClient({ datasources: { db: { url } } });
   console.log('---');
   console.log('Email  :', email);
   console.log('Password:', newPassword);
-})
+}
+
+main()
   .catch((e) => {
     console.error('ERROR:', e.message);
     process.exit(1);
