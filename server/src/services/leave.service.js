@@ -91,7 +91,7 @@ class LeaveService {
   static async getBalances(prismaClient, employeeId, year) {
     const rows = await prismaClient.$queryRawUnsafe(
       `SELECT lt.id AS leaveTypeId, lt.name, lt.displayName, lt.code,
-              lt.classification, lt.isHalfDayAllowed,
+              lt.classification, lt.isHalfDayAllowed, lt.isUnlimited, lt.appliesToBoardLevel,
               COALESCE(lb.openingBalance, 0)   AS openingBalance,
               COALESCE(lb.accruedBalance, 0)  AS accruedBalance,
               COALESCE(lb.usedBalance, 0)     AS usedBalance,

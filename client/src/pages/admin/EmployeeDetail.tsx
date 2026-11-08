@@ -7,6 +7,7 @@ import Spinner from '../../components/ui/Spinner';
 import { organizationService } from '../../services/organization.service';
 import { useAuth } from '../../contexts/AuthContext';
 import type { EmployeeDetail, Department } from '../../services/organization.service';
+import PayoutDetailsCard from '../../components/payout/PayoutDetailsCard';
 
 const ROLES_THAT_CAN_EDIT = ['SUPER_ADMIN', 'HR_ADMIN'];
 const ROLES_THAT_CAN_TOGGLE_STATUS = ['SUPER_ADMIN', 'HR_ADMIN'];
@@ -173,6 +174,7 @@ export default function EmployeeDetailPage() {
           </div>
         )}
 
+        <div className="space-y-5">
         <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
           <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-6 py-4">
             <div>
@@ -264,6 +266,16 @@ export default function EmployeeDetailPage() {
             </div>
           )}
           </div>
+        </div>
+
+        {/* Payout Details — earnings/deduction structure + bank, HR-maintained,
+            confirmation-gated and fully change-tracked. */}
+        <PayoutDetailsCard
+          employeeId={employee.id}
+          employeeCode={employee.employeeCode}
+          employeeName={`${employee.firstName} ${employee.lastName}`.trim()}
+          canEdit={canEdit}
+        />
         </div>
       </div>
     </DashboardShell>

@@ -74,7 +74,7 @@ class UserManagementService {
    * sequence. The code must be unique across all employees and, once set,
    * it cannot be changed.
    */
-  static async create(actor, { name, email, password, role, employeeCode, designation, reportingManager }) {
+  static async create(actor, { name, email, password, role, employeeCode, designation, reportingManager, joiningDate, leaveTypes }) {
     // Super Admin may only appoint HR Admin accounts — no Employee, no other
     // Super Admin. HR Admin in turn creates the Employee accounts.
     if (actor.role === 'SUPER_ADMIN' && role !== 'HR_ADMIN') {
@@ -190,6 +190,13 @@ class UserManagementService {
     `;
     const user = rows[0];
 
+    // Date of joining: a validated `YYYY-MM-DD` from the form, or today as
+    // the fallback. The live `joiningDate` column is a NOT NULL DATE.
+    const joinDate =
+      joiningDate && /^\d{4}-\d{2}-\d{2}$/.test(String(joiningDate))
+        ? String(joiningDate).slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
+
     // Both HR Admin and Employee accounts get a linked employee record with
     // the manually-entered code above.
     //
@@ -202,9 +209,58 @@ class UserManagementService {
         (employeeCode, name, designation, joiningDate, deviceEnrollNo,
          basicSalary, allowances, deductions, isActive, userId,
          reportingManagerId, createdAt, updatedAt)
-       VALUES (?, ?, ?, NOW(), ?, 0, 0, 0, 1, ?, ?, NOW(3), NOW(3))`,
-      code, name, finalDesignation, Number(user.id), Number(user.id), reportingManagerId
+       VALUES (?, ?, ?, ?, ?, 0, 0, 0, 1, ?, ?, NOW(3), NOW(3))`,
+      code, name, finalDesignation, joinDate, Number(user.id), Number(user.id), reportingManagerId
     );
+
+    // Configure the leave types this employee is entitled to. A balance row
+    // is what marks a type as "configured" for the employee — the dashboard
+    // and the apply-leave screen both key off it, so seeding it here means
+    // the employee immediately sees (and can apply) only their types.
+    // NOTE: leave_balances.employeeId is employees.id (the FK target), not
+    // users.id — resolve the employee row we just created.
+    let leaveTypesCreated = 0;
+    if (Array.isArray(leaveTypes) && leaveTypes.length) {
+      const empRow = await prismaClient.$queryRawUnsafe(
+        'SELECT id FROM employees WHERE employeeCode = ? LIMIT 1',
+        code
+      );
+      if (empRow.length) {
+        const employeeId = Number(empRow[0].id);
+        const year = new Date().getFullYear();
+        for (const typeKey of leaveTypes) {
+          const typeRow = await prismaClient.$queryRawUnsafe(
+            'SELECT id, annualEntitlementDays, isUnlimited FROM leave_types WHERE id = ? OR name = ? LIMIT 1',
+            typeKey,
+            typeKey
+          );
+          if (!typeRow.length) continue;
+          const t = typeRow[0];
+          // Unlimited types carry no numeric balance (matches initializeBalances).
+          if (Number(t.isUnlimited) === 1) continue;
+          const exists = await prismaClient.$queryRawUnsafe(
+            'SELECT id FROM leave_balances WHERE employeeId = ? AND leaveTypeId = ? AND year = ? LIMIT 1',
+            employeeId,
+            t.id,
+            year
+          );
+          if (exists.length) continue;
+          const opening = Number(t.annualEntitlementDays || 0);
+          await prismaClient.$executeRawUnsafe(
+            `INSERT INTO leave_balances
+               (id, employeeId, leaveTypeId, openingBalance, accruedBalance, usedBalance, reservedBalance, availableBalance, year, lastAccruedAt, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, 0.00, 0.00, 0.00, ?, ?, NOW(), NOW(), NOW())`,
+            require('crypto').randomUUID(),
+            employeeId,
+            t.id,
+            opening,
+            opening,
+            year
+          );
+          leaveTypesCreated += 1;
+        }
+      }
+    }
 
     await AuthService.logAudit(
       String(actor.id),
@@ -218,6 +274,8 @@ class UserManagementService {
       newUserId: user.id,
       role,
       employeeCode: code,
+      joiningDate: joinDate,
+      leaveTypesCreated,
     });
 
     try {
@@ -235,6 +293,8 @@ class UserManagementService {
       name: user.name || '',
       email: user.email,
       role: user.role,
+      joiningDate: joinDate,
+      leaveTypesCreated,
       isActive: Boolean(user.isActive),
       createdAt: user.createdAt,
       employeeCode: code,

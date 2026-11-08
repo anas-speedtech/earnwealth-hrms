@@ -3,6 +3,7 @@ const { z } = require('zod');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validateBody } = require('../middleware/validate');
 const { UserManagementService } = require('../services/user-management.service');
+const { PersonalProfileService } = require('../services/personal-profile.service');
 const { Role } = require('../types/index');
 
 const router = express.Router();
@@ -28,10 +29,28 @@ const createSchema = z.object({
     .max(50, 'Employee code must be at most 50 digits.'),
   designation: z.string().trim().max(100).optional(),
   reportingManager: z.string().trim().max(120).optional(),
+  // Date of joining (item 4). `YYYY-MM-DD`; the service falls back to today
+  // when omitted or malformed, so it is intentionally non-fatal here.
+  joiningDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  // Leave types this employee is configured for (item 1). An array of
+  // leave-type ids (or names) — the service seeds a balance row per type.
+  leaveTypes: z.array(z.string()).optional(),
 });
 
 const statusSchema = z.object({
   isActive: z.boolean(),
+});
+
+// Personal-information fields. Employees read/update only their own record;
+// HR keeps these in the same table when provisioning.
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const optionalDay = z.union([z.literal(''), z.string().regex(DAY_RE)]).optional().nullable();
+const personalProfileSchema = z.object({
+  address: z.string().max(500).optional().nullable(),
+  dateOfBirth: optionalDay,
+  emergencyContact: z.string().max(100).optional().nullable(),
+  personalEmail: z.union([z.literal(''), z.string().email().max(255)]).optional().nullable(),
+  anniversaryDate: optionalDay,
 });
 
 router.use(authenticate);
@@ -72,6 +91,33 @@ router.patch(
     try {
       const result = await UserManagementService.setActive(req.user, req.params.id, req.body.isActive);
       res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ---- Personal information (employee reads/updates their own record) ----
+
+// Get the calling user's personal profile (address, DOB, emergency contact,
+// personal email, personal anniversary date).
+router.get('/me/personal-profile', async (req, res, next) => {
+  try {
+    const profile = await PersonalProfileService.getForUser(req.user.id);
+    res.json(profile || PersonalProfileService.emptyProfile());
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Update the calling user's personal profile (upsert).
+router.put(
+  '/me/personal-profile',
+  validateBody(personalProfileSchema),
+  async (req, res, next) => {
+    try {
+      const profile = await PersonalProfileService.upsertForUser(req.user.id, req.body);
+      res.json(profile);
     } catch (err) {
       next(err);
     }

@@ -49,6 +49,22 @@ function canAccessAll(user) {
   return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(user.role);
 }
 
+/**
+ * Set of listed holiday dates (YYYY-MM-DD) in a range. The live `holidays`
+ * table stores plain dates; an empty/missing table degrades to an empty set
+ * so the off-day sweep still works on weekends alone.
+ */
+async function holidayDateSet(prismaClient, fromISO, toISO) {
+  const rows = await prismaClient
+    .$queryRawUnsafe(
+      'SELECT CAST(DATE(`date`) AS CHAR) AS d FROM holidays WHERE `date` >= ? AND `date` < ?',
+      fromISO,
+      toISO
+    )
+    .catch(() => []);
+  return new Set(rows.map((r) => String(r.d).slice(0, 10)));
+}
+
 class CompOffService {
   // ---- Policy ----
 
@@ -98,57 +114,174 @@ class CompOffService {
     const prismaClient = getPrisma();
     const empId = await resolveEmployeeId(prismaClient, reqUser, employeeId);
 
+    // Available days must be computed from the credits table, which is
+    // day-based and already honours the 3-month validity (expiresAt) and
+    // per-credit FIFO usage (usedDays). Summing raw ledger amounts is
+    // wrong: the ledger can carry mixed/legacy units and once produced
+    // an inflated "available" of 350,000 on the dashboard.
     const rows = await prismaClient.$queryRawUnsafe(
       `SELECT
-         COALESCE(SUM(CASE WHEN type = 'EARN' THEN amount ELSE 0 END), 0) AS totalEarned,
-         COALESCE(SUM(CASE WHEN type = 'USE'   THEN amount ELSE 0 END), 0) AS totalUsed,
-         COALESCE(SUM(CASE WHEN type = 'ADJUST' THEN amount ELSE 0 END), 0) AS totalAdjusted
-       FROM comp_off_ledger
-       WHERE employeeId = ?`,
+         COALESCE(SUM(earnedDays), 0) AS totalEarned,
+         COALESCE(SUM(usedDays), 0)   AS totalUsed
+       FROM comp_off_credits
+       WHERE employeeId = ?
+         AND status IN ('AVAILABLE', 'PARTIALLY_USED')
+         AND (expiresAt IS NULL OR expiresAt >= CURDATE())`,
       empId
     );
 
     const earned = Number(rows[0].totalEarned || 0);
     const used = Number(rows[0].totalUsed || 0);
-    const adjusted = Number(rows[0].totalAdjusted || 0);
-    const available = earned - used + adjusted;
+    // With the credits-based model there is no separate "adjustment" bucket;
+    // the field is kept only for response-shape compatibility.
+    const adjusted = 0;
+    const available = earned - used;
 
     return { employeeId: empId, totalEarned: earned, totalUsed: used, totalAdjusted: adjusted, available };
   }
 
-  static async getEligibleDates(reqUser, month, year) {
+  static async getEligibleDates(reqUser, { month, year } = {}) {
     if (!reqUser) throw new AppError(AppErrorCodes.UNAUTHORIZED, 'Authentication required.');
     const prismaClient = getPrisma();
     const empId = await resolveEmployeeId(prismaClient, reqUser, null);
 
-    const policy = await CompOffService.getPolicy(reqUser);
-    const minHours = Number(policy.minWorkedHours);
+    const m = Number(month) || new Date().getMonth() + 1;
+    const y = Number(year) || new Date().getFullYear();
+    const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
+    const nextMonth = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
 
-    // Find weekend days worked that could earn comp-off.
-    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
-    const nextMonth = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`;
-
+    // Days this employee actually punched in during the month.
     const rows = await prismaClient.$queryRawUnsafe(
-      `SELECT DATE(a.punchTime) AS workedDate
-       FROM attendance_logs a
-       WHERE a.employeeId = ?
-         AND a.status = 'IN'
-         AND a.punchTime >= ?
-         AND a.punchTime < ?
-         AND DAYOFWEEK(a.punchTime) IN (1, 7)
-       GROUP BY DATE(a.punchTime)
-       HAVING TIMESTAMPDIFF(HOUR,
-         MIN(CASE WHEN a.status = 'IN' THEN a.punchTime END),
-         MAX(CASE WHEN a.punchTime = (SELECT MAX(a2.punchTime) FROM attendance_logs a2 WHERE DATE(a2.punchTime) = DATE(a.punchTime) AND a2.employeeId = a.employeeId AND a2.status = 'OUT')
-        )) >= ?
+      `SELECT DISTINCT CAST(DATE(punchTime) AS CHAR) AS workedDate
+       FROM attendance_logs
+       WHERE employeeId = ? AND punchTime >= ? AND punchTime < ?
        ORDER BY workedDate`,
-      empId, monthStart, nextMonth, minHours
+      empId, monthStart, nextMonth
+    );
+    const holidays = await holidayDateSet(prismaClient, monthStart, nextMonth);
+
+    // An off day (Sat/Sun or a listed holiday) with a punch earns comp-off.
+    // Mirror the sweep exactly so "eligible" here == "will be credited".
+    return rows
+      .map((r) => ({ date: String(r.workedDate).slice(0, 10) }))
+      .filter((d) => CompOffService.isOffDayISO(d.date, holidays))
+      .map((d) => ({ date: d.date, eligible: true }));
+  }
+
+  // ---- Phase 2: automatic comp-off earning engine ----
+
+  /**
+   * A calendar day is a "weekly off" (Sat/Sun) or a listed holiday. Punches on
+   * such days earn a comp-off credit. Dates are the IST wall-clock strings the
+   * driver round-trips, so the UTC weekday of the ISO string is the real day.
+   */
+  static isOffDayISO(dayISO, holidays) {
+    const d = new Date(dayISO + 'T00:00:00Z');
+    if (Number.isNaN(d.getTime())) return false;
+    const weekday = d.getUTCDay(); // 0=Sun, 6=Sat
+    return weekday === 0 || weekday === 6 || (holidays && holidays.has(dayISO));
+  }
+
+  /**
+   * The Phase 2 sweep: walk attendance for off-day (Sat/Sun or listed-holiday)
+   * punches and auto-create a 1-day comp-off credit for each, honouring the
+   * per-month cap and the 3-month FIFO validity (expiresAt). Idempotent — the
+   * unique (employeeId, sourceDate) key plus an existence check mean re-running
+   * never double-credits. After earning, lapses any credit past its window
+   * (first-in-first-out: the oldest unapplied credits expire first).
+   */
+  static async processCompOffEarnings(reqUser, { startDate, endDate } = {}) {
+    const prismaClient = getPrisma();
+    const policy = await CompOffService.getPolicy(reqUser);
+    const cap = Number(policy.maxDaysPerMonth) || 0; // 0 = no monthly cap
+    const expiryMonths = Number(policy.expiryMonths) || 3;
+
+    // Default window: last 12 months, so a bare call still does useful work.
+    const now = new Date();
+    const rangeStart = startDate || `${now.getFullYear() - 1}-01-01`;
+    const rangeEnd = endDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+
+    const holidays = await holidayDateSet(prismaClient, rangeStart, rangeEnd);
+
+    // Distinct off-day punch events across active employees in the window.
+    const candidates = await prismaClient.$queryRawUnsafe(
+      `SELECT DISTINCT a.employeeId AS employeeId, CAST(DATE(a.punchTime) AS CHAR) AS day
+       FROM attendance_logs a
+       JOIN employees e ON e.id = a.employeeId AND e.isActive = 1
+       WHERE DATE(a.punchTime) >= ? AND DATE(a.punchTime) <= ?
+       ORDER BY a.employeeId, day`,
+      rangeStart,
+      rangeEnd
     );
 
-    return rows.map((r) => ({
-      date: r.workedDate instanceof Date ? r.workedDate.toISOString().slice(0, 10) : String(r.workedDate).slice(0, 10),
-      eligible: true,
-    }));
+    let created = 0;
+    let skipped = 0;
+    let capped = 0;
+    for (const c of candidates) {
+      const day = String(c.day).slice(0, 10);
+      if (!CompOffService.isOffDayISO(day, holidays)) continue;
+      const empId = Number(c.employeeId);
+
+      // Already credited for this exact day? (unique key is the backstop.)
+      const exists = await prismaClient.$queryRawUnsafe(
+        'SELECT id FROM comp_off_credits WHERE employeeId = ? AND sourceDate = ? LIMIT 1',
+        empId,
+        day
+      );
+      if (exists.length) {
+        skipped++;
+        continue;
+      }
+
+      // Per-month cap: count this employee's earned credits in the same month.
+      if (cap > 0) {
+        const inMonth = await prismaClient.$queryRawUnsafe(
+          `SELECT COUNT(*) AS n FROM comp_off_credits
+           WHERE employeeId = ? AND DATE_FORMAT(sourceDate, '%Y-%m') = ?`,
+          empId,
+          day.slice(0, 7)
+        );
+        if (Number(inMonth[0].n) >= cap) {
+          capped++;
+          continue;
+        }
+      }
+
+      const src = new Date(day + 'T00:00:00Z');
+      src.setUTCMonth(src.getUTCMonth() + expiryMonths);
+      const expiresAt = src.toISOString().slice(0, 10);
+      const id = crypto.randomUUID();
+      await prismaClient.$executeRawUnsafe(
+        `INSERT INTO comp_off_credits
+           (id, employeeId, sourceDate, earnedDays, usedDays, status, expiresAt, reason, createdAt, updatedAt)
+         VALUES (?, ?, ?, 1, 0, 'AVAILABLE', ?, ?, NOW(), NOW())`,
+        id,
+        empId,
+        day,
+        expiresAt,
+        'Auto: worked on a weekly off / holiday'
+      );
+      await CompOffService._ledger(prismaClient, id, empId, 'EARN', 1, 'Auto comp-off: off-day work');
+      created++;
+    }
+
+    // FIFO lapse: any credit whose 3-month window has closed is expired now.
+    // The balance query already ignores expired rows, so this only tidies status.
+    await prismaClient.$executeRawUnsafe(
+      `UPDATE comp_off_credits SET status = 'EXPIRED', updatedAt = NOW()
+       WHERE status IN ('AVAILABLE', 'PARTIALLY_USED') AND expiresAt < CURDATE()`
+    );
+
+    logger.info('Comp-off earnings processed', { created, skipped, capped, range: [rangeStart, rangeEnd] });
+    return { created, skipped, capped, range: [rangeStart, rangeEnd] };
+  }
+
+  /** Route-facing alias: HR/Super Admin can trigger the sweep on demand. */
+  static async recalculate(reqUser, options = {}) {
+    if (!canAccessAll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You cannot run the comp-off sweep.', 403);
+    }
+    return CompOffService.processCompOffEarnings(reqUser, options);
   }
 
   // ---- Credits ----

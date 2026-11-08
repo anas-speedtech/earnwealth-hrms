@@ -53,6 +53,52 @@ export interface Designation {
   employeeCount: number;
 }
 
+// ---- Payout Details (earnings/deduction structure + bank, HR-maintained) ----
+
+export interface PayoutLine {
+  label: string;
+  amount: number;
+}
+
+export interface PayoutDetail {
+  employeeCode: string;
+  employeeName: string;
+  earnings: PayoutLine[];
+  deductions: PayoutLine[];
+  grossEarnings: number;
+  grossDeductions: number;
+  takeHome: number;
+  bankName: string;
+  accountNumber: string;
+  version: number;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PayoutSnapshot {
+  earnings: PayoutLine[];
+  deductions: PayoutLine[];
+  bankName: string;
+  accountNumber: string;
+}
+
+export interface PayoutHistoryEntry {
+  id: string;
+  version: number;
+  action: string;
+  actorName: string;
+  actorRole: string;
+  confirmedCode: string;
+  createdAt: string;
+  before: PayoutSnapshot | null;
+  after: PayoutSnapshot | null;
+  grossEarnings?: number;
+  grossDeductions?: number;
+  takeHome?: number;
+}
+
 export const organizationService = {
   async getEmployees(params: {
     page?: number;
@@ -116,6 +162,39 @@ export const organizationService = {
 
   async activateEmployee(id: string): Promise<{ id: string; status: string }> {
     const { data } = await api.post(`/employees/${id}/activate`);
+    return data;
+  },
+
+  // ---- Payout Details ----
+
+  async getPayout(employeeId: string): Promise<PayoutDetail | null> {
+    const { data } = await api.get<PayoutDetail | null>(`/employees/${employeeId}/payout`);
+    return data;
+  },
+
+  /**
+   * Save the payout structure. HR must type the employee's code into
+   * `confirmedEmployeeCode` — the server blocks the write when it doesn't
+   * match, so a wrong/empty confirmation changes nothing in the DB.
+   */
+  async updatePayout(
+    employeeId: string,
+    payload: {
+      earnings: PayoutLine[];
+      deductions: PayoutLine[];
+      bankName?: string;
+      accountNumber?: string;
+      confirmedEmployeeCode: string;
+    },
+  ): Promise<PayoutDetail> {
+    const { data } = await api.put<PayoutDetail>(`/employees/${employeeId}/payout`, payload);
+    return data;
+  },
+
+  async getPayoutHistory(employeeId: string, limit = 20): Promise<PayoutHistoryEntry[]> {
+    const { data } = await api.get<PayoutHistoryEntry[]>(`/employees/${employeeId}/payout/history`, {
+      params: { limit },
+    });
     return data;
   },
 

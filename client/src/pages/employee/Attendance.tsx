@@ -1,255 +1,401 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CalendarX2, Lock, Pencil } from 'lucide-react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
-import { attendanceService, OpenSession, AttendanceRecord, AttendanceSummary } from '../../services/attendance.service';
+import { attendanceService, MyMatrix, MyMatrixDay, ApplyPunchResult } from '../../services/attendance.service';
+import EmptyState from '../../components/ui/EmptyState';
+import Spinner from '../../components/ui/Spinner';
+import Modal from '../../components/ui/Modal';
+import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
 import toast from 'react-hot-toast';
 
+const CARD = 'rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]';
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
 export default function EmployeeAttendancePage() {
-  const { user } = useAuth();
-  const [openSession, setOpenSession] = useState<OpenSession | null>(null);
-  const [history, setHistory] = useState<AttendanceRecord[]>([]);
-  const [summary, setSummary] = useState<AttendanceSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [punching, setPunching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { user, logout } = useAuth();
 
-  const employeeId = user?.id;
+  // Calendar defaults to the current month, but the data can be historical —
+  // the picker spans 8 years back so old months stay reachable.
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const fetchOpenSession = useCallback(async () => {
+  const [matrix, setMatrix] = useState<MyMatrix | null>(null);
+  const [matrixLoading, setMatrixLoading] = useState(false);
+  const [matrixError, setMatrixError] = useState<string | null>(null);
+
+  // Day-click state
+  const [selectedDay, setSelectedDay] = useState<MyMatrixDay | null>(null);
+  const [punchIn, setPunchIn] = useState('');
+  const [punchOut, setPunchOut] = useState('');
+  const [applying, setApplying] = useState(false);
+
+  const loadMatrix = useCallback(async () => {
+    setMatrixLoading(true);
+    setMatrixError(null);
     try {
-      const session = await attendanceService.getOpenSession();
-      setOpenSession(session);
+      setMatrix(await attendanceService.getMyMatrix(year, month));
     } catch {
-      setOpenSession(null);
+      setMatrixError('Could not load the attendance calendar.');
+    } finally {
+      setMatrixLoading(false);
     }
-  }, []);
-
-  const fetchHistory = useCallback(async () => {
-    try {
-      const result = await attendanceService.getMyHistory();
-      setHistory(result.records);
-      setError(null);
-    } catch (err: unknown) {
-      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to load attendance history.';
-      toast.error(message);
-      setError(message);
-    }
-  }, []);
-
-  const fetchSummary = useCallback(async () => {
-    if (!employeeId) return;
-    try {
-      const result = await attendanceService.getEmployeeSummary(employeeId);
-      setSummary(result);
-    } catch {
-      setSummary(null);
-    }
-  }, [employeeId]);
+  }, [year, month]);
 
   useEffect(() => {
-    async function load() {
-      if (!employeeId) {
-        setError('No employee profile is available for this account.');
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      setError(null);
-      await Promise.all([fetchOpenSession(), fetchHistory(), fetchSummary()]);
-      setLoading(false);
-    }
-    load();
-  }, [employeeId, fetchOpenSession, fetchHistory, fetchSummary]);
+    loadMatrix();
+  }, [loadMatrix]);
 
-  const handlePunchIn = async () => {
-    if (!employeeId) return;
-    setPunching(true);
+  const daysInMonth = matrix?.daysInMonth ?? new Date(year, month, 0).getDate();
+  const dayNumbers = useMemo(
+    () => Array.from({ length: daysInMonth }, (_, i) => i + 1),
+    [daysInMonth]
+  );
+
+  const openDayEditor = (day: MyMatrixDay) => {
+    setSelectedDay(day);
+    setPunchIn(day.in || '');
+    setPunchOut(day.out || '');
+  };
+
+  const handleApply = async () => {
+    if (!selectedDay || !punchIn) {
+      toast.error('Punch-in time is required.');
+      return;
+    }
+    setApplying(true);
     try {
-      const result = await attendanceService.punchIn({ employeeId, workMode: 'OFFICE' });
-      // Derive a session object from the persistent event without inventing a work mode.
-      setOpenSession({ id: result.id, punchIn: result.punchIn, workMode: 'Office' });
-      toast.success('Punched in successfully.');
-      await Promise.all([fetchOpenSession(), fetchHistory()]);
+      const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(selectedDay.day).padStart(2, '0')}`;
+      const result: ApplyPunchResult = await attendanceService.applyPunch({
+        date: dateKey,
+        punchIn,
+        punchOut: punchOut || undefined,
+      });
+      toast.success(`Punch applied for ${dateKey} (${result.punchIn} – ${result.punchOut || '—'}).`);
+      setSelectedDay(null);
+      await loadMatrix();
     } catch (err: unknown) {
-      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to punch in.';
+      const message =
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ||
+        'Could not apply the punch. Please try again.';
       toast.error(message);
-      setError(message);
     } finally {
-      setPunching(false);
+      setApplying(false);
     }
   };
 
-  const handlePunchOut = async () => {
-    if (!employeeId) return;
-    setPunching(true);
-    try {
-      const result = await attendanceService.punchOut({ employeeId });
-      setOpenSession(null);
-      toast.success(`Punched out. Duration: ${result.durationMinutes} minutes.`);
-      await Promise.all([fetchOpenSession(), fetchHistory(), fetchSummary()]);
-    } catch (err: unknown) {
-      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to punch out.';
-      toast.error(message);
-      setError(message);
-    } finally {
-      setPunching(false);
-    }
-  };
+  const displayName = user?.profile?.firstName && user?.profile?.lastName
+    ? `${user.profile.firstName} ${user.profile.lastName}`
+    : user?.email || 'Employee';
 
-  // Punch times and record dates are serialized as UTC instants from the
-  // live DB; format them in IST so the day boundary matches the device data.
-  const formatTime = (iso: string) => {
-    if (!iso) return '—';
-    const parsed = new Date(iso);
-    if (Number.isNaN(parsed.getTime())) return iso;
-    return new Date(parsed.getTime() + 5.5 * 3600 * 1000).toISOString().slice(11, 16);
-  };
-
-  const formatDate = (iso: string) => {
-    const parsed = new Date(iso);
-    if (Number.isNaN(parsed.getTime())) return iso;
-    const dayKey = new Date(parsed.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-    const [y, m, d] = dayKey.split('-').map(Number);
-    return new Date(y, m - 1, d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-  };
-
-  const formatMinutes = (mins: number) => {
-    const minutes = mins || 0;
-    const hours = Math.floor(minutes / 60);
-    const remainder = minutes % 60;
-    if (hours > 0) return `${hours}h ${remainder}m`;
-    return `${remainder}m`;
-  };
-
-  // record.date is the UTC instant of IST midnight for that attendance day
-  // (e.g. 2026-10-25T00:00 IST → "2026-10-24T18:30:00.000Z"), so the day
-  // must be recovered by shifting into IST before comparing — comparing the
-  // raw UTC date part would put every record a day early and the "Today"
-  // filter would find nothing.
-  const IST_MS = 5.5 * 3600 * 1000;
-  const istDayKey = (iso: string) => {
-    const parsed = new Date(iso);
-    if (Number.isNaN(parsed.getTime())) return String(iso).slice(0, 10);
-    return new Date(parsed.getTime() + IST_MS).toISOString().slice(0, 10);
-  };
-  const today = new Date(Date.now() + IST_MS).toISOString().slice(0, 10);
-  const todayRecords = history.filter((record) => istDayKey(record.date) === today);
-  const todayStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-
-  if (!user) {
-    return null;
-  }
+  const SELECT =
+    'h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-700 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10';
 
   return (
-    <DashboardShell role="EMPLOYEE" userName={user?.email || 'Employee'} userEmail={user?.email || ''} onLogout={async () => {}}>
-      <Header title="Attendance" subtitle="Punch in, punch out, and view your attendance" />
-      <div className="p-6 max-w-5xl">
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-[13px] text-red-700">{error}</p>
+    <DashboardShell role="EMPLOYEE" userName={displayName} userEmail={user?.email || ''} onLogout={logout}>
+      <Header title="Attendance" subtitle="Your month-by-month punch calendar" />
+      <div className="p-6 max-w-[92rem]">
+        <div className={`mb-4 flex flex-wrap items-end gap-4 p-4 sm:p-5 ${CARD}`}>
+          <div>
+            <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Month</label>
+            <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className={SELECT}>
+              {MONTH_NAMES.map((name, i) => (
+                <option key={name} value={i + 1}>{name}</option>
+              ))}
+            </select>
           </div>
-        )}
-
-        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-8">
-          <h3 className="text-[15px] font-semibold text-slate-900 mb-4">Today — {todayStr}</h3>
-          <div className="flex items-center gap-4 mb-6">
-            {openSession ? (
-              <>
-                <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-lg p-4">
-                  <p className="text-[13px] text-emerald-700 font-medium">Latest IN event</p>
-                  <p className="text-xl font-bold text-emerald-800 mt-1">{formatTime(openSession.punchIn)}</p>
-                  <p className="text-xs text-emerald-600 mt-1">Open session ID: {openSession.id}</p>
-                </div>
-                <button
-                  onClick={handlePunchOut}
-                  disabled={punching}
-                  className="px-6 py-3 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {punching ? 'Punching out...' : 'Punch Out'}
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-4">
-                  <p className="text-[13px] text-slate-500 font-medium">No open session</p>
-                  <p className="text-lg text-slate-700 mt-1">Punch in to create an IN event</p>
-                  <p className="text-xs text-slate-500 mt-2">Work mode is not persisted by the existing attendance schema.</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handlePunchIn}
-                    disabled={punching || !employeeId}
-                    className="px-6 py-3 bg-cyan-600 text-white rounded-lg font-medium hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {punching ? 'Punching in...' : 'Punch In'}
-                  </button>
-                </div>
-              </>
-            )}
+          <div>
+            <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Year</label>
+            <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={SELECT}>
+              {Array.from({ length: 8 }, (_, i) => now.getFullYear() - 7 + i).map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+          <div className="ml-auto flex flex-wrap items-center gap-4 self-end pb-2 text-xs text-slate-500">
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-100 ring-1 ring-inset ring-emerald-300" /> Present
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-orange-100 ring-1 ring-inset ring-orange-300" /> Half day
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-red-100 ring-1 ring-inset ring-red-300" /> Holiday
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-slate-100 ring-1 ring-inset ring-slate-300" /> Weekly off
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm bg-cyan-50 text-cyan-600 ring-1 ring-inset ring-cyan-200">
+                <Pencil size={7} />
+              </span>
+              You can apply a punch
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm bg-slate-50 text-slate-400 ring-1 ring-inset ring-slate-200">
+                <Lock size={7} />
+              </span>
+              Locked (device data)
+            </span>
           </div>
         </div>
 
-        {summary && (
-          <div className="bg-white rounded-xl border border-slate-200 p-6 mb-8">
-            <h3 className="text-[15px] font-semibold text-slate-900 mb-4">Attendance summary</h3>
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-              <div>
-                <p className="text-xs text-slate-500">Dates</p>
-                <p className="text-lg font-semibold text-slate-900">{summary.totalDays}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Present</p>
-                <p className="text-lg font-semibold text-slate-900">{summary.totalPresent}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Partial</p>
-                <p className="text-lg font-semibold text-slate-900">{summary.totalPartial}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Minutes</p>
-                <p className="text-lg font-semibold text-slate-900">{summary.totalMinutes}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Sessions</p>
-                <p className="text-lg font-semibold text-slate-900">{summary.totalSessions}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Average</p>
-                <p className="text-lg font-semibold text-slate-900">{summary.avgMinutesPerDay}m</p>
-              </div>
-            </div>
+        {matrixError && (
+          <p className="mb-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700 ring-1 ring-inset ring-red-100">{matrixError}</p>
+        )}
+
+        {matrixLoading ? (
+          <div className="flex items-center justify-center gap-2.5 py-12 text-[13px] text-slate-500">
+            <Spinner size="md" /> Loading calendar…
+          </div>
+        ) : !matrix || matrix.days.length === 0 ? (
+          <div className={CARD}>
+            <EmptyState
+              icon={<CalendarX2 size={20} />}
+              title="No attendance data"
+              description="No records exist for this month yet."
+            />
+          </div>
+        ) : (
+          <div className={`overflow-x-auto ${CARD}`}>
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Emp Code
+                  </th>
+                  <th className="sticky left-[4.75rem] z-10 border-r border-slate-100 bg-white px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Emp Name
+                  </th>
+                  {dayNumbers.map((d) => {
+                    const meta = matrix.days[d - 1];
+                    return (
+                      <th key={d} className={`min-w-[2.5rem] px-1 py-2.5 text-center text-[11px] font-semibold ${meta?.isOffDay ? (meta.holidayName ? 'text-red-400' : 'text-slate-400') : 'text-slate-400'}`}>
+                        {d}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-t border-slate-100">
+                  <td className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2 font-medium text-slate-700">
+                    {matrix.employee.employeeCode}
+                  </td>
+                  <td className="sticky left-[4.75rem] z-10 border-r border-slate-100 bg-white px-3 py-2 text-slate-600">
+                    {matrix.employee.name || user?.email}
+                  </td>
+                  {matrix.days.map((cell) => (
+                    <td key={cell.day} className="min-w-[2.5rem] px-0.5 py-1">
+                      {renderDayCell(cell, () => openDayEditor(cell))}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
           </div>
         )}
 
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-6 py-4 border-b border-slate-200">
-            <h3 className="text-[15px] font-semibold text-slate-900">Today's punch history</h3>
-          </div>
-          {loading ? (
-            <div className="p-8 text-center text-slate-500">Loading...</div>
-          ) : todayRecords.length === 0 ? (
-            <div className="p-8 text-center text-slate-500">No attendance records yet.</div>
-          ) : (
-            <div className="divide-y divide-slate-200">
-              {todayRecords.map((record) => (
-                <div key={record.id} className="px-6 py-4 flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-slate-900">{formatDate(record.date)}</p>
-                    <span className={`inline-flex mt-1 px-2 py-1 rounded-full text-xs font-medium ${record.status === 'PRESENT' ? 'bg-emerald-100 text-emerald-700' : record.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-100 text-slate-700'}`}>{record.status}</span>
-                  </div>
-                  <div className="text-right text-[13px] text-slate-700">
-                    {record.totalMinutes > 0 && <p>{formatMinutes(record.totalMinutes)}</p>}
-                    {record.sessions?.[0]?.punchIn && (
-                      <p className="text-xs text-slate-400">{formatTime(record.sessions[0].punchIn)}{record.sessions[0].punchOut ? ` – ${formatTime(record.sessions[0].punchOut)}` : ''}</p>
-                    )}
-                  </div>
+        {!matrixLoading && matrix && matrix.days.length > 0 && (
+          <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
+            Click a day to view or apply punches. Days with device attendance are locked — they come from your
+            biometric import and cannot be edited here. You can apply a punch-in / punch-out only on days with an
+            approved WFH request that have no device data. Punching on a weekly off (Sat/Sun) or a holiday earns a
+            comp-off credit.
+          </p>
+        )}
+
+        {/* Day editor */}
+        <Modal
+          isOpen={!!selectedDay}
+          onClose={() => setSelectedDay(null)}
+          title={
+            selectedDay
+              ? `Day ${selectedDay.day}, ${MONTH_NAMES[month - 1]} ${year}`
+              : ''
+          }
+          size="sm"
+          footer={
+            selectedDay && (
+              <>
+                <Button variant="ghost" onClick={() => setSelectedDay(null)}>
+                  Close
+                </Button>
+                {selectedDay.canSelfPunch && (
+                  <Button variant="primary" onClick={handleApply} isLoading={applying}>
+                    Apply Punch
+                  </Button>
+                )}
+              </>
+            )
+          }
+        >
+          {selectedDay && (
+            <div className="space-y-4">
+              {selectedDay.holidayName && (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-[12px] text-red-700 ring-1 ring-inset ring-red-100">
+                  {selectedDay.holidayName} — holiday. A punch this day earns a comp-off credit.
+                </p>
+              )}
+              {selectedDay.isWeeklyOff && !selectedDay.holidayName && (
+                <p className="rounded-lg bg-slate-50 px-3 py-2 text-[12px] text-slate-600 ring-1 ring-inset ring-slate-200">
+                  Weekly off (Saturday/Sunday). A punch this day earns a comp-off credit.
+                </p>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-[12px] font-medium text-slate-600">Punch In</label>
+                  <Input
+                    type="time"
+                    value={punchIn}
+                    onChange={(e) => setPunchIn(e.target.value)}
+                    disabled={!selectedDay.canSelfPunch}
+                    placeholder="--:--"
+                  />
                 </div>
-              ))}
+                <div>
+                  <label className="mb-1 block text-[12px] font-medium text-slate-600">Punch Out</label>
+                  <Input
+                    type="time"
+                    value={punchOut}
+                    onChange={(e) => setPunchOut(e.target.value)}
+                    disabled={!selectedDay.canSelfPunch}
+                    placeholder="--:--"
+                  />
+                </div>
+              </div>
+
+              {!selectedDay.canSelfPunch && (
+                <p className="text-[12px] leading-relaxed text-slate-500">
+                  {selectedDay.locked ? (
+                    <>This day has device attendance and is <span className="font-medium text-slate-700">locked</span>. Corrections go through HR.</>
+                  ) : selectedDay.hasPunch ? (
+                    <>Your punch times for this day are shown above. Manual entries can be re-applied on WFH days.</>
+                  ) : (
+                    <>You can apply a punch here only on a day with an approved WFH request. Apply for WFH first, then come back and punch in/out.</>
+                  )}
+                </p>
+              )}
+
+              {selectedDay.status && (
+                <p className="text-[12px] text-slate-500">
+                  Day status:{' '}
+                  <span className="font-medium text-slate-700">
+                    {selectedDay.status === 'P' ? 'Present' : selectedDay.status === 'H' ? 'Half day' : selectedDay.status === 'L' ? 'Leave' : 'No data'}
+                  </span>
+                </p>
+              )}
             </div>
           )}
-        </div>
+        </Modal>
       </div>
     </DashboardShell>
+  );
+}
+
+// Mirrors the HR matrix cell rendering, plus the two employee-specific states
+// (locked / you-can-apply). Cells are clickable so an employee opens the day
+// editor.
+function renderDayCell(cell: MyMatrixDay, onOpen: () => void) {
+  const base =
+    'group relative flex h-11 w-full flex-col items-center justify-center rounded-md border text-center transition';
+
+  // Read-only states with a device punch → show times + status colour.
+  if (cell.hasPunch && cell.locked) {
+    const tone =
+      cell.status === 'P'
+        ? 'border-emerald-200 bg-emerald-50'
+        : cell.status === 'H'
+          ? 'border-orange-200 bg-orange-50'
+          : 'border-slate-200 bg-slate-50';
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        title="Locked — device attendance. Click to view."
+        className={`${base} ${tone} hover:ring-2 hover:ring-cyan-400/30`}
+      >
+        <span className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-700">
+          <Lock size={9} className="text-slate-400" />
+          {cell.in}
+        </span>
+        <span className="text-[10px] text-slate-500">{cell.out || '—'}</span>
+      </button>
+    );
+  }
+
+  // Employee can apply a punch here (approved WFH, no device data).
+  if (cell.canSelfPunch) {
+    const hasTimes = !!cell.in;
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        title={hasTimes ? 'Your applied punch. Click to edit.' : 'Apply punch-in / punch-out.'}
+        className={`${base} ${hasTimes
+          ? cell.status === 'P'
+            ? 'border-cyan-200 bg-cyan-50 hover:ring-2 hover:ring-cyan-400/40'
+            : 'border-cyan-200 bg-cyan-50/60 hover:ring-2 hover:ring-cyan-400/40'
+          : 'border-dashed border-cyan-400 bg-cyan-50/40 hover:ring-2 hover:ring-cyan-400/40'}`}
+      >
+        {hasTimes ? (
+          <>
+            <span className="text-[10px] font-semibold text-cyan-800">{cell.in}</span>
+            <span className="text-[10px] text-cyan-600">{cell.out || '—'}</span>
+          </>
+        ) : (
+          <span className="flex flex-col items-center text-cyan-600">
+            <Pencil size={11} />
+            <span className="text-[9px] font-medium">Apply</span>
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  // Holiday.
+  if (cell.holidayName) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        title={cell.holidayName}
+        className={`${base} border-red-200 bg-red-50 hover:ring-2 hover:ring-red-400/30`}
+      >
+        <span className="text-[10px] font-semibold text-red-600">{cell.holidayName}</span>
+        {cell.in && <span className="text-[10px] text-red-500/80">{cell.in}–{cell.out || '—'}</span>}
+      </button>
+    );
+  }
+
+  // Weekly off.
+  if (cell.isWeeklyOff) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        title="Weekly off (Sat/Sun)"
+        className={`${base} border-slate-200 bg-slate-50 hover:ring-2 hover:ring-cyan-400/30`}
+      >
+        <span className="text-[10px] font-semibold text-slate-400">Off</span>
+      </button>
+    );
+  }
+
+  // Plain working day with no data.
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title="No attendance — no punch, no WFH, no leave"
+      className={`${base} border-dashed border-slate-300 bg-white hover:ring-2 hover:ring-cyan-400/30`}
+    >
+      <span className="text-[10px] text-slate-300">—</span>
+    </button>
   );
 }

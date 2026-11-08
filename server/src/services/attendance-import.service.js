@@ -109,6 +109,21 @@ class AttendanceImportService {
     return { rows: parsedRows, skipped };
   }
 
+  static parseUnknownIds(raw) {
+    if (raw == null) return [];
+    const s = String(raw).trim();
+    if (!s) return [];
+    if (s[0] === '[') {
+      try {
+        const parsed = JSON.parse(s);
+        return Array.isArray(parsed) ? parsed.map((x) => String(x)) : [];
+      } catch {
+        // fall through to the comma format
+      }
+    }
+    return s.split(',').map((x) => x.trim()).filter(Boolean);
+  }
+
   static parseTimestamp(text) {
     const s = String(text || '').trim();
     if (!s) return null;
@@ -225,7 +240,7 @@ class AttendanceImportService {
         ${matchable.length},
         0,
         ${failedRows},
-        ${unmatchedCodes.length ? unmatchedCodes.join(',') : null}
+        ${unmatchedCodes.length ? JSON.stringify(unmatchedCodes) : null}
       )
     `;
     const batchRows = await prisma.$queryRaw`
@@ -318,7 +333,10 @@ class AttendanceImportService {
       savedRows: Number(r.savedRows),
       duplicateRows: Number(r.duplicateRows),
       failedRows: Number(r.failedRows),
-      unknownCodes: r.unknownIds ? String(r.unknownIds).split(',') : [],
+      // Newer batches store this as a JSON array (the column carries a
+      // CHECK (json_valid(...)) constraint); older rows may hold the legacy
+      // comma-joined form, so both are read.
+      unknownCodes: this.parseUnknownIds(r.unknownIds),
       importedAt: r.createdAt,
     }));
   }

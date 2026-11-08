@@ -111,6 +111,34 @@ export interface AttendanceMatrix {
   rows: MatrixRow[];
 }
 
+// Per-day metadata the self calendar uses to decide what a cell allows.
+// Extended onto MatrixDay by the my-matrix endpoint.
+export interface MyMatrixDay extends MatrixDay {
+  isOffDay: boolean;
+  isWeeklyOff: boolean;
+  holidayName: string | null;
+  /** A device (.dat) punch exists for the day — read-only. */
+  locked: boolean;
+  /** An approved WFH request covers this day. */
+  wfh: boolean;
+  /** The only case where the employee may enter a manual punch. */
+  canSelfPunch: boolean;
+}
+
+export interface MyMatrix {
+  year: number;
+  month: number;
+  daysInMonth: number;
+  employee: { id: string; employeeCode: string; name: string };
+  days: MyMatrixDay[];
+}
+
+export interface ApplyPunchResult {
+  date: string;
+  punchIn: string;
+  punchOut: string | null;
+}
+
 export const attendanceService = {
   async punchIn(payload: PunchInPayload) {
     const { data } = await api.post('/attendance/punch-in', payload);
@@ -180,6 +208,27 @@ export const attendanceService = {
     const { data } = await api.get('/attendance/matrix', {
       params: { year, month },
     });
+    return data;
+  },
+
+  /**
+   * Self-only month matrix for the employee calendar: the same look as the HR
+   * matrix but just the employee's own row, plus per-day flags (weekly off,
+   * holiday, locked-by-device, self-punch-allowed).
+   */
+  async getMyMatrix(year: number, month: number): Promise<MyMatrix> {
+    const { data } = await api.get('/attendance/my-matrix', {
+      params: { year, month },
+    });
+    return data;
+  },
+
+  /**
+   * Employee applies a manual punch pair for a specific calendar day (the
+   * day-click flow). Only valid on approved-WFH days without device data.
+   */
+  async applyPunch(payload: { date: string; punchIn: string; punchOut?: string }): Promise<ApplyPunchResult> {
+    const { data } = await api.post('/attendance/apply-punch', payload);
     return data;
   },
 };

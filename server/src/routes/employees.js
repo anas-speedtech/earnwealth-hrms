@@ -3,6 +3,7 @@ const { z } = require('zod');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validateBody } = require('../middleware/validate');
 const { EmployeeService } = require('../services/employee.service');
+const { PayoutService } = require('../services/payout.service');
 const { Role } = require('../types/index');
 
 const router = express.Router();
@@ -51,6 +52,23 @@ const updateSchema = z.object({
   // Only provided when the admin is changing the manager; a null here would
   // break the mandatory mapping, so it is rejected.
   reportingManagerId: z.coerce.number().int().positive().optional(),
+});
+
+// ---- Payout Details (earnings/deduction structure + bank, change-tracked) ----
+
+const payoutLineSchema = z.object({
+  label: z.string().trim().min(1).max(100),
+  amount: z.coerce.number().min(0).max(999999999),
+});
+
+const payoutUpdateSchema = z.object({
+  earnings: z.array(payoutLineSchema).min(1, 'At least one earnings line is required.').max(50),
+  deductions: z.array(payoutLineSchema).max(50).default([]),
+  bankName: z.string().trim().max(100).optional().nullable(),
+  accountNumber: z.string().trim().max(30).optional().nullable(),
+  // The HR confirmation gate: must equal the employee's code, else the
+  // service refuses the write and no change is persisted.
+  confirmedEmployeeCode: z.string().trim().min(1),
 });
 
 // All endpoints require authentication
@@ -123,5 +141,51 @@ router.post('/employees/:id/activate', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN
     next(err);
   }
 });
+
+// ---- Payout Details endpoints (structure + change log) ----
+
+// Current payout structure for the employee.
+router.get(
+  '/employees/:id/payout',
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  async (req, res, next) => {
+    try {
+      const result = await PayoutService.getForEmployee(req.user, req.params.id);
+      res.json(result || null);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Create / update the structure. Requires the HR-confirmed employee code
+// (confirmedEmployeeCode) and logs before/after into payout_history + audit.
+router.put(
+  '/employees/:id/payout',
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  validateBody(payoutUpdateSchema),
+  async (req, res, next) => {
+    try {
+      const result = await PayoutService.update(req.user, req.params.id, req.body);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Change history (most recent first).
+router.get(
+  '/employees/:id/payout/history',
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  async (req, res, next) => {
+    try {
+      const result = await PayoutService.history(req.user, req.params.id);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 module.exports = router;

@@ -275,7 +275,7 @@ export default function HRAttendancePage() {
               <div>
                 <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Year</label>
                 <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={SELECT}>
-                  {[year - 1, year, year + 1].map((y) => (
+                  {Array.from({ length: 8 }, (_, i) => now.getFullYear() - 7 + i).map((y) => (
                     <option key={y} value={y}>{y}</option>
                   ))}
                 </select>
@@ -405,20 +405,16 @@ export default function HRAttendancePage() {
                       <th className="px-4 py-3 font-medium">When</th>
                       <th className="px-4 py-3 font-medium">File</th>
                       <th className="px-4 py-3 font-medium">Rows</th>
-                      <th className="px-4 py-3 font-medium">Unknown Codes</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {imports.map((imp) => (
+                    {imports.slice(0, 2).map((imp) => (
                       <tr key={imp.id} className="border-t border-slate-100">
                         <td className="px-4 py-3 text-slate-600">{new Date(imp.importedAt).toLocaleString('en-IN')}</td>
                         <td className="px-4 py-3 text-slate-600">{imp.fileName || '—'}</td>
                         <td className="px-4 py-3 text-slate-600">
                           {imp.savedRows}/{imp.totalRows}
                           {imp.duplicateRows > 0 && <span className="ml-1 text-xs text-amber-600">({imp.duplicateRows} dup)</span>}
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {imp.unknownCodes.length ? imp.unknownCodes.join(', ') : '—'}
                         </td>
                       </tr>
                     ))}

@@ -82,6 +82,24 @@ router.get('/compoff/eligible-dates', authenticate, validateQuery(z.object({
   }
 });
 
+// HR / Super Admin: run the comp-off earnings sweep (auto-create credits for
+// off-day punches, honouring the monthly cap and 3-month FIFO validity).
+const sweepSchema = z.object({
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+});
+router.post('/compoff/recalculate', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(sweepSchema), async (req, res, next) => {
+  try {
+    const result = await CompOffService.recalculate(req.user, {
+      startDate: req.body?.startDate,
+      endDate: req.body?.endDate,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Submit a Comp-Off credit request
 router.post('/compoff/request-credit', authenticate, validateBody(requestCreditSchema), async (req, res, next) => {
   try {

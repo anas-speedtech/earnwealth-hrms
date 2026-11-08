@@ -29,6 +29,8 @@ export interface LeaveBalanceItem {
   displayName: string;
   code: string;
   classification: string;
+  isUnlimited?: number | boolean;
+  appliesToBoardLevel?: number | boolean;
   openingBalance: number;
   accruedBalance: number;
   usedBalance: number;

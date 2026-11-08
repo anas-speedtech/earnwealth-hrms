@@ -44,6 +44,7 @@ interface NewAccount {
   designation: string;
   reportingManager: string;
   role: 'HR_ADMIN' | 'EMPLOYEE';
+  joiningDate: string;
 }
 
 const ROLE_OPTIONS: { value: NewAccount['role']; label: string }[] = [
@@ -84,6 +85,7 @@ export default function SuperAdminAdminsPage() {
     designation: '',
     reportingManager: '',
     role: 'HR_ADMIN',
+    joiningDate: '',
   });
 
   const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ADMIN';
@@ -237,9 +239,11 @@ export default function SuperAdminAdminsPage() {
     }
     setIsSubmitting(true);
     setFieldError(null);
-    // TODO(backend): send leave-type opt-in with account creation
-    const ignoredLeaveTypeSelection = selectedLeaveTypes; // unused until backend supports it
-    void ignoredLeaveTypeSelection;
+    // Only leave types the admin checked are configured for the new employee;
+    // maternity/paternity are unchecked by default so they're excluded.
+    const selectedTypeIds = leaveTypes
+      .filter((t) => selectedLeaveTypes[t.id])
+      .map((t) => t.id);
     try {
       await api.post('/admin-users', {
         name: form.name,
@@ -249,10 +253,12 @@ export default function SuperAdminAdminsPage() {
         employeeCode: form.employeeCode || '',
         designation: form.designation || '',
         reportingManager: form.reportingManager || '',
+        joiningDate: form.joiningDate || undefined,
+        leaveTypes: selectedTypeIds,
       });
       toast.success(`Account created for ${form.email}.`);
       setShowForm(false);
-      setForm({ name: '', email: '', password: '', employeeCode: '', designation: '', reportingManager: '', role: 'HR_ADMIN' });
+      setForm({ name: '', email: '', password: '', employeeCode: '', designation: '', reportingManager: '', role: 'HR_ADMIN', joiningDate: '' });
       load();
     } catch (err: unknown) {
       const message =
@@ -386,6 +392,12 @@ export default function SuperAdminAdminsPage() {
                       label: `${e.name} (${e.employeeCode})`,
                     })),
                   ]}
+                />
+                <Input
+                  label="Date of Joining"
+                  type="date"
+                  value={form.joiningDate}
+                  onChange={(e) => setForm({ ...form, joiningDate: e.target.value })}
                 />
                 <div className="sm:col-span-2">
                   <Input

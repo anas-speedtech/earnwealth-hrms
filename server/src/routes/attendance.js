@@ -97,6 +97,34 @@ router.get('/attendance/matrix', authenticate, authorize(Role.SUPER_ADMIN, Role.
   }
 });
 
+// Self-only month matrix for the employee calendar (same look as the HR
+// matrix, but just the employee's own row, plus per-day metadata: weekly off
+// / holiday / locked-by-device / self-punch-allowed flags).
+router.get('/attendance/my-matrix', authenticate, validateQuery(matrixQuerySchema), async (req, res, next) => {
+  try {
+    const result = await AttendanceService.getMyMatrix(req.user, {
+      year: req.query.year,
+      month: req.query.month,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Employee applies a manual punch pair for a specific calendar day (the
+// day-click flow). Only allowed on approved-WFH days without device data;
+// device-import days are locked. Idempotent per day.
+router.post('/attendance/apply-punch', authenticate, async (req, res, next) => {
+  try {
+    const { date, punchIn, punchOut } = req.body;
+    const result = await AttendanceService.applyPunch(req.user, { date, punchIn, punchOut });
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get attendance summary for a specific employee. Employee self-access is enforced by AttendanceService.
 router.get('/attendance/employees/:id/summary', authenticate, validateQuery(summaryQuerySchema), async (req, res, next) => {
   try {

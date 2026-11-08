@@ -2,7 +2,6 @@ const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { Role } = require('../types/index');
 const { logger } = require('../utils/logger');
 
-const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
 const PAGE_SIZE = 20;
 
 // Standard working window: in by 09:30, out at 18:30, lunch break after
@@ -30,7 +29,11 @@ class AttendanceService {
   }
 
   static formatIstDate(value) {
-    return new Date(new Date(value).getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
+    // The DB session runs at +05:30 (IST) and stores wall-clock punch times;
+    // Prisma returns them as Dates whose UTC fields already equal that wall
+    // clock. So the UTC representation IS the IST calendar date — no offset
+    // to add (adding one double-shifts late-night punches into the next day).
+    return new Date(value).toISOString().slice(0, 10);
   }
 
   /**
@@ -44,27 +47,54 @@ class AttendanceService {
     }
 
     const prisma = this.getPrisma();
-    const yearNum = Number(year);
-    const monthNum = Number(month);
+    const { yearNum, monthNum, daysInMonth, rows } = await this.computeMatrix(prisma, {
+      yearNum: Number(year),
+      monthNum: Number(month),
+      // All active employees (the HR view).
+      employeeId: null,
+    });
+
+    return { year: yearNum, month: monthNum, daysInMonth, rows };
+  }
+
+  /**
+   * Core matrix computation, shared by the HR multi-employee view (getMatrix)
+   * and the employee's own single-row view (getMyMatrix). Pass `employeeId`
+   * to restrict every query to one employee (the self view); pass `null` for
+   * all active employees. This is why an employee can build their own matrix
+   * without the HR/Super-Admin gate that getMatrix enforces.
+   */
+  static async computeMatrix(prisma, { yearNum, monthNum, employeeId }) {
     if (!yearNum || !monthNum || monthNum < 1 || monthNum > 12) {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'A valid year and month are required.', 400);
     }
 
     const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
-    const monthStart = new Date(Date.UTC(yearNum, monthNum - 1, 1) - IST_OFFSET_MS);
-    const monthEnd = new Date(Date.UTC(yearNum, monthNum, 1) - IST_OFFSET_MS - 1);
+    // The DB session runs at +05:30 and every stored value (punchTime, leave
+    // dates, holiday dates) is the IST wall-clock. Prisma returns DATETIMEs
+    // as Dates whose UTC fields equal that wall-clock, so SQL comparisons
+    // must send the wall-clock as plain UTC — no offset conversion.
+    const monthStart = new Date(Date.UTC(yearNum, monthNum - 1, 1));
+    const monthEnd = new Date(Date.UTC(yearNum, monthNum, 1) - 1);
+
+    // The self view (employeeId set) scopes every query to that one employee;
+    // the HR view (employeeId null) scans all active employees.
+    const empFilter = employeeId != null ? ' AND e.id = ?' : '';
+    const logFilter = employeeId != null ? ' AND employeeId = ?' : '';
+    const leafFilter = employeeId != null ? ' AND employeeId = ?' : '';
 
     const employees = await prisma.$queryRawUnsafe(
-      'SELECT id, employeeCode, name FROM employees WHERE isActive = 1 ORDER BY employeeCode ASC'
+      `SELECT e.id, e.employeeCode, e.name FROM employees e
+       WHERE e.isActive = 1 ${empFilter} ORDER BY e.employeeCode ASC`,
+      ...(employeeId != null ? [employeeId] : [])
     );
 
-    // All punch events in the month for active employees, in one query.
+    // All punch events in the month (scoped to one employee in the self view).
     const logs = await prisma.$queryRawUnsafe(
       `SELECT employeeId, punchTime, status FROM attendance_logs
-       WHERE punchTime >= ? AND punchTime <= ? AND status IN ('IN','OUT')
+       WHERE punchTime >= ? AND punchTime <= ? AND status IN ('IN','OUT')${logFilter}
        ORDER BY punchTime ASC`,
-      monthStart,
-      monthEnd
+      ...(employeeId != null ? [monthStart, monthEnd, employeeId] : [monthStart, monthEnd])
     );
 
     // Approved leaves overlapping the month — a leave day overrides punch
@@ -72,14 +102,16 @@ class AttendanceService {
     // as solid red "Leave" cells). startDate/endDate are stored as the IST
     // wall-clock dates the user chose, so compare against the IST dates of
     // the month window.
-    const istMonthStart = new Date(Date.UTC(yearNum, monthNum - 1, 1, 0, 0, 0) + IST_OFFSET_MS);
-    const istMonthEnd = new Date(Date.UTC(yearNum, monthNum, 1, 0, 0, 0) + IST_OFFSET_MS - 1);
+    // Leave dates are IST wall-clock dates stored in the DB; compare by
+    // sending the wall-clock as plain UTC (the driver's round-trip is
+    // UTC-fields == stored wall-clock, see monthStart above).
+    const istMonthStart = new Date(Date.UTC(yearNum, monthNum - 1, 1, 0, 0, 0));
+    const istMonthEnd = new Date(Date.UTC(yearNum, monthNum, 1, 0, 0, 0) - 1);
     const leaves = await prisma.$queryRawUnsafe(
       `SELECT employeeId, startDate, endDate, status FROM leaves
-       WHERE status = 'APPROVED' AND endDate >= ? AND startDate <= ?
+       WHERE status = 'APPROVED' AND endDate >= ? AND startDate <= ?${leafFilter}
        ORDER BY startDate ASC`,
-      istMonthStart,
-      istMonthEnd
+      ...(employeeId != null ? [istMonthStart, istMonthEnd, employeeId] : [istMonthStart, istMonthEnd])
     );
 
     // Holidays listed in the month (off-day detection for comp-off
@@ -91,7 +123,7 @@ class AttendanceService {
     );
     const holidaySet = new Set(
       holidays.map((h) => {
-        const istDate = new Date(new Date(h.date).getTime() + IST_OFFSET_MS);
+        const istDate = new Date(h.date);
         return `${istDate.getUTCFullYear()}-${String(istDate.getUTCMonth() + 1).padStart(2, '0')}-${String(istDate.getUTCDate()).padStart(2, '0')}`;
       })
     );
@@ -100,10 +132,10 @@ class AttendanceService {
     const leaveDays = new Map();
     for (const row of leaves) {
       const empKey = String(row.employeeId);
-      // Dates come back as UTC-midnight Dates; convert to the IST wall-clock
-      // day numbers (same treatment as the punch times above).
-      const start = new Date(new Date(row.startDate).getTime() + IST_OFFSET_MS);
-      const end = new Date(new Date(row.endDate).getTime() + IST_OFFSET_MS);
+      // Leave dates come back as Dates whose UTC fields equal the stored IST
+      // wall-clock, so read the UTC day directly (no offset).
+      const start = new Date(row.startDate);
+      const end = new Date(row.endDate);
       if (start.getUTCFullYear() !== yearNum || (start.getUTCMonth() + 1) !== monthNum) continue;
       if (!leaveDays.has(empKey)) leaveDays.set(empKey, new Set());
       const set = leaveDays.get(empKey);
@@ -116,7 +148,10 @@ class AttendanceService {
     const byEmpDay = new Map();
     for (const log of logs) {
       const empId = String(log.employeeId);
-      const istDate = new Date(new Date(log.punchTime).getTime() + IST_OFFSET_MS);
+      // `punchTime` arrives as a Date whose UTC fields equal the stored IST
+      // wall-clock, so the IST day and HH:MM are read straight off the UTC
+      // components — adding an offset here would double-shift the time.
+      const istDate = log.punchTime;
       const dayNum = istDate.getUTCDate();
       // Only keep days that belong to the requested month (IST boundary).
       if (istDate.getUTCFullYear() !== yearNum || (istDate.getUTCMonth() + 1) !== monthNum) continue;
@@ -127,12 +162,8 @@ class AttendanceService {
         cell = { firstIn: null, lastOut: null };
         dayMap.set(dayNum, cell);
       }
-      // Format the punch time as a plain HH:MM string. `punchTime` comes back
-      // as a JS Date from the DATETIME column, so convert to the IST wall-clock
-      // time and take the hour/minute components.
-      const istWall = new Date(log.punchTime.getTime() + IST_OFFSET_MS);
-      const hh = String(istWall.getUTCHours()).padStart(2, '0');
-      const mm = String(istWall.getUTCMinutes()).padStart(2, '0');
+      const hh = String(istDate.getUTCHours()).padStart(2, '0');
+      const mm = String(istDate.getUTCMinutes()).padStart(2, '0');
       const timeStr = hh + ':' + mm;
       if (String(log.status).toUpperCase() === 'IN') {
         if (!cell.firstIn || timeStr < cell.firstIn) cell.firstIn = timeStr;
@@ -144,10 +175,11 @@ class AttendanceService {
     // Off-day flags per calendar day: weekends (Sat/Sun) and listed
     // holidays. A punch-in on an off day earns the employee a comp-off
     // credit (valid 3 months, per the comp-off policy).
-    const istDateOf = (d) => new Date(Date.UTC(yearNum, monthNum - 1, d) + IST_OFFSET_MS);
+    // The calendar day is the IST wall-clock day, which is what we compute
+    // directly in UTC (no offset — that would shift the weekday).
     const offDays = new Set();
     for (let d = 1; d <= daysInMonth; d++) {
-      const istDate = istDateOf(d);
+      const istDate = new Date(Date.UTC(yearNum, monthNum - 1, d));
       const weekday = istDate.getUTCDay(); // 0=Sun, 6=Sat
       const dateKey = `${yearNum}-${String(monthNum).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       if (weekday === 0 || weekday === 6 || holidaySet.has(dateKey)) offDays.add(d);
@@ -217,11 +249,224 @@ class AttendanceService {
     });
 
     return {
-      year: yearNum,
-      month: monthNum,
+      yearNum,
+      monthNum,
       daysInMonth,
       rows,
     };
+  }
+
+  /**
+   * Self-only month matrix: the same data as getMatrix but filtered to the
+   * requesting employee's own row, and enriched with per-day metadata the
+   * employee calendar needs to decide what each day cell allows:
+   *
+   *   - isOffDay      weekend (Sat/Sun = weekly off) or a listed holiday
+   *   - holidayName   the holiday, when the day is a listed holiday
+   *   - locked        a device (.dat) punch already exists for the day — the
+   *                    entry is read-only, no manual editing by anyone
+   *   - canSelfPunch  only when an approved WFH request covers the day, and
+   *                    there is no device punch — the web app is not a punch
+   *                    device, self-punches are the exception, not the rule
+   *
+   * @returns {Promise<object>} single-row matrix shaped like getMatrix + meta
+   */
+  static async getMyMatrix(reqUser, { year, month }) {
+    const prisma = this.getPrisma();
+    const profileId = await this.resolveTargetEmployee(reqUser, reqUser.id);
+    const profile = await prisma.$queryRawUnsafe(
+      'SELECT id, employeeCode, name FROM employees WHERE id = ? LIMIT 1',
+      profileId
+    );
+    if (!profile || !profile.length) {
+      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee profile not found.', 404);
+    }
+    const emp = profile[0];
+
+    // Build only this employee's row, bypassing the HR/Super-Admin gate in
+    // getMatrix — an employee is always allowed to view their own attendance.
+    const { yearNum, monthNum, daysInMonth, rows } = await this.computeMatrix(prisma, {
+      yearNum: Number(year),
+      monthNum: Number(month),
+      employeeId: profileId,
+    });
+    const row = (rows || [])[0] || null;
+    const meta = await this.buildDayMeta(reqUser, {
+      yearNum,
+      monthNum,
+      daysInMonth,
+      profileId,
+    });
+
+    return {
+      year: yearNum,
+      month: monthNum,
+      daysInMonth,
+      employee: { id: String(emp.id), employeeCode: emp.employeeCode, name: emp.name },
+      days: row ? row.days.map((day, i) => ({ ...day, ...meta[i] })) : [],
+    };
+  }
+
+  /**
+   * Employee applies a manual punch pair for a specific calendar day — the
+   * day-click flow on the employee calendar. Guarded by the same rule the
+   * matrix exposes: the day must be covered by an APPROVED WFH request and
+   * must have no device-import punch already. Idempotent per day (re-applying
+   * overwrites that day's manual events), and manual events are clearly
+   * marked so HR can see and correct them.
+   */
+  static async applyPunch(reqUser, { date, punchIn, punchOut }) {
+    const prisma = this.getPrisma();
+    const profileId = await this.resolveTargetEmployee(reqUser, reqUser.id);
+
+    // ---- validate the day -----------------------------------------------
+    const dayStart = this.istDayRange(date, false);
+    const dayEnd = this.istDayRange(date, true);
+    if (!dayStart || !dayEnd) {
+      throw new AppError(AppErrorCodes.INVALID_INPUT, 'A valid date (YYYY-MM-DD) is required.', 400);
+    }
+
+    const wfh = await prisma.$queryRawUnsafe(
+      "SELECT id, requestDate FROM wfh_requests WHERE employeeId = ? AND status = 'APPROVED' AND (requestDate = ? OR (requestDate < ? AND endDate >= ?)) LIMIT 1",
+      profileId,
+      date,
+      date,
+      date
+    );
+    if (!wfh || !wfh.length) {
+      throw new AppError(
+        AppErrorCodes.INVALID_INPUT,
+        'Self-punch is only allowed on a day covered by an approved WFH request, without device data.',
+        400
+      );
+    }
+
+    const deviceRows = await prisma.$queryRawUnsafe(
+      'SELECT COUNT(*) AS c FROM attendance_logs WHERE employeeId = ? AND source = ? AND punchTime >= ? AND punchTime <= ?',
+      profileId,
+      'DAT',
+      dayStart,
+      dayEnd
+    );
+    if (deviceRows && Number(deviceRows[0].c) > 0) {
+      throw new AppError(
+        AppErrorCodes.INVALID_INPUT,
+        'This day already has device attendance, so it is locked and cannot be edited.',
+        409
+      );
+    }
+
+    // ---- validate the times ---------------------------------------------
+    if (!punchIn || !/^\d{2}:\d{2}$/.test(punchIn)) {
+      throw new AppError(AppErrorCodes.INVALID_INPUT, 'Punch-in time is required (HH:MM).', 400);
+    }
+    if (punchOut && !/^\d{2}:\d{2}$/.test(punchOut)) {
+      throw new AppError(AppErrorCodes.INVALID_INPUT, 'Punch-out time must be HH:MM.', 400);
+    }
+    if (punchOut && punchOut < punchIn) {
+      throw new AppError(AppErrorCodes.INVALID_INPUT, 'Punch-out must be after punch-in.', 400);
+    }
+
+    // ---- write the manual events (idempotent per day) --------------------
+    const stamp = (hhmm) => `${date} ${hhmm}:00`;
+    await prisma.$executeRawUnsafe(
+      "DELETE FROM attendance_logs WHERE employeeId = ? AND source = ? AND punchTime >= ? AND punchTime <= ?",
+      profileId,
+      'MANUAL',
+      dayStart,
+      dayEnd
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO attendance_logs (employeeId, punchTime, status, source, importBatchId, createdAt)
+       VALUES (?, ?, 'IN', 'MANUAL', NULL, NOW(3))`,
+      profileId,
+      stamp(punchIn)
+    );
+    if (punchOut) {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO attendance_logs (employeeId, punchTime, status, source, importBatchId, createdAt)
+         VALUES (?, ?, 'OUT', 'MANUAL', NULL, NOW(3))`,
+        profileId,
+        stamp(punchOut)
+      );
+    }
+
+    logger.info('Employee applied manual punch', { employeeId: profileId, date, punchIn, punchOut });
+    return { date, punchIn, punchOut: punchOut || null };
+  }
+
+  /**
+   * Per-day metadata for the employee calendar. Kept separate from getMatrix
+   * so the HR multi-employee view stays cheap; returns an array aligned to
+   * row.days (index 0 = day 1 of the month).
+   */
+  static async buildDayMeta(reqUser, { yearNum, monthNum, daysInMonth, profileId }) {
+    const prisma = this.getPrisma();
+
+    const monthStart = new Date(Date.UTC(yearNum, monthNum - 1, 1));
+    const monthEnd = new Date(Date.UTC(yearNum, monthNum, 1) - 1);
+
+    // Approved WFH days in the month. A WFH request is a single day
+    // (requestDate) — there is no end date on the live table.
+    const wfhRows = await prisma.$queryRawUnsafe(
+      `SELECT requestDate FROM wfh_requests
+       WHERE employeeId = ? AND status = 'APPROVED' AND requestDate >= ? AND requestDate < ?`,
+      profileId,
+      monthStart,
+      monthEnd
+    );
+    const wfhDays = new Set();
+    for (const w of wfhRows || []) {
+      const dayNum = new Date(w.requestDate).getUTCDate();
+      if (dayNum >= 1 && dayNum <= daysInMonth) wfhDays.add(dayNum);
+    }
+
+    // Holidays in the month.
+    const holidays = await prisma.$queryRawUnsafe(
+      'SELECT date, name FROM holidays WHERE date >= ? AND date < ?',
+      monthStart,
+      new Date(Date.UTC(yearNum, monthNum, 1))
+    );
+    const holidayByDay = new Map();
+    for (const h of holidays || []) {
+      const hd = new Date(h.date).getUTCDate();
+      if (hd >= 1 && hd <= daysInMonth && !holidayByDay.has(hd)) holidayByDay.set(hd, h.name || 'Holiday');
+    }
+
+    // Device punches this month: which days carry .dat data (locked days).
+    const deviceRows = await prisma.$queryRawUnsafe(
+      'SELECT punchTime FROM attendance_logs WHERE employeeId = ? AND source = ? AND punchTime >= ? AND punchTime <= ?',
+      profileId,
+      'DAT',
+      monthStart,
+      monthEnd
+    );
+    const deviceDays = new Set();
+    for (const d of deviceRows || []) {
+      const dayNum = new Date(d.punchTime).getUTCDate();
+      if (dayNum >= 1 && dayNum <= daysInMonth) deviceDays.add(dayNum);
+    }
+
+    const days = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const offDate = new Date(Date.UTC(yearNum, monthNum - 1, d));
+      const weekday = offDate.getUTCDay(); // 0=Sun, 6=Sat
+      const isWeeklyOff = weekday === 0 || weekday === 6;
+      const holidayName = holidayByDay.get(d) || null;
+      const isOffDay = isWeeklyOff || !!holidayName;
+      const hasDevice = deviceDays.has(d);
+      const wfh = wfhDays.has(d);
+      days.push({
+        isOffDay,
+        isWeeklyOff,
+        holidayName,
+        locked: hasDevice,
+        wfh,
+        // Self-punch only on an approved WFH day with no device data.
+        canSelfPunch: wfh && !hasDevice,
+      });
+    }
+    return days;
   }
 
   static istDayRange(value, endOfDay = false) {
@@ -230,8 +475,11 @@ class AttendanceService {
       return null;
     }
     const [year, month, day] = parts;
-    const utcStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - IST_OFFSET_MS);
-    const utcEnd = new Date(Date.UTC(year, month - 1, day + 1, 0, 0, 0) - IST_OFFSET_MS - 1);
+    // Stored punch times are IST wall-clock and the driver round-trips them
+    // with UTC-fields == wall-clock, so send the wall-clock boundaries as
+    // plain UTC — no offset (matching how getMatrix's monthStart is built).
+    const utcStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+    const utcEnd = new Date(Date.UTC(year, month - 1, day + 1, 0, 0, 0) - 1);
     return endOfDay ? utcEnd : utcStart;
   }
 
