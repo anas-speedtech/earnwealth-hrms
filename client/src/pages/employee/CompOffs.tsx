@@ -21,6 +21,10 @@ export default function EmployeeCompOffPage() {
   const [myLeaveRequests, setMyLeaveRequests] = useState<CompOffLeaveRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Apply comp-off form (redeem a credit for a day of leave).
+  const [applyForm, setApplyForm] = useState({ startDate: '', endDate: '', isHalfDay: false, reason: '' });
+  const [applying, setApplying] = useState(false);
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -64,6 +68,42 @@ export default function EmployeeCompOffPage() {
       toast.error('Could not request the credit.');
     }
   };
+
+  const handleApplyCompOff = async () => {
+    if (!applyForm.startDate || !applyForm.endDate) {
+      toast.error('Select both a start and an end date.');
+      return;
+    }
+    if (applyForm.startDate > applyForm.endDate) {
+      toast.error('End date cannot be before the start date.');
+      return;
+    }
+    setApplying(true);
+    try {
+      // The backend consumes the oldest un-expired credit first (FIFO) and
+      // enforces the 3-month credit validity, so the form just states the
+      // leave window.
+      await compoffService.applyLeave({
+        startDate: applyForm.startDate,
+        endDate: applyForm.endDate,
+        isHalfDay: applyForm.isHalfDay,
+        reason: applyForm.reason || undefined,
+      });
+      toast.success('Comp-off leave applied.');
+      setApplyForm({ startDate: '', endDate: '', isHalfDay: false, reason: '' });
+      await load();
+    } catch (err) {
+      const message =
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message || 'Could not apply the comp-off leave.';
+      toast.error(message);
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const availableDays = balance?.available ?? 0;
 
   return (
     <DashboardShell
@@ -177,10 +217,76 @@ export default function EmployeeCompOffPage() {
           </section>
         </div>
 
+        {/* Apply comp-off leave — redeem a credit for a day of leave */}
+        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+          <div className="flex items-baseline justify-between gap-2">
+            <div>
+              <h3 className="text-[15px] font-semibold text-slate-900">Apply Comp-Off Leave</h3>
+              <p className="mt-1 text-[13px] text-slate-500">
+                Redeems a credit for a day of leave. Your oldest credit is used first
+                (FIFO) and credits expire 3 months after they are earned.
+              </p>
+            </div>
+            <span className="shrink-0 text-[13px] font-semibold text-cyan-700">
+              {availableDays} day(s) available
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-[12px] font-medium text-slate-600 mb-1.5">Start Date</label>
+              <input
+                type="date"
+                value={applyForm.startDate}
+                min={todayKey}
+                onChange={(e) => setApplyForm({ ...applyForm, startDate: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[12px] font-medium text-slate-600 mb-1.5">End Date</label>
+              <input
+                type="date"
+                value={applyForm.endDate}
+                min={applyForm.startDate || todayKey}
+                onChange={(e) => setApplyForm({ ...applyForm, endDate: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-[13px] text-slate-700">
+              <input
+                type="checkbox"
+                checked={applyForm.isHalfDay}
+                onChange={(e) => setApplyForm({ ...applyForm, isHalfDay: e.target.checked })}
+                className="h-4 w-4 rounded accent-cyan-600"
+              />
+              Half day
+            </label>
+            <div className="sm:col-span-2">
+              <label className="block text-[12px] font-medium text-slate-600 mb-1.5">Reason (optional)</label>
+              <input
+                type="text"
+                value={applyForm.reason}
+                onChange={(e) => setApplyForm({ ...applyForm, reason: e.target.value })}
+                placeholder="e.g. family function"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={handleApplyCompOff}
+            disabled={applying || availableDays < 1}
+            className="mt-4 rounded-xl bg-cyan-600 px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-cyan-700 disabled:opacity-50"
+          >
+            {applying ? 'Applying…' : 'Apply Comp-Off'}
+          </button>
+        </section>
+
         <button
           onClick={handleRequestCredit}
           disabled={!firstEligibleDay}
-          className="mt-6 rounded-xl bg-cyan-600 px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-cyan-700 disabled:opacity-50"
+          className="mt-6 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
         >
           {firstEligibleDay
             ? `Request credit for ${firstEligibleDay}`

@@ -1,9 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
 import { wfhService, WFHRequest } from '../../services/wfh.service';
+import { holidayService, Holiday } from '../../services/holiday.service';
+import { compoffService } from '../../services/compoff.service';
 import toast from 'react-hot-toast';
+
+// WFH windows: future dates only, up to 3 months ahead (enforced server-side
+// too — these just keep the picker honest).
+function addMonths(key: string, months: number): string {
+  const [y, m, d] = key.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1 + months, d));
+  return dt.toISOString().slice(0, 10);
+}
 
 export default function EmployeeWFHPage() {
   const { user, logout } = useAuth();
@@ -12,6 +22,15 @@ export default function EmployeeWFHPage() {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ requestDate: '', reason: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [compOffAvailable, setCompOffAvailable] = useState<number | null>(null);
+
+  // Future dates only (not today), up to 3 months ahead. The string
+  // comparisons in handleSubmit mirror the server rule exactly; the picker's
+  // min/max just keep the browser UI honest.
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const tomorrowKey = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const maxSelectable = addMonths(todayKey, 3);
 
   const fetchRequests = async () => {
     try {
@@ -26,12 +45,37 @@ export default function EmployeeWFHPage() {
 
   useEffect(() => {
     fetchRequests();
+    // Week-off / holiday detection for the comp-off note, plus the current
+    // comp-off credit balance so the note can say how many days are on hand.
+    holidayService.list().then(setHolidays).catch(() => {});
+    compoffService.getMyBalance().then((b) => setCompOffAvailable(b.available)).catch(() => {});
   }, []);
+
+  // What day-class is the picked WFH date: a working day, a calendar
+  // weekend, and/or a company holiday. Weekend + holiday work earns comp-off.
+  const dayInfo = useMemo(() => {
+    if (!formData.requestDate) return null;
+    const d = new Date(formData.requestDate + 'T00:00:00');
+    const dow = d.getDay(); // 0=Sun, 6=Sat
+    const holiday = holidays.find((h) => h.date.slice(0, 10) === formData.requestDate);
+    return {
+      isWeekend: dow === 0 || dow === 6,
+      holiday,
+    };
+  }, [formData.requestDate, holidays]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.requestDate || !formData.reason) {
       toast.error('Please fill in all fields.');
+      return;
+    }
+    if (formData.requestDate <= todayKey) {
+      toast.error('Choose a future date — WFH cannot be applied for today or past days.');
+      return;
+    }
+    if (formData.requestDate > maxSelectable) {
+      toast.error('WFH can be requested up to 3 months in advance only.');
       return;
     }
 
@@ -111,11 +155,31 @@ export default function EmployeeWFHPage() {
                   type="date"
                   value={formData.requestDate}
                   onChange={(e) => setFormData({ ...formData, requestDate: e.target.value })}
-                  min={new Date().toISOString().split('T')[0]}
+                  min={tomorrowKey}
+                  max={maxSelectable}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   required
                 />
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Future dates only, up to 3 months ahead.
+                </p>
               </div>
+
+              {/* Week-off / holiday note: that date- class tells the employee
+                  the work is compensable, and shows the comp-off credit they
+                  have on hand to apply it against. */}
+              {dayInfo && (dayInfo.isWeekend || dayInfo.holiday) && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12px] text-amber-800">
+                  <p className="font-medium">
+                    {dayInfo.holiday ? `This date is a company holiday (${dayInfo.holiday.name})` : 'This date falls on a week off'}
+                    {dayInfo.holiday && dayInfo.isWeekend ? ' and a week off' : ''}.
+                  </p>
+                  <p className="mt-0.5">
+                    Working this day can earn a comp-off credit (FIFO, valid 3 months).
+                    {compOffAvailable !== null && ` You currently have ${compOffAvailable} comp-off day(s) available to apply.`}
+                  </p>
+                </div>
+              )}
               <div className="mb-4">
                 <label className="block text-[12px] font-medium text-slate-600 mb-1.5">Reason</label>
                 <textarea

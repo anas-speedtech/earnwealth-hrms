@@ -1111,6 +1111,20 @@ class PayrollService {
       );
     }
 
+    // The current month's payroll is still in progress: employees cannot
+    // download it yet (the completed months — last 6 at least — remain
+    // available). HR keeps full download access for reconciliation.
+    if (reqUser.role === Role.EMPLOYEE) {
+      const now = new Date();
+      if (Number(payroll.month) === now.getMonth() + 1 && Number(payroll.year) === now.getFullYear()) {
+        throw new AppError(
+          PayrollErrorCodes.INVALID_PERIOD,
+          "The current month's payslip is not available yet. Completed months (at least the last 6) remain downloadable.",
+          400
+        );
+      }
+    }
+
     // Reuse existing authorization (covers all four roles)
     await this.authorizePayrollAccess(reqUser, payroll);
 

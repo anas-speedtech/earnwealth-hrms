@@ -33,13 +33,30 @@ class WFHService {
 
     const requestDate = new Date(data.requestDate + 'T00:00:00+05:30'); // parse in IST
 
-    // Validate: cannot request for past workdays
+    // Validate: WFH may only be requested for FUTURE dates, and at most
+    // 3 months in advance.
     const now = new Date();
     const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     istNow.setHours(0, 0, 0, 0);
 
-    if (requestDate < istNow) {
-      throw new AppError(AppErrorCodes.INVALID_INPUT, 'Cannot request WFH for a past workday.', 400);
+    // Future dates only — past days and today are both rejected.
+    if (requestDate <= istNow) {
+      throw new AppError(
+        AppErrorCodes.INVALID_INPUT,
+        'WFH can only be requested for a future date (not today or earlier).',
+        400
+      );
+    }
+
+    // ...and at most 3 months in advance.
+    const maxAllowed = new Date(istNow);
+    maxAllowed.setMonth(maxAllowed.getMonth() + 3);
+    if (requestDate > maxAllowed) {
+      throw new AppError(
+        AppErrorCodes.INVALID_INPUT,
+        'WFH can be requested up to 3 months in advance only.',
+        400
+      );
     }
 
     // Check for existing active request for the same date

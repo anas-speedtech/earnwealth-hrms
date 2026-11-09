@@ -1,9 +1,12 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
+  CalendarCheck,
   CalendarDays,
   ChevronDown,
   ChevronRight,
   Clock,
+  Home,
+  Hourglass,
   IdCard,
   LayoutDashboard,
   Settings2,
@@ -19,7 +22,7 @@ interface SidebarProps {
   userEmail: string;
 }
 
-type IconName = 'dashboard' | 'users' | 'role' | 'calendar' | 'controls' | 'profile' | 'attendance';
+type IconName = 'dashboard' | 'users' | 'role' | 'calendar' | 'controls' | 'profile' | 'attendance' | 'leave' | 'compoff' | 'wfh';
 
 interface NavItem {
   label: string;
@@ -37,6 +40,9 @@ const navIcons: Record<IconName, React.ComponentType<React.SVGProps<SVGSVGElemen
   controls: Settings2,
   profile: User,
   attendance: Clock,
+  leave: CalendarCheck,
+  compoff: Hourglass,
+  wfh: Home,
 };
 
 // The "Role & Designation" section: the Role sub-menu opens the Role &
@@ -108,6 +114,9 @@ const roleNavigation: Record<string, NavItem[]> = {
   EMPLOYEE: [
     { label: 'Dashboard', href: '/employee/dashboard', icon: 'dashboard' },
     { label: 'Calendar', href: '/super-admin/holidays', icon: 'calendar' },
+    { label: 'Apply Leave', href: '/employee/leaves/apply', icon: 'leave' },
+    { label: 'Comp-Off', href: '/employee/comp-offs', icon: 'compoff' },
+    { label: 'WFH', href: '/employee/wfh', icon: 'wfh' },
   ],
 };
 
