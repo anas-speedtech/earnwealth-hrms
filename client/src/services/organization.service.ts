@@ -121,7 +121,10 @@ export const organizationService = {
     firstName: string;
     lastName: string;
     designation: string;
-    deviceEnrollNo: string;
+    // Optional legacy biometric-device slot (whole number). Leave undefined
+    // when the employee has no paired device — the employee code identifies
+    // them everywhere else.
+    deviceEnrollNo?: string;
     basicSalary: string;
     allowances?: string;
     deductions?: string;
@@ -133,8 +136,33 @@ export const organizationService = {
     // a linked user account so they can sign in.
     email?: string;
     password?: string;
+    // Leave types to configure for the new employee (ids from the leave-type
+    // list). Seeds a balance row per type so the dashboard / apply-leave
+    // screens immediately show only their types.
+    leaveTypes?: string[];
   }): Promise<Employee> {
     const { data } = await api.post('/employees', payload);
+    return data;
+  },
+
+  /**
+   * Create a privileged account (HR Admin or Employee) via /admin-users.
+   * This is the provisioning path that also links the login account; the
+   * plain /employees path is used for Employee records without the extra
+   * account-level rules.
+   */
+  async createAdminAccount(payload: {
+    name: string;
+    email: string;
+    password?: string;
+    role: 'HR_ADMIN' | 'EMPLOYEE';
+    employeeCode: string;
+    designation?: string;
+    reportingManager?: string;
+    joiningDate?: string;
+    leaveTypes?: string[];
+  }): Promise<{ id: string; name: string; email: string; role: string; employeeCode: string; }> {
+    const { data } = await api.post('/admin-users', payload);
     return data;
   },
 

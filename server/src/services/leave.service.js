@@ -702,6 +702,54 @@ class LeaveService {
     return { employeeId, year: targetYear, created, skippedUnlimited, isBoardLevel };
   }
 
+  // Configures only the specific leave types given (ids or names) for one
+  // employee at provisioning time: a leave_balances row is what marks a type
+  // as "configured" for that employee (the dashboard and apply-leave screens
+  // both key off it), so seeding it here means the employee immediately sees
+  // — and can apply — only the types HR checked. Unlimited types carry no
+  // numeric ledger row (matches initializeBalances). Idempotent: existing
+  // rows are skipped. Shared by both create paths (/employees and
+  // /admin-users) so they can't drift apart.
+  static async seedLeaveTypesForEmployee(employeeId, typeKeys, year) {
+    const prismaClient = getPrisma();
+    const empId = Number(employeeId);
+    if (!empId || !Array.isArray(typeKeys) || typeKeys.length === 0) return 0;
+    const targetYear = Number(year) || new Date().getFullYear();
+
+    let created = 0;
+    for (const key of typeKeys) {
+      const typeRow = await prismaClient.$queryRawUnsafe(
+        'SELECT id, annualEntitlementDays, isUnlimited FROM leave_types WHERE id = ? OR name = ? LIMIT 1',
+        key,
+        key
+      );
+      if (!typeRow.length) continue;
+      const t = typeRow[0];
+      if (Number(t.isUnlimited) === 1) continue; // unlimited: no ledger row
+      const exists = await prismaClient.$queryRawUnsafe(
+        'SELECT id FROM leave_balances WHERE employeeId = ? AND leaveTypeId = ? AND year = ? LIMIT 1',
+        empId,
+        t.id,
+        targetYear
+      );
+      if (exists.length) continue;
+      const opening = Number(t.annualEntitlementDays || 0);
+      await prismaClient.$executeRawUnsafe(
+        `INSERT INTO leave_balances
+           (id, employeeId, leaveTypeId, openingBalance, accruedBalance, usedBalance, reservedBalance, availableBalance, year, lastAccruedAt, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, 0.00, 0.00, 0.00, ?, ?, NOW(), NOW(), NOW())`,
+        crypto.randomUUID(),
+        empId,
+        t.id,
+        opening,
+        opening,
+        targetYear
+      );
+      created += 1;
+    }
+    return created;
+  }
+
   // Annual population: give every active employee their year's balances from
   // the organisation-wide leave policy in one run. This is the "configure
   // system widely" action — a single call covers the whole organisation.

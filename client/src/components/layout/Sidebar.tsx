@@ -11,6 +11,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface SidebarProps {
   role: string;
@@ -112,6 +113,7 @@ const roleNavigation: Record<string, NavItem[]> = {
 
 export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
   const location = useLocation();
+  const { avatarUrl } = useAuth();
   const navItems = roleNavigation[role] || [];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -235,9 +237,17 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
       {/* Account footer */}
       <div className="border-t border-slate-200/80 p-3">
         <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-900 text-[11px] font-bold text-white">
-            {initials || 'U'}
-          </div>
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt=""
+              className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-slate-200"
+            />
+          ) : (
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-900 text-[11px] font-bold text-white">
+              {initials || 'U'}
+            </div>
+          )}
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13px] font-semibold text-slate-900">{userName}</p>
             <p className="truncate text-[11px] text-slate-400">{userEmail}</p>

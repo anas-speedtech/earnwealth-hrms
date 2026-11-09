@@ -4,6 +4,7 @@ const { AuthService } = require('./auth.service');
 const { logger } = require('../utils/logger');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { sendAccountCreatedEmail } = require('./email.service');
+const { LeaveService } = require('./leave.service');
 
 /**
  * Management of privileged accounts (HR Admin and Employee).
@@ -200,25 +201,20 @@ class UserManagementService {
     // Both HR Admin and Employee accounts get a linked employee record with
     // the manually-entered code above.
     //
-    // deviceEnrollNo is a unique NOT NULL column in the live schema. It has
-    // no meaning for an account-provisioned employee, so it is set to the
-    // users-table id — which is unique by definition — rather than 0, which
-    // would collide on the second insert.
+    // deviceEnrollNo is the legacy biometric-device slot and is nullable: the
+    // employee code is the identifier everywhere else, so an
+    // account-provisioned employee is simply created without one.
     await prismaClient.$executeRawUnsafe(
       `INSERT INTO employees
         (employeeCode, name, designation, joiningDate, deviceEnrollNo,
          basicSalary, allowances, deductions, isActive, userId,
          reportingManagerId, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, 0, 0, 0, 1, ?, ?, NOW(3), NOW(3))`,
-      code, name, finalDesignation, joinDate, Number(user.id), Number(user.id), reportingManagerId
+       VALUES (?, ?, ?, ?, NULL, 0, 0, 0, 1, ?, ?, NOW(3), NOW(3))`,
+      code, name, finalDesignation, joinDate, Number(user.id), reportingManagerId
     );
 
-    // Configure the leave types this employee is entitled to. A balance row
-    // is what marks a type as "configured" for the employee — the dashboard
-    // and the apply-leave screen both key off it, so seeding it here means
-    // the employee immediately sees (and can apply) only their types.
-    // NOTE: leave_balances.employeeId is employees.id (the FK target), not
-    // users.id — resolve the employee row we just created.
+    // Configure the leave types this employee is entitled to, via the shared
+    // seeding helper (same one /employees uses) so both paths stay in sync.
     let leaveTypesCreated = 0;
     if (Array.isArray(leaveTypes) && leaveTypes.length) {
       const empRow = await prismaClient.$queryRawUnsafe(
@@ -226,39 +222,7 @@ class UserManagementService {
         code
       );
       if (empRow.length) {
-        const employeeId = Number(empRow[0].id);
-        const year = new Date().getFullYear();
-        for (const typeKey of leaveTypes) {
-          const typeRow = await prismaClient.$queryRawUnsafe(
-            'SELECT id, annualEntitlementDays, isUnlimited FROM leave_types WHERE id = ? OR name = ? LIMIT 1',
-            typeKey,
-            typeKey
-          );
-          if (!typeRow.length) continue;
-          const t = typeRow[0];
-          // Unlimited types carry no numeric balance (matches initializeBalances).
-          if (Number(t.isUnlimited) === 1) continue;
-          const exists = await prismaClient.$queryRawUnsafe(
-            'SELECT id FROM leave_balances WHERE employeeId = ? AND leaveTypeId = ? AND year = ? LIMIT 1',
-            employeeId,
-            t.id,
-            year
-          );
-          if (exists.length) continue;
-          const opening = Number(t.annualEntitlementDays || 0);
-          await prismaClient.$executeRawUnsafe(
-            `INSERT INTO leave_balances
-               (id, employeeId, leaveTypeId, openingBalance, accruedBalance, usedBalance, reservedBalance, availableBalance, year, lastAccruedAt, createdAt, updatedAt)
-             VALUES (?, ?, ?, ?, 0.00, 0.00, 0.00, ?, ?, NOW(), NOW(), NOW())`,
-            require('crypto').randomUUID(),
-            employeeId,
-            t.id,
-            opening,
-            opening,
-            year
-          );
-          leaveTypesCreated += 1;
-        }
+        leaveTypesCreated = await LeaveService.seedLeaveTypesForEmployee(Number(empRow[0].id), leaveTypes);
       }
     }
 

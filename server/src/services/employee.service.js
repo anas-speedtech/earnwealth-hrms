@@ -3,6 +3,9 @@ const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { Role } = require('../types/index');
 const { logger } = require('../utils/logger');
 const { hashPassword } = require('../utils/password');
+// Lazy require: leave.service reaches back into other services, so pulling it
+// in at module load could create a circular-require during startup.
+const { LeaveService } = require('./leave.service');
 
 let prisma;
 
@@ -15,6 +18,34 @@ function getPrisma() {
 }
 
 const PAGE_SIZE = 20;
+
+/**
+ * Trim a free-form name and collapse word blocks that got appended to
+ * themselves on repeated edits. The `employees` table stores a single
+ * `name` string; a past read bug once returned the whole string as the first
+ * name, so a save re-appended the tail ("Muhammad Anas Yoonus" became
+ * "...Anas Yoonus Anas Yoonus ..."). Collapsing a trailing word block that
+ * equals the one immediately before it recovers the intended name and is a
+ * no-op on any correct value.
+ */
+function normalizeName(raw) {
+  const words = String(raw || '').trim().split(/\s+/).filter(Boolean);
+  const out = words.slice();
+  for (;;) {
+    let removed = false;
+    for (let block = 1; block * 2 <= out.length; block++) {
+      const tail = out.slice(out.length - block).join('|');
+      const prev = out.slice(out.length - 2 * block, out.length - block).join('|');
+      if (tail === prev) {
+        out.splice(out.length - block, block);
+        removed = true;
+        break;
+      }
+    }
+    if (!removed) break;
+  }
+  return out.join(' ');
+}
 
 class EmployeeService {
   static canAccessAll(reqUser) {
@@ -141,7 +172,7 @@ class EmployeeService {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view this profile.', 403);
     }
 
-    const nameParts = String(profile.name || '').trim().split(/\\s+/);
+    const nameParts = String(profile.name || '').trim().split(/\s+/);
     const firstName = nameParts.length ? nameParts[0] : '';
     const lastName = nameParts.slice(1).join(' ');
 
@@ -179,7 +210,7 @@ class EmployeeService {
 
     const firstName = (data.firstName || '').trim();
     const lastName = (data.lastName || '').trim();
-    const name = (firstName + ' ' + lastName).trim();
+    const name = normalizeName(firstName + ' ' + lastName);
     const employeeCode = (data.employeeCode || '').trim();
 
     if (!employeeCode) {
@@ -209,7 +240,7 @@ class EmployeeService {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Invalid joining date.', 400);
     }
 
-    const requiredNumericFields = ['deviceEnrollNo', 'basicSalary', 'allowances', 'deductions'];
+    const requiredNumericFields = ['basicSalary', 'allowances', 'deductions'];
     const numericValues = {};
     for (const field of requiredNumericFields) {
       if (data[field] === undefined || data[field] === null || data[field] === '') {
@@ -220,6 +251,17 @@ class EmployeeService {
         throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Invalid employee field: ' + field + '.', 400);
       }
       numericValues[field] = value;
+    }
+
+    // deviceEnrollNo is the legacy biometric-device slot. It is optional: the
+    // employee code is the identifier everywhere else, so accounts are
+    // created without one. When supplied it must be a positive whole number.
+    let deviceEnrollNo = null;
+    if (data.deviceEnrollNo !== undefined && data.deviceEnrollNo !== null && data.deviceEnrollNo !== '') {
+      deviceEnrollNo = Number(data.deviceEnrollNo);
+      if (!Number.isInteger(deviceEnrollNo) || deviceEnrollNo <= 0) {
+        throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Invalid device enrollment number.', 400);
+      }
     }
 
     const existingCode = await prismaClient.$queryRawUnsafe(
@@ -302,7 +344,7 @@ class EmployeeService {
       name,
       designation,
       dateValue.toISOString().slice(0, 10),
-      numericValues.deviceEnrollNo,
+      deviceEnrollNo,
       numericValues.basicSalary,
       numericValues.allowances,
       numericValues.deductions,
@@ -336,7 +378,17 @@ class EmployeeService {
       logger.warn('Audit log write failed', { action: 'CREATE_EMPLOYEE', error: err.message });
     }
 
-    logger.info('Employee created', { employeeId: inserted.id, actorId: reqUser.id });
+    // Configure the leave types this employee is entitled to (opt-in list
+    // from the create form). A balance row marks a type as "configured" for
+    // the employee; seeding it here means the dashboard / apply-leave
+    // screens show only their types immediately. Shared helper with the
+    // /admin-users provisioning path.
+    let leaveTypesCreated = 0;
+    if (Array.isArray(data.leaveTypes) && data.leaveTypes.length) {
+      leaveTypesCreated = await LeaveService.seedLeaveTypesForEmployee(inserted.id, data.leaveTypes);
+    }
+
+    logger.info('Employee created', { employeeId: inserted.id, actorId: reqUser.id, leaveTypesCreated });
 
     return {
       id: String(inserted.id),
@@ -412,8 +464,10 @@ class EmployeeService {
       const existingName = String(existing.name || '').trim().split(/\s+/);
       const nextFirst = firstName !== null ? firstName : (existingName[0] || '');
       const nextLast = lastName !== null ? lastName : existingName.slice(1).join(' ');
+      // normalizeName collapses self-appended word blocks, so a value that
+      // was already corrupted on disk recovers instead of compounding.
       updates.push('name = ?');
-      values.push((nextFirst + ' ' + nextLast).trim());
+      values.push(normalizeName((nextFirst + ' ' + nextLast).trim()));
     }
 
     if (data.designation !== undefined) {

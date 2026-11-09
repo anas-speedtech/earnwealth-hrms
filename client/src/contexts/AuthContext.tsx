@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, ReactNode, createContext, useContext } from 'react';
 import { authService } from '../services/auth.service';
+import { avatarService, AvatarRecord } from '../services/avatar.service';
 
 export interface User {
   id: string;
@@ -53,14 +54,61 @@ export interface AuthContextValue {
   login: (user: { id: string; email: string; role: string }, accessToken: string, refreshToken: string) => Promise<void>;
   fetchProfile: () => Promise<void>;
   logout: () => Promise<void>;
+  // Profile photo (stored in the DB, served via the API — never a static
+  // path, so nginx-permission issues are impossible).
+  avatarUrl: string | null;
+  avatarLoading: boolean;
+  setAvatar: (file: File) => Promise<void>;
+  removeAvatar: () => Promise<void>;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => getSession()?.user ?? null);
   const [token, setToken] = useState<string | null>(() => getSession()?.accessToken ?? null);
   const [isLoading, setIsLoading] = useState(false);
+  const [avatar, setAvatar] = useState<AvatarRecord | null>(null);
+  const [avatarLoading, setAvatarLoading] = useState(false);
 
   const isAuthenticated = !!user && !!token;
+
+  // Load the profile photo once the session is known. Failure (no avatar
+  // yet, transient network) just leaves the initials fallback in place.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setAvatar(null);
+      return;
+    }
+    let mounted = true;
+    avatarService
+      .getMine()
+      .then((record) => {
+        if (mounted) setAvatar(record);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [isAuthenticated]);
+
+  const setAvatarFromFile = useCallback(async (file: File) => {
+    setAvatarLoading(true);
+    try {
+      const record = await avatarService.setMine(file);
+      setAvatar(record);
+    } finally {
+      setAvatarLoading(false);
+    }
+  }, []);
+
+  const removeAvatarAction = useCallback(async () => {
+    setAvatarLoading(true);
+    try {
+      await avatarService.removeMine();
+      setAvatar(null);
+    } finally {
+      setAvatarLoading(false);
+    }
+  }, []);
 
   const login = useCallback(async (user: { id: string; email: string; role: string }, accessToken: string, refreshToken: string) => {
     const refreshTokenId = extractTokenId(refreshToken);
@@ -178,6 +226,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login,
     fetchProfile,
     logout,
+    avatarUrl: avatarService.toImageUrl(avatar),
+    avatarLoading,
+    setAvatar: setAvatarFromFile,
+    removeAvatar: removeAvatarAction,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

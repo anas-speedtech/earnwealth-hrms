@@ -4,6 +4,7 @@ const { authenticate, authorize } = require('../middleware/auth');
 const { validateBody } = require('../middleware/validate');
 const { UserManagementService } = require('../services/user-management.service');
 const { PersonalProfileService } = require('../services/personal-profile.service');
+const { AvatarService } = require('../services/avatar.service');
 const { Role } = require('../types/index');
 
 const router = express.Router();
@@ -123,5 +124,46 @@ router.put(
     }
   }
 );
+
+// ---- Avatar (profile photo, stored in the DB, served via the API) ----
+//
+// The client sends a base64 data URL that it compressed in the browser
+// (~250 KB), so the JSON body stays under the 1 MB app limit. Storing in
+// MySQL (not disk) means UAT/Production need no nginx static block, no
+// upload directory, and no filesystem permissions.
+
+const avatarSchema = z.object({
+  image: z.string().min(1).max(2_000_000),
+});
+
+// The calling user's avatar, or null when none is set.
+router.get('/me/avatar', async (req, res, next) => {
+  try {
+    const avatar = await AvatarService.get(req.user.id);
+    res.json(avatar);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Upload / replace the calling user's avatar.
+router.put('/me/avatar', validateBody(avatarSchema), async (req, res, next) => {
+  try {
+    const avatar = await AvatarService.set(req.user, req.body.image);
+    res.json(avatar);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Remove the calling user's avatar.
+router.delete('/me/avatar', async (req, res, next) => {
+  try {
+    const result = await AvatarService.remove(req.user);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
 
 module.exports = router;

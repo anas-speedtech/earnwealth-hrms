@@ -25,7 +25,12 @@ const createSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   designation: z.string().min(1),
-  deviceEnrollNo: z.coerce.number().int().positive(),
+  // Legacy biometric-device slot. Optional: the employee code is the
+  // identifier everywhere else, so an account may be created without one.
+  deviceEnrollNo: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? null : v),
+    z.coerce.number().int().positive().nullable(),
+  ).optional(),
   basicSalary: z.coerce.number().min(0),
   allowances: z.coerce.number().min(0).default(0),
   deductions: z.coerce.number().min(0).default(0),
@@ -36,6 +41,10 @@ const createSchema = z.object({
   departmentText: z.string().optional(),
   // Mandatory: every employee must map to a higher person.
   reportingManagerId: z.coerce.number().int().positive(),
+  // Leave types this employee is configured for (leave-type ids or names).
+  // Seeds a leave_balances row per type so the employee immediately sees
+  // (and can apply) only their types. Mirrors the /admin-users flow.
+  leaveTypes: z.array(z.string()).optional(),
 });
 
 const updateSchema = z.object({

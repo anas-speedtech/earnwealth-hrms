@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { User, Mail, ShieldCheck, KeyRound, CalendarDays, Save } from 'lucide-react';
+import { User, Mail, ShieldCheck, KeyRound, CalendarDays, Save, Camera, Trash2, Loader2 } from 'lucide-react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
@@ -17,9 +17,10 @@ const EMPTY: PersonalProfile = {
 };
 
 export default function EmployeeProfilePage() {
-  const { user, logout } = useAuth();
+  const { user, logout, avatarUrl, avatarLoading, setAvatar, removeAvatar } = useAuth();
   const [personal, setPersonal] = useState<PersonalProfile>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [photoInput, setPhotoInput] = useState<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -59,10 +60,83 @@ export default function EmployeeProfilePage() {
     }
   };
 
+  const handlePhotoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file later
+    if (!file) return;
+    if (!/^image\//.test(file.type)) {
+      toast.error('Please choose an image file (JPG, PNG or WebP).');
+      return;
+    }
+    void setAvatar(file).then(
+      () => toast.success('Profile photo updated.'),
+      () => toast.error('Could not upload the photo. Try a smaller image.'),
+    );
+  };
+
+  const handlePhotoRemove = () => {
+    void removeAvatar().then(
+      () => toast.success('Profile photo removed.'),
+      () => toast.error('Could not remove the photo.'),
+    );
+  };
+
+  const initials = fullName
+    .split(' ')
+    .map((p) => p[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
   return (
     <DashboardShell role="EMPLOYEE" userName={fullName} userEmail={user?.email || ''} onLogout={logout}>
       <Header title="Profile" subtitle="Your account and personal details" />
       <div className="p-6 max-w-3xl space-y-4">
+        {/* Profile photo — stored in the database and served via the API, so
+            display never depends on a server directory or nginx permission. */}
+        <div className="flex flex-wrap items-center gap-5 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={`${fullName} profile`}
+              className="h-20 w-20 rounded-full object-cover ring-2 ring-slate-200"
+            />
+          ) : (
+            <div className="grid h-20 w-20 place-items-center rounded-full bg-slate-900 text-lg font-bold text-white">
+              {initials || 'U'}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[15px] font-bold tracking-tight text-slate-900">Profile Photo</h2>
+            <p className="mt-0.5 text-[13px] text-slate-500">
+              Shown next to your name on the dashboard. Photos are stored with your account.
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                ref={(el) => setPhotoInput(el)}
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoPick}
+                className="hidden"
+              />
+              <Button size="sm" variant={avatarUrl ? 'secondary' : 'primary'} disabled={avatarLoading} onClick={() => photoInput?.click()}>
+                {avatarLoading ? (
+                  <Loader2 size={14} className="mr-1.5 animate-spin" />
+                ) : (
+                  <Camera size={14} className="mr-1.5" />
+                )}
+                {avatarUrl ? 'Change Photo' : 'Add Photo'}
+              </Button>
+              {avatarUrl && (
+                <Button size="sm" variant="ghost" disabled={avatarLoading} onClick={handlePhotoRemove}>
+                  <Trash2 size={14} className="mr-1.5" /> Remove
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
           <dl className="divide-y divide-slate-100">
             {rows.map((row) => (

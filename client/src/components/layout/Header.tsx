@@ -14,7 +14,7 @@ interface HeaderProps {
  * (notifications + profile menu) on the right.
  */
 export default function Header({ title, subtitle, actions }: HeaderProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, avatarUrl } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -64,9 +64,17 @@ export default function Header({ title, subtitle, actions }: HeaderProps) {
             aria-label="Account menu"
             className="flex items-center gap-2 rounded-full border border-slate-200 bg-white py-0.5 pl-1 pr-2.5 shadow-sm transition hover:border-slate-300"
           >
-            <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
-              {initials || 'U'}
-            </span>
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt=""
+                className="h-6 w-6 rounded-full object-cover ring-1 ring-slate-200"
+              />
+            ) : (
+              <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
+                {initials || 'U'}
+              </span>
+            )}
             <span className="hidden max-w-[8rem] truncate text-[13px] font-medium text-slate-700 sm:block">
               {displayName}
             </span>

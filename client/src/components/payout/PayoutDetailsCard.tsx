@@ -7,8 +7,12 @@ import { organizationService, PayoutDetail, PayoutHistoryEntry, PayoutLine } fro
 import { useToast } from '../../contexts/ToastContext';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 
-const inputClass =
-  'h-9 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10';
+// Base control styling WITHOUT a width — rows that share a line append their
+// own width (flex-1 / w-28). Mixing a baked-in w-full with those classes
+// makes both utilities fight and the label box gets crushed.
+const inputBase =
+  'h-9 rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10';
+const inputClass = `${inputBase} w-full`;
 
 const money = (n: number) => formatCurrency(n || 0);
 
@@ -435,7 +439,7 @@ function LineEditor({
               value={l.label}
               onChange={(e) => update(i, 'label', e.target.value)}
               placeholder="Item (e.g. BASIC)"
-              className={`${inputClass} flex-1`}
+              className={`${inputBase} min-w-0 flex-1`}
             />
             <input
               type="number"
@@ -444,7 +448,7 @@ function LineEditor({
               value={l.amount}
               onChange={(e) => update(i, 'amount', e.target.value)}
               placeholder="0.00"
-              className={`${inputClass} w-28 text-right`}
+              className={`${inputBase} w-28 shrink-0 text-right`}
             />
             <button
               type="button"
