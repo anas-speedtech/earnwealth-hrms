@@ -416,6 +416,26 @@ class LeaveService {
     });
 
     logger.info('Leave applied', { leaveId: newLeaveId, employeeId, type: typeName, days });
+
+    // Notify the reporting manager + HR Admins that a review is needed.
+    // Best-effort — a notification failure must not fail the request.
+    try {
+      const { notifyForApproval } = require('./notify.service');
+      await notifyForApproval({
+        actorUserId: reqUser.id,
+        subject: 'New leave request',
+        details: [
+          `Type: ${typeName}`,
+          `From ${formatDateKey(start)} to ${formatDateKey(end)}${isHalfDay ? ' (half day)' : ''}`,
+          `Working days: ${days}`,
+          `Reason: ${reason || '—'}`,
+        ],
+        reviewPath: '/hr/leaves?tab=requests',
+      });
+    } catch (notifyErr) {
+      logger.warn('Leave approval notice failed', { leaveId: newLeaveId, error: notifyErr.message });
+    }
+
     return LeaveService.getRequestById(reqUser, newLeaveId);
   }
 

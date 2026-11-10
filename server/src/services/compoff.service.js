@@ -402,6 +402,26 @@ class CompOffService {
     });
 
     logger.info('Comp-off credited', { creditId: id, employeeId: empId, by: reqUser.id });
+
+    // Notify the reporting manager + HR Admins that a comp-off credit was
+    // applied. Best-effort — a notification failure must not fail the
+    // request.
+    try {
+      const { notifyForApproval } = require('./notify.service');
+      await notifyForApproval({
+        actorUserId: reqUser.id,
+        subject: 'Comp-off credit applied',
+        details: [
+          `For date: ${sourceDate}`,
+          `Days: ${earnedDays}`,
+          `Reason: ${reason || '—'}`,
+        ],
+        reviewPath: '/hr/comp-offs',
+      });
+    } catch (notifyErr) {
+      logger.warn('Comp-off approval notice failed', { creditId: id, error: notifyErr.message });
+    }
+
     return CompOffService.getCreditById(reqUser, id);
   }
 
@@ -555,7 +575,28 @@ class CompOffService {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'No comp-off days available to redeem.', 400);
     }
     const days = isHalfDay ? 0.5 : 1;
-    return CompOffService.applyLeave(reqUser, { creditId: credit[0].id, days, note: reason || '' });
+    const result = await CompOffService.applyLeave(reqUser, { creditId: credit[0].id, days, note: reason || '' });
+
+    // Notify the reporting manager + HR Admins that a comp-off day was
+    // applied. Best-effort — a notification failure must not fail the
+    // request.
+    try {
+      const { notifyForApproval } = require('./notify.service');
+      await notifyForApproval({
+        actorUserId: reqUser.id,
+        subject: 'Comp-off leave applied',
+        details: [
+          `From ${startDate} to ${endDate}${isHalfDay ? ' (half day)' : ''}`,
+          `Days: ${days}`,
+          `Reason: ${reason || '—'}`,
+        ],
+        reviewPath: '/hr/comp-offs',
+      });
+    } catch (notifyErr) {
+      logger.warn('Comp-off leave notice failed', { employeeId: empId, error: notifyErr.message });
+    }
+
+    return result;
   }
 
   static async getPendingCompOffLeaves(reqUser) {

@@ -67,4 +67,16 @@ export const passwordService = {
     const { data } = await api.post('/auth/password/reset', { verifyToken, password });
     return data;
   },
+
+  // Link-based flow: email a signed 30-minute link, then exchange it for a
+  // new password.
+  async requestResetLink(email: string): Promise<{ message: string }> {
+    const { data } = await api.post('/auth/password/reset-link', { email });
+    return data;
+  },
+
+  async resetWithLink(token: string, password: string): Promise<{ message: string }> {
+    const { data } = await api.post('/auth/password/reset-link/confirm', { token, password });
+    return data;
+  },
 };

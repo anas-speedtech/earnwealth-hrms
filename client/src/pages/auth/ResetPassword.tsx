@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { passwordService } from '../../services/auth.service';
@@ -7,10 +7,13 @@ import { passwordService } from '../../services/auth.service';
 export default function ResetPassword() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  // The verification token comes from the previous step. Keeping it in
-  // navigation state means it is never placed in the URL, so it does not end
-  // up in browser history or server logs.
+  // Two ways in:
+  //  * emailed link — `/reset-password?token=…` (30-minute signed token)
+  //  * OTP flow — the verify-otp step hands over a 10-minute verifyToken via
+  //    navigation state, kept out of the URL so it stays out of history.
+  const linkToken = searchParams.get('token') || '';
   const verifyToken = (location.state as { verifyToken?: string } | null)?.verifyToken || '';
 
   const [password, setPassword] = useState('');
@@ -19,6 +22,8 @@ export default function ResetPassword() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+
+  const hasCredential = Boolean(linkToken || verifyToken);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -35,7 +40,11 @@ export default function ResetPassword() {
     setIsLoading(true);
     setError(null);
     try {
-      await passwordService.reset(verifyToken, password);
+      if (linkToken) {
+        await passwordService.resetWithLink(linkToken, password);
+      } else {
+        await passwordService.reset(verifyToken, password);
+      }
       setDone(true);
     } catch {
       setError('Your verification has expired. Please start the reset again.');
@@ -67,11 +76,11 @@ export default function ResetPassword() {
               Go to sign in
             </Button>
           </div>
-        ) : !verifyToken ? (
+        ) : !hasCredential ? (
           <div className="space-y-4">
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg" role="alert">
               <p className="text-[13px] text-red-700">
-                Your verification has expired. Please start the password reset again.
+                Your reset link or verification has expired. Please start the password reset again.
               </p>
             </div>
             <Button className="w-full" onClick={() => navigate('/forgot-password', { replace: true })}>

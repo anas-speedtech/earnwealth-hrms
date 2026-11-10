@@ -9,6 +9,8 @@ const {
   signRefreshToken,
   signPasswordResetVerifyToken,
   verifyPasswordResetVerifyToken,
+  signPasswordResetLinkToken,
+  verifyPasswordResetLinkToken,
   verifyRefreshToken,
   Role,
 } = require('../utils/jwt');
@@ -636,6 +638,81 @@ class AuthService {
 
     await AuthService.logAudit(String(decoded.userId), 'SYSTEM', 'PASSWORD_RESET', 'User', String(decoded.userId));
     logger.info('Password reset successful', { userId: decoded.userId });
+    return { message: 'Password reset successful.' };
+  }
+
+  /**
+   * Link-based reset, step 1: emails a 30-minute signed link to the
+   * account's address. The link opens the reset page with the token; the
+   * user then sets the password via resetPasswordWithLink. The address is
+   * checked case-insensitively and the response is identical whether or not
+   * the account exists, so this endpoint cannot be used to enumerate
+   * registered emails.
+   */
+  static async requestPasswordResetLink(email) {
+    const prismaClient = getPrisma();
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const user = await findUserByEmail(prismaClient, normalizedEmail);
+    if (!user) {
+      return { message: 'If an account exists for that email, a reset link has been sent.' };
+    }
+    if (!env.PASSWORD_RESET_ENABLED) {
+      logger.error('Password reset link requested but SMTP is not configured', { userId: user.id });
+      throw new AppError(
+        AppErrorCodes.INTERNAL_ERROR,
+        'Password reset by email is not available. Please contact your administrator to reset your password.',
+        503,
+      );
+    }
+
+    const linkToken = signPasswordResetLinkToken({ userId: user.id });
+    const linkUrl = `${env.APP_URL}/reset-password?token=${encodeURIComponent(linkToken)}`;
+
+    const { sendPasswordResetLink } = require('./email.service');
+    const result = await sendPasswordResetLink(user.email, linkUrl, 30);
+
+    logger.info('Password reset link requested', { userId: user.id, sent: result.sent });
+    return { message: 'If an account exists for that email, a reset link has been sent.' };
+  }
+
+  /**
+   * Link-based reset, step 2: exchange the signed link token for a new
+   * password. A password change always revokes every existing session for
+   * the account, so a stolen link is bounded to its 30-minute window.
+   */
+  static async resetPasswordWithLink(linkToken, newPassword) {
+    const prismaClient = getPrisma();
+
+    let decoded;
+    try {
+      decoded = verifyPasswordResetLinkToken(linkToken);
+    } catch {
+      throw new AppError(
+        AppErrorCodes.INVALID_CREDENTIALS,
+        'Your reset link is invalid or has expired. Please request a new one.',
+        400,
+      );
+    }
+
+    const userId = Number(decoded.userId);
+    const user = await prismaClient.$queryRaw`
+      SELECT id, email FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    if (!user.length) {
+      throw new AppError(AppErrorCodes.NOT_FOUND, 'Account no longer exists.', 404);
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    const now = new Date();
+    await prismaClient.$transaction([
+      prismaClient.$executeRaw`
+        UPDATE users SET passwordHash = ${passwordHash}, updatedAt = ${now} WHERE id = ${userId}
+      `,
+    ]);
+
+    await safeRevokeExistingSessions(prismaClient, userId);
+    await AuthService.logAudit(String(userId), 'SYSTEM', 'PASSWORD_RESET_LINK', 'User', String(userId));
+    logger.info('Password reset via link successful', { userId });
     return { message: 'Password reset successful.' };
   }
 

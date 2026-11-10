@@ -62,6 +62,47 @@ async function sendPasswordResetOtp(email, otp, expiryMinutes) {
 }
 
 /**
+ * Sends the password-reset LINK email. The full reset URL is pre-built by the
+ * caller (it embeds the signed 30-minute token); the raw token never appears
+ * in the email body separately from the link, so a partial copy cannot be
+ * used. Returns { sent: true } on success, or { sent: false, reason } when
+ * SMTP is not configured — a delivery failure must never fail the request
+ * itself.
+ */
+async function sendPasswordResetLink(email, resetUrl, expiryMinutes) {
+  const transport = getTransporter();
+  if (!transport) {
+    logger.warn('SMTP is not configured — password reset link email was not sent', { email });
+    return { sent: false, reason: 'smtp_not_configured' };
+  }
+
+  await transport.sendMail({
+    from: `"${env.EMAIL_FROM_NAME}" <${env.SMTP_USER}>`,
+    to: email,
+    subject: `Reset your ${env.APP_NAME} password`,
+    text: [
+      'We received a request to reset your ' + env.APP_NAME + ' password.',
+      '',
+      'Open the link below to choose a new password:',
+      resetUrl,
+      '',
+      'This link expires in ' + expiryMinutes + ' minutes and can be used once.',
+      'If you did not request this, you can ignore this email and your password will stay the same.',
+    ].join('\n'),
+    html: `
+      <p>We received a request to reset your ${env.APP_NAME} password.</p>
+      <p>Open the link below to choose a new password:</p>
+      <p style="word-break:break-all;margin:16px 0;"><a href="${resetUrl}">${resetUrl}</a></p>
+      <p>This link expires in <strong>${expiryMinutes} minutes</strong> and can be used once.</p>
+      <p>If you did not request this, you can ignore this email and your password will stay the same.</p>
+    `,
+  });
+
+  logger.info('Password reset link email sent', { email });
+  return { sent: true };
+}
+
+/**
  * Sends an invitation email containing the one-time acceptance link.
  * The link points at the frontend acceptance page; the recipient is the
  * exact email saved on the new account. Returns { sent: true } on success,
@@ -144,6 +185,7 @@ async function sendAccountCreatedEmail(email, name, password, role) {
 
 module.exports = {
   sendPasswordResetOtp,
+  sendPasswordResetLink,
   sendInvitationEmail,
   sendAccountCreatedEmail,
   getTransporter,

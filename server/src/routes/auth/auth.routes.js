@@ -44,6 +44,13 @@ const inviteSchema = z.object({
   role: z.enum(['EMPLOYEE', 'HR_ADMIN']),
 });
 
+// The emailed-link confirm step: the 30-minute signed link token plus the new
+// password.
+const resetLinkConfirmSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8),
+});
+
 // Public health check
 router.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -127,6 +134,26 @@ router.post('/auth/password/verify', otpVerifyLimiter, validateBody(verifyOtpSch
 router.post('/auth/password/reset', validateBody(newPasswordSchema), async (req, res, next) => {
   try {
     const result = await AuthService.resetPassword(req.body.verifyToken, req.body.password);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Link-based reset, step 1: email a 30-minute signed reset link.
+router.post('/auth/password/reset-link', passwordResetLimiter, validateBody(resetPasswordSchema), async (req, res, next) => {
+  try {
+    const result = await AuthService.requestPasswordResetLink(req.body.email);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Link-based reset, step 2: open the link and set the new password.
+router.post('/auth/password/reset-link/confirm', validateBody(resetLinkConfirmSchema), async (req, res, next) => {
+  try {
+    const result = await AuthService.resetPasswordWithLink(req.body.token, req.body.password);
     res.json(result);
   } catch (err) {
     next(err);
