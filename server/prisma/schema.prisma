@@ -53,7 +53,7 @@ model Employee {
   name           String   @db.VarChar(120)
   designation    String   @db.VarChar(100)
   joiningDate    DateTime @db.Date
-  deviceEnrollNo Int      @unique
+  deviceEnrollNo Int?     @unique
   basicSalary    Decimal  @db.Decimal(12, 2)
   allowances     Decimal  @default(0) @db.Decimal(12, 2)
   deductions     Decimal  @default(0) @db.Decimal(12, 2)
@@ -62,6 +62,7 @@ model Employee {
   updatedAt      DateTime @updatedAt @db.DateTime(3)
   departmentId   Int?
   departmentText String?  @db.VarChar(100)
+  reportingManagerId Int?
 
   user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   department     Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
@@ -75,6 +76,7 @@ model Employee {
   @@index([deviceEnrollNo])
   @@index([employeeCode])
   @@index([departmentId])
+  @@index([reportingManagerId])
   @@map("employees")
 }
 
@@ -305,6 +307,7 @@ model EmployeeProfile {
   lastName      String   @db.VarChar(50) @default("")
   designationId Int?
   departmentId  Int?
+  reportingManagerId Int?
   status        String   @default("ACTIVE") @db.VarChar(20)
   createdAt     DateTime @default(now()) @db.DateTime(3)
   updatedAt     DateTime @updatedAt @db.DateTime(3)
@@ -317,7 +320,22 @@ model EmployeeProfile {
   payrollRecords       PayrollRecord[]
 
   @@index([userId])
+  @@index([reportingManagerId])
   @@map("employee_profiles")
+}
+
+// The employee-management service intentionally uses raw SQL for this legacy
+// table. Keep it in the Prisma schema so a fresh `db push` creates the exact
+// lower-case table name required on Linux/MySQL.
+model Designation {
+  id          String   @id @default(uuid()) @db.VarChar(191)
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(255)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+  updatedAt   DateTime @updatedAt @db.DateTime(3)
+
+  @@map("designations")
 }
 
 // ------------------------------------------------------------- WFH requests

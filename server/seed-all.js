@@ -191,24 +191,29 @@ const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     console.log('  ' + d.name + ' (created)');
   }
 
-  // ── HR Manager account ───────────────────────────────────────────────────
-  console.log('=== HR Manager account ===');
-  let hrUserId;
-  const hrEmail = 'hr@earnwealth.com';
-  const hrEx = await p.$queryRaw`SELECT id FROM users WHERE email = ${hrEmail} LIMIT 1`;
-  if (hrEx.length) {
-    hrUserId = hrEx[0].id;
-    console.log('  hr@earnwealth.com (exists)');
+  // ── Bootstrap Super Admin account ─────────────────────────────────────────
+  console.log('=== Bootstrap Super Admin account ===');
+  const bootstrapEmail = process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL;
+  const bootstrapPassword = process.env.BOOTSTRAP_SUPER_ADMIN_PASSWORD;
+  const bootstrapName = process.env.BOOTSTRAP_SUPER_ADMIN_NAME || 'System Super Admin';
+  if (!bootstrapEmail || !bootstrapPassword) {
+    throw new Error('BOOTSTRAP_SUPER_ADMIN_EMAIL and BOOTSTRAP_SUPER_ADMIN_PASSWORD are required to seed a new database.');
+  }
+  let bootstrapUserId;
+  const bootstrapExisting = await p.$queryRaw`SELECT id FROM users WHERE email = ${bootstrapEmail} LIMIT 1`;
+  if (bootstrapExisting.length) {
+    bootstrapUserId = bootstrapExisting[0].id;
+    console.log(`  ${bootstrapEmail} (exists)`);
   } else {
     const { hashPassword } = require('./src/utils/password');
-    const hash = await hashPassword('HR@123456');
+    const hash = await hashPassword(bootstrapPassword);
     await p.$executeRaw`
       INSERT INTO users (name, email, passwordHash, role, isActive, createdAt, updatedAt)
-      VALUES ('Priya Nair', ${hrEmail}, ${hash}, 'HR_MANAGER', 1, ${now}, ${now})
+      VALUES (${bootstrapName}, ${bootstrapEmail}, ${hash}, 'SUPER_ADMIN', 1, ${now}, ${now})
     `;
-    const u = await p.$queryRaw`SELECT id FROM users WHERE email = ${hrEmail} LIMIT 1`;
-    hrUserId = u[0].id;
-    console.log('  hr@earnwealth.com (created) — password: HR@123456');
+    const u = await p.$queryRaw`SELECT id FROM users WHERE email = ${bootstrapEmail} LIMIT 1`;
+    bootstrapUserId = u[0].id;
+    console.log(`  ${bootstrapEmail} (created)`);
   }
 
   // ── Link employees to login accounts ─────────────────────────────────────
@@ -271,9 +276,9 @@ const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
   // ── Notifications ─────────────────────────────────────────────────────────
   console.log('=== Notifications ===');
   const notifs = [
-    { userId: 1, type: 'INFO',    title: 'Welcome to EWS HRMS',     message: 'Your account is active. Explore the dashboard to get started.' },
-    { userId: 1, type: 'SYSTEM',  title: 'System Policy Updated',   message: 'Leave policy has been updated by the administrator.' },
-    { userId: 1, type: 'ALERT',   title: 'October Payroll Ready',    message: 'October 2026 payroll is ready for processing.' },
+    { userId: bootstrapUserId, type: 'INFO',    title: 'Welcome to EWS HRMS',     message: 'Your account is active. Explore the dashboard to get started.' },
+    { userId: bootstrapUserId, type: 'SYSTEM',  title: 'System Policy Updated',   message: 'Leave policy has been updated by the administrator.' },
+    { userId: bootstrapUserId, type: 'ALERT',   title: 'October Payroll Ready',    message: 'October 2026 payroll is ready for processing.' },
   ];
   for (const n of notifs) {
     await p.$executeRaw`

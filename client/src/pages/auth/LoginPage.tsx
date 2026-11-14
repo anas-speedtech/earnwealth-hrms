@@ -13,10 +13,10 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ title, subtitle, onSubmit, isLoading, error }: LoginPageProps) {
-  // UAT convenience: the admin account is baked into the build via client/.env
-  // (VITE_ADMIN_EMAIL / VITE_ADMIN_PASSWORD). Undefined in dev unless set.
+  // An email can be prefilled for convenience, but Vite environment variables
+  // must never supply a password because they are embedded in the browser bundle.
   const [email, setEmail] = useState<string>(import.meta.env.VITE_ADMIN_EMAIL ?? '');
-  const [password, setPassword] = useState<string>(import.meta.env.VITE_ADMIN_PASSWORD ?? '');
+  const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
