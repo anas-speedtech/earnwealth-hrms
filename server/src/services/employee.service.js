@@ -224,12 +224,13 @@ class EmployeeService {
     }
     // A reporting manager is mandatory on every employee: the chain must
     // resolve to a higher person so approvals, leaves and corrections always
-    // have a clear owner. The single exception is the first employee in the
-    // system — there is nobody above them yet — who can be created without a
-    // manager and becomes the root of the org chart.
+    // have a clear owner. The exception is when the system has only one
+    // employee — the Super Admin who has no manager either — so the first
+    // subordinate (e.g. the first HR Admin) can be added without one and
+    // becomes the top of the employee chain beneath the root.
     if (!data.reportingManagerId) {
       const count = await prismaClient.employee.count();
-      if (count > 0) {
+      if (count >= 2) {
         throw new AppError(
           AppErrorCodes.VALIDATION_ERROR,
           'A reporting manager is required. Every employee must map to a higher person.',
