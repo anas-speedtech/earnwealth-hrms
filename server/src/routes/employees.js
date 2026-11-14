@@ -58,8 +58,9 @@ const updateSchema = z.object({
   allowances: z.coerce.number().min(0).optional(),
   deductions: z.coerce.number().min(0).optional(),
   status: z.string().optional(),
-  // Only provided when the admin is changing the manager; a null here would
-  // break the mandatory mapping, so it is rejected.
+  // reportingManagerId is optional only when the creator is a SUPER_ADMIN
+  // setting up the first employee. For HR Admin and Employee role creators,
+  // it is still mandatory and rejected at the service level.
   reportingManagerId: z.coerce.number().int().positive().optional(),
 });
 
