@@ -27,7 +27,7 @@ import EmployeeApplyLeave from './pages/employee/ApplyLeave';
 import EmployeeLeaves from './pages/employee/Leaves';
 import EmployeePayslipsPage from './pages/employee/Payslips';
 
-// Super Admin pages
+// Super Admin pages.
 import SuperAdminAdmins from './pages/super-admin/Admins';
 import SuperAdminSettings from './pages/super-admin/Settings';
 import SuperAdminPolicies from './pages/super-admin/Policies';
