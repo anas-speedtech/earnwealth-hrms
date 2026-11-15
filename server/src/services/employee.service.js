@@ -17,6 +17,47 @@ function getPrisma() {
   return prisma;
 }
 
+/**
+ * Mirror a row from the legacy `employees` table into Prisma's
+ * `employee_profiles` so that downstream services (payroll, payslip, salary
+ * structures) that use Prisma relations can find the employee. If the profile
+ * already exists it is updated; otherwise it is created.
+ */
+async function syncToEmployeeProfile(prismaClient, employeeRow) {
+  if (!employeeRow || !employeeRow.id) return;
+  const existing = await prismaClient.$queryRawUnsafe(
+    'SELECT id FROM employee_profiles WHERE userId = ? LIMIT 1',
+    employeeRow.userId || null
+  ).catch(() => []);
+  const profileData = {
+    userId: employeeRow.userId ? Number(employeeRow.userId) : null,
+    employeeCode: String(employeeRow.employeeCode || ''),
+    firstName: String(employeeRow.name || '').trim().split(/\s+/)[0] || '',
+    lastName: String(employeeRow.name || '').trim().split(/\s+/).slice(1).join(' '),
+    designationId: null,
+    departmentId: employeeRow.departmentId ? Number(employeeRow.departmentId) : null,
+    reportingManagerId: employeeRow.reportingManagerId ? Number(employeeRow.reportingManagerId) : null,
+    status: String(employeeRow.isActive ? 'ACTIVE' : 'INACTIVE'),
+  };
+  if (existing && existing.length) {
+    await prismaClient.$executeRawUnsafe(`
+      UPDATE employee_profiles SET
+        employeeCode = ?, firstName = ?, lastName = ?,
+        departmentId = ?, reportingManagerId = ?, status = ?
+      WHERE userId = ?
+    `, profileData.employeeCode, profileData.firstName, profileData.lastName,
+       profileData.departmentId, profileData.reportingManagerId, profileData.status,
+       profileData.userId);
+  } else {
+    await prismaClient.$executeRawUnsafe(`
+      INSERT INTO employee_profiles
+        (employeeCode, firstName, lastName, departmentId, reportingManagerId, status, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+    `, profileData.employeeCode, profileData.firstName, profileData.lastName,
+       profileData.departmentId, profileData.reportingManagerId, profileData.status);
+  }
+}
+
 const PAGE_SIZE = 20;
 
 /**
@@ -356,13 +397,13 @@ class EmployeeService {
     );
 
     const insertedRows = await prismaClient.$queryRawUnsafe(
-      'SELECT id FROM employees WHERE employeeCode = ? ORDER BY id DESC LIMIT 1',
-      employeeCode
+      'SELECT id, employeeCode, name, userId, departmentId, reportingManagerId, isActive FROM employees WHERE id = ? LIMIT 1',
+      inserted.id
     );
     const inserted = insertedRows && insertedRows[0];
-    if (!inserted) {
-      throw new AppError(AppErrorCodes.INTERNAL_ERROR, 'Employee creation failed.', 500);
-    }
+
+    // Mirror into Prisma's employee_profiles so payslip / payroll can find us.
+    void syncToEmployeeProfile(prismaClient, inserted);
 
     try {
       await prismaClient.auditLog.create({
@@ -582,10 +623,13 @@ class EmployeeService {
     }
 
     const updatedRows = await prismaClient.$queryRawUnsafe(
-      'SELECT e.id, e.employeeCode, e.name, e.designation, e.departmentId, e.departmentText, e.joiningDate, e.basicSalary, e.allowances, e.deductions, e.isActive, e.reportingManagerId, m.name AS reportingManagerName FROM employees e LEFT JOIN employees m ON m.id = e.reportingManagerId WHERE e.id = ? LIMIT 1',
+      'SELECT e.id, e.employeeCode, e.name, e.userId, e.departmentId, e.reportingManagerId, e.isActive FROM employees e LEFT JOIN employees m ON m.id = e.reportingManagerId WHERE e.id = ? LIMIT 1',
       employeeProfileId
     );
     const updated = updatedRows && updatedRows[0];
+
+    // Mirror into Prisma's employee_profiles so payslip / payroll can find us.
+    void syncToEmployeeProfile(prismaClient, updated);
 
     try {
       await prismaClient.auditLog.create({
