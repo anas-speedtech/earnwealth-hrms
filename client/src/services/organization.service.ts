@@ -99,7 +99,23 @@ export interface PayoutHistoryEntry {
   takeHome?: number;
 }
 
+export interface LeaveType {
+  id: string;
+  name: string;
+  code?: string;
+  type: string;
+  annualEntitlementDays: number;
+  isUnlimited: boolean;
+  isActive: boolean;
+}
+
 export const organizationService = {
+  // ---- Leave Types ----
+
+  async getLeaveTypes(): Promise<LeaveType[]> {
+    const { data } = await api.get<LeaveType[]>('/leave-types');
+    return data;
+  },
   async getEmployees(params: {
     page?: number;
     search?: string;
@@ -136,9 +152,13 @@ export const organizationService = {
     // a linked user account so they can sign in.
     email?: string;
     password?: string;
+<<<<<<< Updated upstream
     // Leave types to configure for the new employee (ids from the leave-type
     // list). Seeds a balance row per type so the dashboard / apply-leave
     // screens immediately show only their types.
+=======
+    // Leave types to configure for this employee on creation.
+>>>>>>> Stashed changes
     leaveTypes?: string[];
   }): Promise<Employee> {
     const { data } = await api.post('/employees', payload);
@@ -178,6 +198,7 @@ export const organizationService = {
     deductions?: string;
     status?: string;
     reportingManagerId?: number | null;
+    leaveTypes?: string[];
   }): Promise<Employee> {
     const { data } = await api.patch(`/employees/${id}`, payload);
     return data;

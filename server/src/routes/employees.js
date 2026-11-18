@@ -39,7 +39,9 @@ const createSchema = z.object({
   status: z.string().default('ACTIVE').transform((value) => value.toUpperCase()),
   role: z.enum(['EMPLOYEE']).optional(),
   departmentText: z.string().optional(),
-  // Mandatory: every employee must map to a higher person.
+  // Leave types this employee is entitled to (IDs from the leave-types list).
+  // When omitted the employee starts with no configured leave balances.
+  leaveTypes: z.array(z.string()).optional().default([]),
   reportingManagerId: z.coerce.number().int().positive(),
   // Leave types this employee is configured for (leave-type ids or names).
   // Seeds a leave_balances row per type so the employee immediately sees
@@ -58,10 +60,15 @@ const updateSchema = z.object({
   allowances: z.coerce.number().min(0).optional(),
   deductions: z.coerce.number().min(0).optional(),
   status: z.string().optional(),
+<<<<<<< Updated upstream
   // reportingManagerId is optional only when the creator is a SUPER_ADMIN
   // setting up the first employee. For HR Admin and Employee role creators,
   // it is still mandatory and rejected at the service level.
+=======
+>>>>>>> Stashed changes
   reportingManagerId: z.coerce.number().int().positive().optional(),
+  // Replace the employee's leave-type set on every update.
+  leaveTypes: z.array(z.string()).optional().default([]),
 });
 
 // ---- Payout Details (earnings/deduction structure + bank, change-tracked) ----

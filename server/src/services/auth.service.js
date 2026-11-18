@@ -451,9 +451,20 @@ class AuthService {
 
     user.role = user.role === 'HR_ADMIN' ? 'HR_ADMIN' : user.role;
 
+    // Pull the linked employee record so the profile page can show the
+    // employee code (the official ID) alongside the internal user id.
+    const empRows = await prismaClient.$queryRaw`
+      SELECT employeeCode, name, designation, joiningDate FROM employees WHERE userId = ${userId} LIMIT 1
+    `;
+    const emp = (empRows && empRows[0]) || null;
+
     const profile = {
       name: user.name || '',
       fullName: user.name || '',
+      employeeCode: emp ? emp.employeeCode : null,
+      designation: emp ? emp.designation : null,
+      joiningDate: emp ? emp.joiningDate : null,
+      memberSince: user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : '—',
     };
 
     return {

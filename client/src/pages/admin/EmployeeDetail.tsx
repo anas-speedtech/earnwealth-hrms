@@ -19,6 +19,8 @@ export default function EmployeeDetailPage() {
   const [employee, setEmployee] = useState<EmployeeDetail | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<{ id: string; name: string; employeeCode: string }[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<{ id: string; name: string }[]>([]);
+  const [selectedLeaveTypes, setSelectedLeaveTypes] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -50,6 +52,13 @@ export default function EmployeeDetailPage() {
         const depts = await organizationService.getDepartments();
         setEmployee(emp);
         setDepartments(depts.filter((d) => d.isActive));
+        // Load leave types for the edit picker.
+        let ltItems: { id: string; name: string }[] = [];
+        try {
+          const lts = await organizationService.getLeaveTypes();
+          ltItems = lts.filter((t) => t.isActive).map((t) => ({ id: t.id, name: t.name }));
+        } catch { /* non-critical */ }
+        setLeaveTypes(ltItems);
         const items = allItems;
         setEmployees(items
           .filter((e: { id: string }) => e.id !== id)
@@ -85,6 +94,7 @@ export default function EmployeeDetailPage() {
         deductions?: string;
         status?: string;
         reportingManagerId?: number | null;
+        leaveTypes?: string[];
       } = {};
 
       if (employee.firstName) payload.firstName = employee.firstName;
@@ -100,6 +110,8 @@ export default function EmployeeDetailPage() {
       // Reporting manager is mandatory and cannot be cleared.
       if (employee.manager?.id) payload.reportingManagerId = Number(employee.manager.id);
       else return setError('A reporting manager is required. Select one before saving.');
+
+      if (selectedLeaveTypes.length > 0) payload.leaveTypes = selectedLeaveTypes;
 
       const updated = await organizationService.updateEmployee(id, payload);
       setEmployee((prev) => (prev ? { ...prev, ...(updated as EmployeeDetail) } : prev));
@@ -234,6 +246,27 @@ export default function EmployeeDetailPage() {
                 noneLabel="— None —"
                 onChange={(v) => setEmployee((p) => (p ? { ...p, manager: v ? { id: v, name: employees.find((e) => e.id === v)?.name || '' } : null } : p))}
               />
+
+              {/* Leave type configuration — choose which leave types apply */}
+              {leaveTypes.length > 0 && (
+                <div className="md:col-span-2">
+                  <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Leave Types</label>
+                  <p className="mb-2 text-xs text-slate-400">Select the leave types this employee is entitled to.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {leaveTypes.map((lt) => {
+                      const checked = selectedLeaveTypes.includes(lt.id);
+                      return (
+                        <label key={lt.id} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[13px] cursor-pointer transition-colors ${checked ? 'bg-cyan-50 border-cyan-300 text-cyan-700' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                          <input type="checkbox" checked={checked} onChange={(e) => {
+                            setSelectedLeaveTypes(e.target.checked ? [...selectedLeaveTypes, lt.id] : selectedLeaveTypes.filter((x) => x !== lt.id));
+                          }} disabled={!isEditing} className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                          {lt.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="md:col-span-2 flex items-center gap-3 border-t border-slate-100 pt-5">
                 <Button onClick={handleSave} isLoading={isSaving}>

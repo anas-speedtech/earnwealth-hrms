@@ -36,12 +36,13 @@ export default function EmployeeProfilePage() {
       ? `${user.profile.firstName} ${user.profile.lastName}`
       : (user?.email || 'Employee');
 
-  const rows = [
+  const profile = (user?.profile ?? {}) as Record<string, unknown>;
+  const rows: { icon: React.ElementType; label: string; value: string }[] = [
     { icon: User, label: 'Full name', value: fullName },
-    { icon: Mail, label: 'Email', value: user?.email },
-    { icon: ShieldCheck, label: 'Role', value: user?.role?.replace('_', ' ') },
-    { icon: KeyRound, label: 'Account ID', value: user?.id },
-    { icon: CalendarDays, label: 'Member since', value: String(user?.profile?.memberSince ?? '—') },
+    { icon: Mail, label: 'Email', value: user?.email || '—' },
+    { icon: ShieldCheck, label: 'Role', value: user?.role?.replace('_', ' ') || '—' },
+    { icon: KeyRound, label: 'Employee ID', value: typeof profile.employeeCode === 'string' && profile.employeeCode ? profile.employeeCode : String(user?.id) },
+    { icon: CalendarDays, label: 'Member since', value: typeof profile.memberSince === 'string' ? profile.memberSince : '—' },
   ];
 
   const update = (field: keyof PersonalProfile, value: string) =>

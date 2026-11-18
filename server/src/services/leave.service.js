@@ -837,6 +837,42 @@ class LeaveService {
     return BOARD_TOKENS.some((token) => desig.includes(token));
   }
 
+  static async seedLeaveTypesForEmployee(employeeId, typeKeys) {
+    if (!Array.isArray(typeKeys) || !typeKeys.length) return 0;
+    const prismaClient = getPrisma();
+    const empRow = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM employees WHERE id = ? LIMIT 1',
+      employeeId
+    );
+    if (!empRow || !empRow.length) return 0;
+    const empId = Number(empRow[0].id);
+    const year = new Date().getFullYear();
+    let count = 0;
+    for (const typeKey of typeKeys) {
+      const typeRow = await prismaClient.$queryRawUnsafe(
+        'SELECT id, annualEntitlementDays, isUnlimited FROM leave_types WHERE id = ? OR name = ? LIMIT 1',
+        typeKey, typeKey
+      );
+      if (!typeRow.length) continue;
+      const t = typeRow[0];
+      if (Number(t.isUnlimited) === 1) continue;
+      const exists = await prismaClient.$queryRawUnsafe(
+        'SELECT id FROM leave_balances WHERE employeeId = ? AND leaveTypeId = ? AND year = ? LIMIT 1',
+        empId, t.id, year
+      );
+      if (exists.length) continue;
+      const opening = Number(t.annualEntitlementDays || 0);
+      await prismaClient.$executeRawUnsafe(
+        `INSERT INTO leave_balances
+           (id, employeeId, leaveTypeId, openingBalance, accruedBalance, usedBalance, reservedBalance, availableBalance, year, lastAccruedAt, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, 0.00, 0.00, 0.00, ?, ?, NOW(), NOW(), NOW())`,
+        require('crypto').randomUUID(), empId, t.id, opening, opening, year
+      );
+      count += 1;
+    }
+    return count;
+  }
+
   static async approveRequest(reqUser, id, comment) {
     return LeaveService.reviewLeave(reqUser, id, { decision: 'APPROVE', note: comment });
   }
