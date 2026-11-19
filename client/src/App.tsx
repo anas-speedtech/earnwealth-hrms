@@ -430,7 +430,7 @@ function App() {
             <Route
               path="/employee/profile"
               element={
-                <RoleRoute allowedRoles={['EMPLOYEE']}>
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN', 'EMPLOYEE']}>
                   <ProtectedRoute>
                     <EmployeeProfile />
                   </ProtectedRoute>

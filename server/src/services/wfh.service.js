@@ -107,7 +107,7 @@ class WFHService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'CREATE_WFH_REQUEST',
         entityType: 'WFHRequest',
@@ -179,7 +179,7 @@ class WFHService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'CANCEL_WFH_REQUEST',
         entityType: 'WFHRequest',
@@ -363,7 +363,7 @@ class WFHService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'APPROVE_WFH_REQUEST',
         entityType: 'WFHRequest',
@@ -393,7 +393,7 @@ class WFHService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'REJECT_WFH_REQUEST',
         entityType: 'WFHRequest',

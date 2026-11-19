@@ -110,7 +110,7 @@ class LeaveTypesService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'CREATE_LEAVE_TYPE',
         entityType: 'LeaveType',
@@ -157,7 +157,7 @@ class LeaveTypesService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'UPDATE_LEAVE_TYPE',
         entityType: 'LeaveType',
@@ -189,7 +189,7 @@ class LeaveTypesService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'DELETE_LEAVE_TYPE',
         entityType: 'LeaveType',

@@ -100,7 +100,7 @@ class CompOffService {
     );
     logger.info('Comp-off policy updated', { by: user.id });
     await prismaClient.auditLog.create({
-      data: { actorId: user.id, actorRole: user.role, action: 'UPDATE_COMPOFF_POLICY', entityType: 'CompOffPolicy', entityId: 'policy' }
+      data: { actorId: String(user.id), actorRole: user.role, action: 'UPDATE_COMPOFF_POLICY', entityType: 'CompOffPolicy', entityId: 'policy' }
     });
     return CompOffService.getPolicy(user);
   }
@@ -398,7 +398,7 @@ class CompOffService {
 
     await CompOffService._ledger(prismaClient, id, empId, 'EARN', earnedDays, 'Comp-off credited');
     await prismaClient.auditLog.create({
-      data: { actorId: reqUser.id, actorRole: reqUser.role, action: 'CREATE_COMPOFF_REQUEST', entityType: 'CompOffCredit', entityId: id }
+      data: { actorId: String(reqUser.id), actorRole: reqUser.role, action: 'CREATE_COMPOFF_REQUEST', entityType: 'CompOffCredit', entityId: id }
     });
 
     logger.info('Comp-off credited', { creditId: id, employeeId: empId, by: reqUser.id });
@@ -491,7 +491,7 @@ class CompOffService {
       );
       await CompOffService._ledger(tx, creditId, empId, 'USE', days, note || 'Comp-off availed');
       await tx.auditLog.create({
-        data: { actorId: reqUser.id, actorRole: reqUser.role, action: 'CREATE_COMPOFF_LEAVE', entityType: 'CompOffLeave', entityId: creditId }
+        data: { actorId: String(reqUser.id), actorRole: reqUser.role, action: 'CREATE_COMPOFF_LEAVE', entityType: 'CompOffLeave', entityId: creditId }
       });
     });
 
@@ -640,7 +640,7 @@ class CompOffService {
       await CompOffService._ledger(prismaClient, id, credit.employeeId, 'EARN', Number(credit.earnedDays), 'Comp-off credit approved');
       logger.info('Comp-off leave approved', { creditId: id, by: reqUser.id });
       await prismaClient.auditLog.create({
-        data: { actorId: reqUser.id, actorRole: reqUser.role, action: 'APPROVE_COMPOFF_CREDIT', entityType: 'CompOffCredit', entityId: id }
+        data: { actorId: String(reqUser.id), actorRole: reqUser.role, action: 'APPROVE_COMPOFF_CREDIT', entityType: 'CompOffCredit', entityId: id }
       });
     } else {
       // Mark credit as rejected (do not delete, so it remains queryable).
@@ -652,7 +652,7 @@ class CompOffService {
       await CompOffService._ledger(prismaClient, id, credit.employeeId, 'RELEASED', Number(credit.earnedDays), 'Comp-off credit rejected: ' + (reviewComment || ''));
       logger.info('Comp-off leave rejected', { creditId: id, by: reqUser.id });
       await prismaClient.auditLog.create({
-        data: { actorId: reqUser.id, actorRole: reqUser.role, action: 'REJECT_COMPOFF_CREDIT', entityType: 'CompOffCredit', entityId: id }
+        data: { actorId: String(reqUser.id), actorRole: reqUser.role, action: 'REJECT_COMPOFF_CREDIT', entityType: 'CompOffCredit', entityId: id }
       });
     }
     return CompOffService.getCreditById(reqUser, id);
@@ -696,7 +696,7 @@ class CompOffService {
        WHERE status IN ('AVAILABLE','PARTIALLY_USED') AND expiresAt < CURDATE()`
     );
     await prismaClient.auditLog.create({
-      data: { actorId: reqUser.id, actorRole: reqUser.role, action: 'PROCESS_COMPOFF_EXPIRY', entityType: 'CompOffCredit', entityId: 'all' }
+      data: { actorId: String(reqUser.id), actorRole: reqUser.role, action: 'PROCESS_COMPOFF_EXPIRY', entityType: 'CompOffCredit', entityId: 'all' }
     });
     logger.info('Expired comp-off credits processed', { affected: result, by: reqUser.id });
     return { processed: result.affectedRows };

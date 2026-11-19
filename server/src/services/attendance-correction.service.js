@@ -176,11 +176,11 @@ class AttendanceCorrectionService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'REQUEST_ATTENDANCE_CORRECTION',
         entityType: 'AttendanceCorrection',
-        entityId: correction.id,
+        entityId: String(correction.id),
       },
     });
 
@@ -238,7 +238,7 @@ class AttendanceCorrectionService {
     // Add audit log
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'APPROVE_ATTENDANCE_CORRECTION',
         entityType: 'AttendanceCorrection',
@@ -285,7 +285,7 @@ class AttendanceCorrectionService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'REJECT_ATTENDANCE_CORRECTION',
         entityType: 'AttendanceCorrection',

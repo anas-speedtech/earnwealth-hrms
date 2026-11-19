@@ -107,11 +107,11 @@ class DepartmentService {
     try {
       await prismaClient.auditLog.create({
         data: {
-          actorId: reqUser.id,
+          actorId: String(reqUser.id),
           actorRole: reqUser.role,
           action: 'CREATE_DEPARTMENT',
           entityType: 'Department',
-          entityId: dept.id,
+          entityId: String(dept.id),
         },
       });
     } catch (err) {
@@ -159,7 +159,7 @@ class DepartmentService {
     try {
       await prismaClient.auditLog.create({
         data: {
-          actorId: reqUser.id,
+          actorId: String(reqUser.id),
           actorRole: reqUser.role,
           action: 'UPDATE_DEPARTMENT',
           entityType: 'Department',
@@ -206,7 +206,7 @@ class DepartmentService {
     try {
       await prismaClient.auditLog.create({
         data: {
-          actorId: reqUser.id,
+          actorId: String(reqUser.id),
           actorRole: reqUser.role,
           action: 'DELETE_DEPARTMENT',
           entityType: 'Department',

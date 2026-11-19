@@ -90,11 +90,11 @@ class HolidayService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'CREATE_HOLIDAY',
         entityType: 'Holiday',
-        entityId: holiday.id,
+        entityId: String(holiday.id),
       },
     });
 
@@ -143,7 +143,7 @@ class HolidayService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'UPDATE_HOLIDAY',
         entityType: 'Holiday',
@@ -181,7 +181,7 @@ class HolidayService {
 
     await prismaClient.auditLog.create({
       data: {
-        actorId: reqUser.id,
+        actorId: String(reqUser.id),
         actorRole: reqUser.role,
         action: 'DELETE_HOLIDAY',
         entityType: 'Holiday',
