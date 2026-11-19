@@ -38,13 +38,8 @@ export default function EmployeeCreatePage() {
   const [departments, setDepartments] = useState<{ id: string; name: string; isActive: boolean }[]>([]);
   const [employees, setEmployees] = useState<{ id: string; name: string; employeeCode: string }[]>([]);
   const [designations, setDesignations] = useState<{ id: string; name: string }[]>([]);
-<<<<<<< Updated upstream
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
   const [selectedLeaveTypes, setSelectedLeaveTypes] = useState<Record<string, boolean>>({});
-=======
-  const [leaveTypes, setLeaveTypes] = useState<{ id: string; name: string }[]>([]);
-  const [selectedLeaveTypes, setSelectedLeaveTypes] = useState<string[]>([]);
->>>>>>> Stashed changes
 
   const [form, setForm] = useState({
     employeeCode: '',
@@ -100,18 +95,11 @@ export default function EmployeeCreatePage() {
         // Non-critical
       }
       try {
-<<<<<<< Updated upstream
         const list = await leaveService.getAllLeaveTypes();
         setLeaveTypes(list);
         setSelectedLeaveTypes(Object.fromEntries(list.map((t) => [t.id, !isMaternityOrPaternity(t)])));
       } catch {
         // Non-critical
-=======
-        const types = await organizationService.getLeaveTypes();
-        setLeaveTypes(types.filter((t) => t.isActive).map((t) => ({ id: t.id, name: t.name })));
-      } catch {
-        // Non-critical — leave type picker will just be empty
->>>>>>> Stashed changes
       }
     }
     load();
@@ -161,7 +149,6 @@ export default function EmployeeCreatePage() {
     const selectedTypeIds = leaveTypes.filter((t) => selectedLeaveTypes[t.id]).map((t) => t.id);
 
     try {
-<<<<<<< Updated upstream
       if (provisioningAdmin) {
         // HR Admin provisioning goes through the account endpoint (the
         // "Add HR Admin" behaviour the Accounts modal used to have).
@@ -200,28 +187,6 @@ export default function EmployeeCreatePage() {
         });
         setSuccess('Employee created successfully.');
       }
-=======
-      await organizationService.createEmployee({
-        employeeCode: form.employeeCode,
-        firstName: form.firstName,
-        lastName: form.lastName,
-        designation: form.designation,
-        deviceEnrollNo: form.deviceEnrollNo,
-        // Salary/allowances/deductions are configured in Payroll (salary
-        // structure) — the record is created with zeroed pay fields here.
-        basicSalary: '0',
-        departmentId: form.departmentId || undefined,
-        joiningDate: form.joiningDate,
-        status: form.status,
-        // Mandatory: every employee must map to a higher person.
-        reportingManagerId: Number(form.reportingManagerId),
-        // Optional login credentials — creates the linked user account.
-        email: form.email || undefined,
-        password: form.password || undefined,
-        leaveTypes: selectedLeaveTypes,
-      });
-      setSuccess('Employee created successfully.');
->>>>>>> Stashed changes
       setTimeout(() => navigate('/admin/employees'), 1500);
     } catch (err) {
       const message = err instanceof Error ? err.message : provisioningAdmin ? 'Failed to create the account.' : 'Failed to create employee.';
@@ -298,60 +263,8 @@ export default function EmployeeCreatePage() {
                   {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </Field>
-<<<<<<< Updated upstream
               <Field label="Device No. (optional)" error={fieldErrors.deviceEnrollNo} helper="Only if a biometric device is paired.">
                 <input type="number" min="1" step="1" value={form.deviceEnrollNo} onChange={(e) => update('deviceEnrollNo', e.target.value)} disabled={isSubmitting} className={inputClass} />
-=======
-            </div>
-
-            <div>
-              <h4 className="mb-3 text-[13px] font-semibold text-slate-700">Login Account</h4>
-              <p className="mb-3 text-xs text-slate-400">
-                Optional — set an email and password so the employee can sign in immediately. Leave blank to invite them later.
-              </p>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <Field label="Email" error={fieldErrors.email}>
-                  <input type="email" value={form.email} onChange={(e) => update('email', e.target.value)} disabled={isSubmitting} className={inputClass} placeholder="name@company.com" />
-                </Field>
-                <Field label="Password" error={fieldErrors.password} helper="At least 8 characters.">
-                  <input type="password" value={form.password} onChange={(e) => update('password', e.target.value)} disabled={isSubmitting} className={inputClass} />
-                </Field>
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="manager-select" className="mb-1.5 block text-[12px] font-medium text-slate-600">Reporting Manager (required)</label>
-              <select id="manager-select" value={form.reportingManagerId} onChange={(e) => update('reportingManagerId', e.target.value)} disabled={isSubmitting} className={inputClass}>
-                <option value="">Select a manager…</option>
-                {employees.map((e) => <option key={e.id} value={e.id}>{e.name} ({e.employeeCode})</option>)}
-              </select>
-              {fieldErrors.reportingManagerId && <p className="mt-1.5 text-xs text-red-600">{fieldErrors.reportingManagerId}</p>}
-            </div>
-
-            {leaveTypes.length > 0 && (
-              <div>
-                <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Leave Types</label>
-                <p className="mb-2 text-xs text-slate-400">Select the leave types this employee is entitled to. You can add more later.</p>
-                <div className="flex flex-wrap gap-2">
-                  {leaveTypes.map((lt) => {
-                    const checked = selectedLeaveTypes.includes(lt.id);
-                    return (
-                      <label key={lt.id} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[13px] cursor-pointer transition-colors ${checked ? 'bg-cyan-50 border-cyan-300 text-cyan-700' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
-                        <input type="checkbox" checked={checked} onChange={(e) => {
-                          setSelectedLeaveTypes(e.target.checked ? [...selectedLeaveTypes, lt.id] : selectedLeaveTypes.filter((x) => x !== lt.id));
-                        }} disabled={isSubmitting} className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
-                        {lt.name}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field label="Joining Date" error={fieldErrors.joiningDate}>
-                <input type="date" value={form.joiningDate} onChange={(e) => update('joiningDate', e.target.value)} disabled={isSubmitting} className={inputClass} />
->>>>>>> Stashed changes
               </Field>
               <Field label="Status">
                 <select value={form.status} onChange={(e) => update('status', e.target.value)} disabled={isSubmitting} className={inputClass}>

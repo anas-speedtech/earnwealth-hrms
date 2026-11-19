@@ -326,6 +326,59 @@ class UserManagementService {
 
     return { id: String(userId), isActive };
   }
+
+  /**
+   * Sets a new password for any user account.
+   *
+   * The Super Admin may reset any account, including HR Admins (and their own,
+   * which is how a locked-out Super Admin recovers through the UI). An HR
+   * Admin may only reset Employee accounts — mirroring the setActive rules.
+   *
+   * The password change revokes every live session for the target, so an
+   * old password (or a stolen refresh token) stops working immediately.
+   */
+  static async resetPassword(actor, userId, password) {
+    const prismaClient = getPrisma();
+
+    const rows = await prismaClient.$queryRaw`
+      SELECT id, role, name, email FROM users WHERE id = ${Number(userId)} LIMIT 1
+    `;
+    if (!rows.length) {
+      throw new AppError(AppErrorCodes.NOT_FOUND, 'Account not found.', 404);
+    }
+    const target = rows[0];
+
+    // HR Admin can only reset Employee accounts, not HR Admin / Super Admin.
+    if (actor.role === 'HR_ADMIN' && target.role !== 'EMPLOYEE') {
+      throw new AppError(
+        AppErrorCodes.FORBIDDEN,
+        'HR Admin can only reset Employee passwords.',
+        403
+      );
+    }
+
+    const hash = await hashPassword(password);
+    await prismaClient.$executeRaw`
+      UPDATE users SET passwordHash = ${hash}, updatedAt = NOW(3) WHERE id = ${Number(userId)}
+    `;
+
+    // End every live session for the target so the old password stops working.
+    await prismaClient.$executeRaw`
+      UPDATE refresh_tokens SET revokedAt = NOW(3)
+      WHERE userId = ${Number(userId)} AND revokedAt IS NULL
+    `;
+
+    await AuthService.logAudit(
+      String(actor.id),
+      actor.role,
+      'RESET_USER_PASSWORD',
+      'User',
+      String(userId)
+    );
+    logger.info('User password reset', { actorId: actor.id, targetId: userId, targetRole: target.role });
+
+    return { id: String(userId), message: 'Password updated. The user must sign in again.' };
+  }
 }
 
 module.exports = { UserManagementService };

@@ -152,13 +152,9 @@ export const organizationService = {
     // a linked user account so they can sign in.
     email?: string;
     password?: string;
-<<<<<<< Updated upstream
     // Leave types to configure for the new employee (ids from the leave-type
     // list). Seeds a balance row per type so the dashboard / apply-leave
     // screens immediately show only their types.
-=======
-    // Leave types to configure for this employee on creation.
->>>>>>> Stashed changes
     leaveTypes?: string[];
   }): Promise<Employee> {
     const { data } = await api.post('/employees', payload);
@@ -183,6 +179,17 @@ export const organizationService = {
     leaveTypes?: string[];
   }): Promise<{ id: string; name: string; email: string; role: string; employeeCode: string; }> {
     const { data } = await api.post('/admin-users', payload);
+    return data;
+  },
+
+  /**
+   * Reset a user account's password. The Super Admin may reset any account
+   * (including HR Admins and their own); an HR Admin is limited to Employees.
+   * The server revokes all of the target's live sessions, so the old password
+   * stops working immediately.
+   */
+  async resetAdminPassword(id: string, password: string): Promise<{ id: string; message: string }> {
+    const { data } = await api.post(`/admin-users/${id}/reset-password`, { password });
     return data;
   },
 

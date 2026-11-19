@@ -30,6 +30,9 @@ const env = {
   DB_NAME: process.env.DB_NAME,
   DB_USER: process.env.DB_USER,
   DB_PASSWORD: process.env.DB_PASSWORD,
+  // The bootstrap Super Admin address. Kept here so the login rate limiter can
+  // exempt the owner from lockout (see middleware/rateLimiter.js).
+  BOOTSTRAP_SUPER_ADMIN_EMAIL: process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL,
 };
 
 // Build DATABASE_URL from DB_* fields if not explicitly provided.

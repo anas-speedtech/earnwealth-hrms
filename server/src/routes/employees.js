@@ -60,12 +60,9 @@ const updateSchema = z.object({
   allowances: z.coerce.number().min(0).optional(),
   deductions: z.coerce.number().min(0).optional(),
   status: z.string().optional(),
-<<<<<<< Updated upstream
   // reportingManagerId is optional only when the creator is a SUPER_ADMIN
   // setting up the first employee. For HR Admin and Employee role creators,
   // it is still mandatory and rejected at the service level.
-=======
->>>>>>> Stashed changes
   reportingManagerId: z.coerce.number().int().positive().optional(),
   // Replace the employee's leave-type set on every update.
   leaveTypes: z.array(z.string()).optional().default([]),

@@ -1,4 +1,16 @@
 ﻿const rateLimit = require('express-rate-limit');
+const { env } = require('../config/env');
+
+// The bootstrap Super Admin is the one account that can recover every other
+// account, so the login limiter must never lock them out.
+const ADMIN_EMAIL = (env.BOOTSTRAP_SUPER_ADMIN_EMAIL || '').trim().toLowerCase();
+
+// The email address from the login body, normalised for matching. Null when
+// the body is missing or malformed (the limiter then falls back to the IP key).
+function loginEmail(req) {
+  const email = req.body && req.body.email;
+  return typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null;
+}
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -9,6 +21,17 @@ const loginLimiter = rateLimit({
       message: 'Too many login attempts. Please try again later.',
     },
   },
+  // Key the counter on the login email address (per user), not the client IP.
+  // Behind the reverse proxy (trust proxy enabled) every client collapses to a
+  // single req.ip, so an IP-keyed limiter let a handful of failed attempts
+  // lock out ALL accounts at once — including the Super Admin. Per-user keys
+  // mean one account's failures only lock that account out.
+  keyGenerator: (req) => {
+    const email = loginEmail(req);
+    return email ? `login-email:${email}` : `login-ip:${req.ip}`;
+  },
+  // Never rate-limit the Super Admin login.
+  skip: (req) => ADMIN_EMAIL !== '' && loginEmail(req) === ADMIN_EMAIL,
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -57,4 +80,3 @@ const otpVerifyLimiter = rateLimit({
 });
 
 module.exports = { loginLimiter, apiLimiter, passwordResetLimiter, otpVerifyLimiter };
-

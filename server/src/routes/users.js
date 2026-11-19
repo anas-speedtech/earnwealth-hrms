@@ -42,6 +42,10 @@ const statusSchema = z.object({
   isActive: z.boolean(),
 });
 
+const resetPasswordSchema = z.object({
+  password: z.string().min(8).max(128),
+});
+
 // Personal-information fields. Employees read/update only their own record;
 // HR keeps these in the same table when provisioning.
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -91,6 +95,23 @@ router.patch(
   async (req, res, next) => {
     try {
       const result = await UserManagementService.setActive(req.user, req.params.id, req.body.isActive);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Reset any user's password. The Super Admin may reset HR Admin / Employee
+// (and their own) accounts; an HR Admin is limited to Employee accounts,
+// enforced again in the service so no route-level bypass mints the wrong scope.
+router.post(
+  '/admin-users/:id/reset-password',
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  validateBody(resetPasswordSchema),
+  async (req, res, next) => {
+    try {
+      const result = await UserManagementService.resetPassword(req.user, req.params.id, req.body.password);
       res.json(result);
     } catch (err) {
       next(err);

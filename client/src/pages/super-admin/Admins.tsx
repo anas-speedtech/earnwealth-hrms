@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users } from 'lucide-react';
+import { Plus, Users, KeyRound } from 'lucide-react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import { organizationService } from '../../services/organization.service';
 import toast from 'react-hot-toast';
 import Button from '../../components/ui/Button';
 import Spinner from '../../components/ui/Spinner';
 import EmptyState from '../../components/ui/EmptyState';
+import Modal from '../../components/ui/Modal';
 
 // The list endpoint flattens a single `name` column, which is frequently
 // empty (the split `firstName`/`lastName` are always populated).
@@ -46,9 +48,57 @@ export default function SuperAdminAdminsPage() {
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
+  // Reset-password state: which account the modal is open for + the new value.
+  const [resetTarget, setResetTarget] = useState<AdminAccount | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
   const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ADMIN';
+  // The Super Admin can reset any account (including HR Admins and their own);
+  // an HR Admin is limited to Employee accounts — the server enforces the same.
+  const canReset = user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ADMIN';
   // Super Admins provision HR Admin accounts; HR Admins provision Employees.
   const addLabel = user?.role === 'SUPER_ADMIN' ? 'Add HR Admin' : 'Add Employee';
+
+  const openReset = (account: AdminAccount) => {
+    setResetTarget(account);
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowPassword(false);
+  };
+
+  const closeReset = () => {
+    setResetTarget(null);
+    setNewPassword('');
+    setConfirmPassword('');
+  };
+
+  const handleReset = async () => {
+    if (!resetTarget || resetting) return;
+    if (newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match.');
+      return;
+    }
+    setResetting(true);
+    try {
+      await organizationService.resetAdminPassword(resetTarget.id, newPassword);
+      toast.success(`Password updated for ${resetTarget.name}. They must sign in again.`);
+      closeReset();
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message || 'Could not reset the password.';
+      toast.error(message);
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const load = async () => {
     setIsLoading(true);
@@ -179,23 +229,36 @@ export default function SuperAdminAdminsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="sr-only peer"
-                            checked={account.isActive}
-                            disabled={togglingId === account.id}
-                            onChange={() => handleToggle(account)}
-                            aria-label={`${account.isActive ? 'Active' : 'Inactive'} - toggle to ${account.isActive ? 'deactivate' : 'activate'}`}
-                          />
-                          <div className={`w-9 h-5 rounded-full peer transition-colors duration-150 ${
-                            account.isActive ? 'bg-emerald-500' : 'bg-slate-300'
-                          } ${togglingId === account.id ? 'opacity-50' : ''}`}>
-                            <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow-sm ring-0 transition-transform duration-150 ${
-                              account.isActive ? 'translate-x-4' : 'translate-x-0'
-                            } ${togglingId === account.id ? 'animate-pulse' : ''}`} />
-                          </div>
-                        </label>
+                        <div className="flex items-center gap-3">
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="sr-only peer"
+                              checked={account.isActive}
+                              disabled={togglingId === account.id}
+                              onChange={() => handleToggle(account)}
+                              aria-label={`${account.isActive ? 'Active' : 'Inactive'} - toggle to ${account.isActive ? 'deactivate' : 'activate'}`}
+                            />
+                            <div className={`w-9 h-5 rounded-full peer transition-colors duration-150 ${
+                              account.isActive ? 'bg-emerald-500' : 'bg-slate-300'
+                            } ${togglingId === account.id ? 'opacity-50' : ''}`}>
+                              <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow-sm ring-0 transition-transform duration-150 ${
+                                account.isActive ? 'translate-x-4' : 'translate-x-0'
+                              } ${togglingId === account.id ? 'animate-pulse' : ''}`} />
+                            </div>
+                          </label>
+                          {canReset && (
+                            <button
+                              type="button"
+                              onClick={() => openReset(account)}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] font-medium text-slate-600 transition-colors hover:border-cyan-300 hover:text-cyan-700"
+                              title={`Reset ${account.name}'s password`}
+                            >
+                              <KeyRound size={13} />
+                              <span className="hidden sm:inline">Reset password</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -204,6 +267,63 @@ export default function SuperAdminAdminsPage() {
             </div>
           </div>
         )}
+
+        {/* Reset password modal */}
+        <Modal
+          isOpen={resetTarget !== null}
+          onClose={closeReset}
+          title={resetTarget ? `Reset password — ${resetTarget.name}` : 'Reset password'}
+          footer={
+            <>
+              <Button variant="secondary" onClick={closeReset} disabled={resetting}>
+                Cancel
+              </Button>
+              <Button onClick={handleReset} isLoading={resetting}>
+                {resetting ? 'Resetting…' : 'Update password'}
+              </Button>
+            </>
+          }
+        >
+          {resetTarget && (
+            <div className="space-y-4">
+              <p className="text-[13px] text-slate-500">
+                Set a new password for <strong className="text-slate-700">{resetTarget.name}</strong>{' '}
+                ({resetTarget.email}). The change revokes all of their active sessions — they will
+                have to sign in again.
+              </p>
+              <div>
+                <label className="mb-1.5 block text-[12px] font-medium text-slate-600">New password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((s) => !s)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] font-medium text-slate-400 hover:text-slate-600"
+                  >
+                    {showPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Confirm password</label>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter the new password"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
+                />
+              </div>
+            </div>
+          )}
+        </Modal>
       </div>
     </DashboardShell>
   );

@@ -25,39 +25,9 @@ function getPrisma() {
  */
 async function syncToEmployeeProfile(prismaClient, employeeRow) {
   if (!employeeRow || !employeeRow.id) return;
-<<<<<<< Updated upstream
-  const existing = await prismaClient.$queryRawUnsafe(
-    'SELECT id FROM employee_profiles WHERE userId = ? LIMIT 1',
-    employeeRow.userId || null
-  ).catch(() => []);
-  const profileData = {
-    userId: employeeRow.userId ? Number(employeeRow.userId) : null,
-    employeeCode: String(employeeRow.employeeCode || ''),
-    firstName: String(employeeRow.name || '').trim().split(/\s+/)[0] || '',
-    lastName: String(employeeRow.name || '').trim().split(/\s+/).slice(1).join(' '),
-    designationId: null,
-    departmentId: employeeRow.departmentId ? Number(employeeRow.departmentId) : null,
-    reportingManagerId: employeeRow.reportingManagerId ? Number(employeeRow.reportingManagerId) : null,
-    status: String(employeeRow.isActive ? 'ACTIVE' : 'INACTIVE'),
-  };
-  if (existing && existing.length) {
-    await prismaClient.$executeRawUnsafe(`
-      UPDATE employee_profiles SET
-        employeeCode = ?, firstName = ?, lastName = ?,
-        departmentId = ?, reportingManagerId = ?, status = ?
-      WHERE userId = ?
-    `, profileData.employeeCode, profileData.firstName, profileData.lastName,
-       profileData.departmentId, profileData.reportingManagerId, profileData.status,
-       profileData.userId);
-  } else {
-    await prismaClient.$executeRawUnsafe(`
-      INSERT INTO employee_profiles
-        (employeeCode, firstName, lastName, departmentId, reportingManagerId, status, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-    `, profileData.employeeCode, profileData.firstName, profileData.lastName,
-       profileData.departmentId, profileData.reportingManagerId, profileData.status);
-  }
-=======
+  // Upsert keyed on userId (the unique link to the account). Including userId
+  // is mandatory: the column is NOT NULL, so an insert that omits it fails
+  // with "Field 'userId' doesn't have a default value".
   await prismaClient.$executeRawUnsafe(`
     INSERT INTO employee_profiles
       (employeeCode, userId, firstName, lastName, departmentId, reportingManagerId, status, createdAt, updatedAt)
@@ -79,7 +49,6 @@ async function syncToEmployeeProfile(prismaClient, employeeRow) {
     employeeRow.reportingManagerId ? Number(employeeRow.reportingManagerId) : null,
     employeeRow.isActive ? 'ACTIVE' : 'INACTIVE'
   );
->>>>>>> Stashed changes
 }
 
 const PAGE_SIZE = 20;
@@ -443,7 +412,6 @@ class EmployeeService {
       logger.warn('Audit log write failed', { action: 'CREATE_EMPLOYEE', error: err.message });
     }
 
-<<<<<<< Updated upstream
     // Configure the leave types this employee is entitled to (opt-in list
     // from the create form). A balance row marks a type as "configured" for
     // the employee; seeding it here means the dashboard / apply-leave
@@ -454,16 +422,13 @@ class EmployeeService {
       leaveTypesCreated = await LeaveService.seedLeaveTypesForEmployee(inserted.id, data.leaveTypes);
     }
 
-    logger.info('Employee created', { employeeId: inserted.id, actorId: reqUser.id, leaveTypesCreated });
-=======
-    logger.info('Employee created', { employeeId: inserted.id, actorId: reqUser.id, leaveTypesCreated: 0 });
-
     // Mirror into Prisma's employee_profiles so payslip / payroll can find us.
     void syncToEmployeeProfile(prismaClient, {
       id: inserted.id, employeeCode, name, userId: linkedUserId,
       departmentId, reportingManagerId, isActive,
     });
->>>>>>> Stashed changes
+
+    logger.info('Employee created', { employeeId: inserted.id, actorId: reqUser.id, leaveTypesCreated });
 
     return {
       id: String(inserted.id),
@@ -665,8 +630,6 @@ class EmployeeService {
     // Mirror into Prisma's employee_profiles so payslip / payroll can find us.
     void syncToEmployeeProfile(prismaClient, updated);
 
-<<<<<<< Updated upstream
-=======
     // Sync leave balances — clear old ones and seed from selected types.
     if (data.leaveTypes) {
       await prismaClient.$executeRawUnsafe(
@@ -678,7 +641,6 @@ class EmployeeService {
       }
     }
 
->>>>>>> Stashed changes
     try {
       await prismaClient.auditLog.create({
         data: {
