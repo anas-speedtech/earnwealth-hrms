@@ -186,6 +186,19 @@ export default function HRAttendancePage() {
       );
     }
 
+    if (cell.status === 'WFH' || cell.status === 'CO') {
+      const isWfh = cell.status === 'WFH';
+      return (
+        <div className={`flex h-full min-h-[2.75rem] items-center justify-center rounded-sm px-1 py-1 ${isWfh ? 'bg-sky-100 text-sky-800' : 'bg-violet-100 text-violet-800'}`}>
+          <span className="text-[10px] font-semibold">{cell.status}</span>
+        </div>
+      );
+    }
+
+    if (cell.status === 'LWP') {
+      return <div className="flex h-full min-h-[2.75rem] items-center justify-center rounded-sm bg-rose-100 px-1 py-1 text-rose-800"><span className="text-[10px] font-semibold">LWP</span></div>;
+    }
+
     if (cell.compOffEligible) {
       return (
         <div className="flex min-h-[2.75rem] flex-col justify-between rounded-sm bg-violet-100 px-1.5 py-1 text-violet-900">
@@ -204,22 +217,23 @@ export default function HRAttendancePage() {
       );
     }
 
-    const isHdl = cell.halfDay;
+    const isFhdl = cell.status === 'FHDL';
+    const isShdl = cell.status === 'SHDL';
 
     return (
       <div
         className={`flex min-h-[2.75rem] flex-col justify-between rounded-sm px-1.5 py-1 ${
-          isHdl ? 'bg-orange-100 text-orange-900' : 'bg-emerald-100 text-emerald-900'
+          isFhdl ? 'bg-orange-100 text-orange-900' : isShdl ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'
         }`}
       >
         <div className="space-y-px text-[10px] leading-tight tabular-nums">
           {cell.in && <span>{cell.in}</span>}
           {cell.out && <span>{cell.out}</span>}
         </div>
-        {isHdl && (
+        {(isFhdl || isShdl) && (
           <div className="flex flex-wrap gap-0.5">
             {cell.halfDayTags.map((tag) => (
-              <span key={tag} className="rounded-sm bg-orange-200/70 px-1 text-[9px] font-semibold text-orange-700">
+              <span key={tag} className={`rounded-sm px-1 text-[9px] font-semibold ${isShdl ? 'bg-amber-200/70 text-amber-700' : 'bg-orange-200/70 text-orange-700'}`}>
                 {tag}
               </span>
             ))}

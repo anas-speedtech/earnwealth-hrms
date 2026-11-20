@@ -114,6 +114,25 @@ class AttendanceService {
       ...(employeeId != null ? [istMonthStart, istMonthEnd, employeeId] : [istMonthStart, istMonthEnd])
     );
 
+    const nextMonthStart = new Date(Date.UTC(yearNum, monthNum, 1));
+    // WFH records refer to employee_profiles; map them to legacy attendance
+    // employees through their user id.
+    const wfhRows = await prisma.$queryRawUnsafe(
+      `SELECT e.id AS employeeId, w.requestDate FROM wfh_requests w
+       JOIN employee_profiles ep ON ep.id = w.employeeId
+       JOIN employees e ON e.userId = ep.userId
+       WHERE w.status = 'APPROVED' AND w.requestDate >= ? AND w.requestDate < ?${employeeId != null ? ' AND e.id = ?' : ''}`,
+      ...(employeeId != null ? [monthStart, nextMonthStart, employeeId] : [monthStart, nextMonthStart])
+    ).catch(() => []);
+    // The existing Comp-Off module records redemptions in its ledger. Until a
+    // requested leave-date field is introduced, its USE date is the coverage
+    // date that must not be classified as LWP.
+    const compOffRows = await prisma.$queryRawUnsafe(
+      `SELECT employeeId, createdAt FROM comp_off_ledger WHERE type = 'USE'
+       AND createdAt >= ? AND createdAt < ?${employeeId != null ? ' AND employeeId = ?' : ''}`,
+      ...(employeeId != null ? [monthStart, nextMonthStart, employeeId] : [monthStart, nextMonthStart])
+    ).catch(() => []);
+
     // Holidays listed in the month (off-day detection for comp-off
     // eligibility). Matched by IST date key.
     const holidays = await prisma.$queryRawUnsafe(
@@ -143,6 +162,20 @@ class AttendanceService {
         set.add(d);
       }
     }
+
+    const mapCoveredDays = (rows, field) => {
+      const result = new Map();
+      for (const row of rows) {
+        const date = new Date(row[field]);
+        if (date.getUTCFullYear() !== yearNum || date.getUTCMonth() + 1 !== monthNum) continue;
+        const key = String(row.employeeId);
+        if (!result.has(key)) result.set(key, new Set());
+        result.get(key).add(date.getUTCDate());
+      }
+      return result;
+    };
+    const wfhDays = mapCoveredDays(wfhRows, 'requestDate');
+    const compOffDays = mapCoveredDays(compOffRows, 'createdAt');
 
     // employeeId -> day -> { firstIn, lastOut }
     const byEmpDay = new Map();
@@ -188,6 +221,8 @@ class AttendanceService {
     const rows = employees.map((emp) => {
       const dayMap = byEmpDay.get(String(emp.id));
       const empLeaveDays = leaveDays.get(String(emp.id));
+      const empWfhDays = wfhDays.get(String(emp.id));
+      const empCompOffDays = compOffDays.get(String(emp.id));
       const days = [];
       for (let d = 1; d <= daysInMonth; d++) {
         const cell = dayMap?.get(d);
@@ -196,6 +231,8 @@ class AttendanceService {
         const hasIn = !!firstIn;
         const hasOut = !!lastOut;
         const onLeave = empLeaveDays?.has(d);
+        const onWfh = empWfhDays?.has(d);
+        const onCompOff = empCompOffDays?.has(d);
         const isOffDay = offDays.has(d);
 
         // Classification follows the standard 09:30–18:30 window:
@@ -204,23 +241,32 @@ class AttendanceService {
         //  - both sides on time -> P (full day)
         //  - only one side captured, or a mid-day start after the 13:45
         //    lunch break -> HDL (generic half day)
-        const lateIn = hasIn && firstIn > STANDARD_IN;
-        const earlyOut = hasOut && lastOut < STANDARD_OUT;
+        const lateIn = hasIn && firstIn >= '09:31';
+        const earlyOrMissingOut = !hasOut || lastOut <= '18:29';
         const tags = [];
-        if (lateIn) tags.push('FHDL');
-        if (earlyOut) tags.push('SHDL');
         // No data at all on an off day is expected — not a gap.
         let status = '—';
         let halfDay = false;
         if (onLeave) {
           status = 'L';
-        } else if (hasIn || hasOut) {
-          if (lateIn || earlyOut || (!hasIn || !hasOut)) {
-            status = 'H';
+        } else if (onWfh) {
+          status = 'WFH';
+        } else if (onCompOff) {
+          status = 'CO';
+        } else if (!isOffDay) {
+          if (!hasIn) {
+            status = 'LWP';
+          } else if (lateIn && !earlyOrMissingOut) {
+            status = 'FHDL';
             halfDay = true;
-            if (!lateIn && !earlyOut) tags.push('HDL');
+            tags.push('FHDL');
+          } else if (!lateIn && earlyOrMissingOut) {
+            status = 'SHDL';
+            halfDay = true;
+            tags.push('SHDL');
           } else {
-            status = 'P';
+            // Late IN combined with early/no OUT is unpaid.
+            status = lateIn ? 'LWP' : 'P';
           }
         }
         // Punched in on a weekend/holiday -> comp-off eligible (3-month
@@ -233,6 +279,8 @@ class AttendanceService {
           out: lastOut,
           status,
           onLeave,
+          onWfh,
+          onCompOff,
           halfDay,
           halfDayTags: tags,
           isOffDay,
