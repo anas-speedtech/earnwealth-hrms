@@ -12,7 +12,6 @@ import {
   TitledStat,
   DonutPanel,
   LeaveTable,
-  QuickActions,
   ViewAll,
 } from '../../components/dashboard/widgets';
 
@@ -41,22 +40,12 @@ export default function AdminDashboardPage() {
         <div className="space-y-5">
           <StatGrid stats={stats} loading={loading} />
 
-          <div className="grid gap-5 lg:grid-cols-3">
-            <Panel title="Department-wise Employees" className="lg:col-span-2">
+          <div className="grid gap-5">
+            <Panel title="Department-wise Employees">
               <DonutPanel
                 data={donutData(departments)}
                 centerValue={String(totalEmployees)}
                 centerLabel="Total"
-              />
-            </Panel>
-            <Panel title="Quick Actions">
-              <QuickActions
-                actions={[
-                  { label: 'Add Employee', to: '/admin/employees/new', tone: 'blue' },
-                  { label: 'Manage Departments', to: '/admin/departments', tone: 'green' },
-                  { label: 'Review Attendance', to: '/admin/attendance', tone: 'purple' },
-                  { label: 'Leave Approvals', to: '/hr/leaves', tone: 'yellow' },
-                ]}
               />
             </Panel>
           </div>

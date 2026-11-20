@@ -6,7 +6,7 @@ import { dashboardService, DashSummary } from '../../services/dashboard.service'
 import type { Department } from '../../services/organization.service';
 import { organizationService } from '../../services/organization.service';
 import api from '../../services/api';
-import { Panel, StatGrid, TitledStat, DonutPanel, ActivityTable, QuickActions, ViewAll } from '../../components/dashboard/widgets';
+import { Panel, StatGrid, TitledStat, DonutPanel, ActivityTable, ViewAll } from '../../components/dashboard/widgets';
 
 export default function SuperAdminDashboardPage() {
   const { user, logout } = useAuth();
@@ -32,22 +32,12 @@ export default function SuperAdminDashboardPage() {
         <div className="space-y-4">
           <StatGrid stats={stats} loading={loading} />
 
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Panel title="Department-wise Employees" className="lg:col-span-2">
+          <div className="grid gap-4">
+            <Panel title="Department-wise Employees">
               <DonutPanel
                 data={donutData(departments)}
                 centerValue={String(totalEmployees)}
                 centerLabel="Total"
-              />
-            </Panel>
-            <Panel title="Quick Actions">
-              <QuickActions
-                actions={[
-                  { label: 'Add Employee', to: '/admin/employees/new', tone: 'blue' },
-                  { label: 'Manage Departments', to: '/admin/departments', tone: 'green' },
-                  { label: 'Review Payroll', to: '/super-admin/payroll-approval', tone: 'purple' },
-                  { label: 'Holiday Calendar', to: '/super-admin/holidays', tone: 'yellow' },
-                ]}
               />
             </Panel>
           </div>

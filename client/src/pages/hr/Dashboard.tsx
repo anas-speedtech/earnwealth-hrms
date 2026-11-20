@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { dashboardService, DashSummary } from '../../services/dashboard.service';
 import { leaveService } from '../../services/leave.service';
 import { wfhService } from '../../services/wfh.service';
-import { Panel, StatGrid, TitledStat, StatusChip, QuickActions, ViewAll } from '../../components/dashboard/widgets';
+import { Panel, StatGrid, TitledStat, StatusChip, ViewAll } from '../../components/dashboard/widgets';
 
 interface PendingLeave {
   id: string;
@@ -45,8 +45,8 @@ export default function HrDashboardPage() {
         <div className="space-y-4">
           <StatGrid stats={stats} loading={loading} />
 
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Panel title="Pending Leave Requests" action={<ViewAll to="/hr/leaves" />} className="lg:col-span-2">
+          <div className="grid gap-4">
+            <Panel title="Pending Leave Requests" action={<ViewAll to="/hr/leaves" />}>
               {pendingLeaveRows.length === 0 ? (
                 <p className="py-6 text-center text-[13px] text-slate-500 text-[13px]">No leave requests waiting for review.</p>
               ) : (
@@ -65,16 +65,6 @@ export default function HrDashboardPage() {
                   ))}
                 </ul>
               )}
-            </Panel>
-            <Panel title="Quick Actions">
-              <QuickActions
-                actions={[
-                  { label: 'Approve Leaves', to: '/hr/leaves', tone: 'purple' },
-                  { label: 'Review WFH', to: '/hr/wfh', tone: 'blue' },
-                  { label: 'Manage Payroll', to: '/hr/payroll', tone: 'green' },
-                  { label: 'View Reports', to: '/hr/reports', tone: 'yellow' },
-                ]}
-              />
             </Panel>
           </div>
 
