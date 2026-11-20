@@ -48,6 +48,10 @@ const mockPrisma = {
   },
   payrollComponent: { findMany: jest.fn(), update: jest.fn() },
   payslip: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
+  // getPayslipPDF resolves salary_rules.notes and the legacy employees table
+  // through generated Prisma delegates (raw SQL was converted).
+  payrollRule: { findFirst: jest.fn(() => Promise.resolve(null)), update: jest.fn(() => Promise.resolve(null)) },
+  employee: { findUnique: jest.fn(() => Promise.resolve(null)) },
 };
 
 jest.mock('@prisma/client', () => {
@@ -179,13 +183,13 @@ describe('PDF Payslip', () => {
       expect(result.filename).toBe('Payslip-EMP001-06-2025.pdf');
 
       expect(mockPrisma.payslip.findUnique).toHaveBeenCalledTimes(1);
+      // Department/designation are scalar FKs on EmployeeProfile, so their
+      // names are resolved with separate lookups by id.
       expect(mockPrisma.employeeProfile.findUnique).toHaveBeenCalledWith({
         where: { id: 'emp-1' },
-        include: {
-          department: { select: { name: true } },
-          designation: { select: { name: true } },
-        },
       });
+      expect(mockPrisma.department.findUnique).toHaveBeenCalledWith({ where: { id: 'dept-1' } });
+      expect(mockPrisma.designation.findUnique).toHaveBeenCalledWith({ where: { id: 'desg-1' } });
     });
 
     test('employee cannot download another employee payslip', async () => {

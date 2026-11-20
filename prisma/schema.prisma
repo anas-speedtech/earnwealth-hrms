@@ -398,8 +398,13 @@ model SalaryStructureComponent {
   amount            Decimal? @db.Decimal(14, 2)
   percentage        Decimal? @db.Decimal(5, 2)
   formula           String?
+  payheadCode       String?  @db.VarChar(40)
+  prorateAttendance Boolean  @default(false)
+  calculationBasis  String?  @db.VarChar(30)
   sortOrder         Int      @default(0)
   isActive          Boolean  @default(true)
+
+  payrollComponents PayrollComponent[]
 
   @@index([salaryStructureId, sortOrder])
   @@map("salary_structure_components")
@@ -414,13 +419,23 @@ model SalaryStructure {
   isActive      Boolean  @default(true)
   effectiveFrom DateTime @db.DateTime(3)
   effectiveTo   DateTime?
+  // Effective-dated revision chain: a revision references the structure it
+  // supersedes and the actor who created it. Only one structure may be open
+  // (active with no effectiveTo) per employee at any date — enforced in code
+  // by the effective-date windows, not by a hard unique key.
+  revisionOf    Int?
+  revisedBy     Int?
+  templateId    Int?
   createdAt     DateTime @default(now()) @db.DateTime(3)
   updatedAt     DateTime @updatedAt @db.DateTime(3)
 
   components SalaryStructureComponent[]
   payrollRecords PayrollRecord[]
+  revises    SalaryStructure?       @relation("SalaryStructureRevision", fields: [revisionOf], references: [id], onDelete: SetNull)
+  revisions  SalaryStructure[]      @relation("SalaryStructureRevision")
+  template   SalaryTemplate?        @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
-  @@unique([employeeId])
+  @@index([employeeId])
   @@index([isActive])
   @@map("salary_structures")
 }
@@ -433,6 +448,9 @@ model PayrollComponent {
   type              String   @default("EARNING") @db.VarChar(20)
   amount            Decimal  @db.Decimal(12, 2) @default(0)
   sortOrder         Int      @default(0)
+  salaryComponentId Int?
+  salaryComponent   SalaryStructureComponent? @relation(fields: [salaryComponentId], references: [id], onDelete: SetNull)
+  payheadCode       String?  @db.VarChar(40)
 
   @@index([payrollRecordId, sortOrder])
   @@map("payroll_components")
@@ -456,12 +474,33 @@ model PayrollRecord {
   approvedBy        Int?
   approvedAt        DateTime?
   rejectionReason   String?
+  reviewComment     String?  @db.VarChar(1000)
   createdAt         DateTime @default(now()) @db.DateTime(3)
+  periodId          Int?
+  lockedAt          DateTime?
+  lockedBy          Int?
+  paidAt            DateTime?
+  // Immutable inputs captured when the record is calculated: the salary
+  // structure values, the statutory settings used, the relevant employee
+  // payroll profile data, and the one-time adjustments applied. Recomputing
+  // a month later must never change an already-approved record.
+  structureSnapshotJson String? @db.Text
+  statutorySnapshotJson String? @db.Text
+  profileSnapshotJson   String? @db.Text
+  adjustmentsJson       String? @db.Text
 
-  components PayrollComponent[]
-  payslips Payslip[]
+  period            PayrollPeriod?          @relation("PayrollRecordPeriod", fields: [periodId], references: [id], onDelete: SetNull)
+  components        PayrollComponent[]
+  payslips          Payslip[]
+  inputSnapshot     PayrollInputSnapshot?
+  approvals         PayrollApproval[]
+  auditLogs         PayrollAuditLog[]
+  oneTimeAdjustments PayrollOneTimeAdjustment[]
+  loanRepayments    EmployeeLoanRepayment[]
+  reimbursements    EmployeeReimbursement[]
 
-  @@index([employeeId, year, month])
+  // At most one payroll calculation per employee per pay month.
+  @@unique([employeeId, year, month])
   @@index([year, month])
   @@map("payroll_records")
 }
@@ -476,10 +515,346 @@ model Payslip {
   pdfPath         String?
   generatedBy     Int
   generatedAt     DateTime @default(now()) @db.DateTime(3)
+  // Email distribution tracking for bulk payslip delivery.
+  emailSentAt     DateTime?
+  emailSentTo     String?   @db.VarChar(255)
+  emailError      String?   @db.VarChar(500)
 
   @@unique([payrollRecordId])
   @@index([employeeId, year, month])
   @@map("payslips")
+}
+
+model PayrollInputSnapshot {
+  id                Int      @id @default(autoincrement())
+  payrollRecordId   Int      @unique
+  payrollRecord     PayrollRecord @relation(fields: [payrollRecordId], references: [id], onDelete: Cascade)
+  totalCalendarDays Int
+  workingDays       Decimal  @default(0) @db.Decimal(6, 2)
+  presentDays       Decimal  @default(0) @db.Decimal(6, 2)
+  paidLeaveDays     Decimal  @default(0) @db.Decimal(6, 2)
+  unpaidLeaveDays   Decimal  @default(0) @db.Decimal(6, 2)
+  lopDays           Decimal  @default(0) @db.Decimal(6, 2)
+  halfDays          Decimal  @default(0) @db.Decimal(6, 2)
+  prorationBasis    String   @default("WORKING_DAYS") @db.VarChar(30)
+  prorationFactor   Decimal  @default(1) @db.Decimal(10, 6)
+  warningsJson      String?  @db.Text
+  createdAt         DateTime @default(now()) @db.DateTime(3)
+
+  @@map("payroll_input_snapshots")
+}
+
+// --------------------------------------------------- payroll configuration
+// These models intentionally use effective dates rather than overwriting a
+// statutory rule. Payroll runs retain a snapshot of the values used.
+
+model PayrollPayhead {
+  id                Int      @id @default(autoincrement())
+  code              String   @unique @db.VarChar(40)
+  name              String   @db.VarChar(100)
+  type              String   @default("EARNING") @db.VarChar(30)
+  description       String?  @db.VarChar(255)
+  isFixedByDefault  Boolean  @default(false)
+  calculationMethod String   @default("FIXED") @db.VarChar(30)
+  calculationBasis  String?  @db.VarChar(30)
+  taxability        String   @default("FULLY_TAXABLE") @db.VarChar(30)
+  pfApplicable      Boolean  @default(false)
+  esiApplicable     Boolean  @default(false)
+  includeInGross    Boolean  @default(true)
+  includeInCTC      Boolean  @default(true)
+  recurring         Boolean  @default(true)
+  prorateAttendance Boolean  @default(false)
+  displayOnPayslip  Boolean  @default(true)
+  minimumAmount     Decimal? @db.Decimal(14, 2)
+  maximumAmount     Decimal? @db.Decimal(14, 2)
+  effectiveFrom     DateTime @default(now()) @db.Date
+  effectiveTo       DateTime? @db.Date
+  sortOrder         Int      @default(0)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now()) @db.DateTime(3)
+  updatedAt         DateTime @updatedAt @db.DateTime(3)
+
+  @@index([type, isActive])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("salary_payheads")
+}
+
+model PayrollRule {
+  id                 Int      @id @default(autoincrement())
+  // Proration basis for attendance-based pay: WORKING_DAYS (default),
+  // CALENDAR_DAYS, FIXED_30, or FIXED_31.
+  prorationBasis     String   @default("WORKING_DAYS") @db.VarChar(30)
+  basicPct           Decimal  @default(50) @db.Decimal(5, 2)
+  hraPctOfBasic      Decimal  @default(30) @db.Decimal(5, 2)
+  pfPct              Decimal  @default(12) @db.Decimal(5, 2)
+  pfCap              Decimal  @default(15000) @db.Decimal(14, 2)
+  esicEmployerPct   Decimal  @default(3.25) @db.Decimal(5, 2)
+  esicEmployeePct   Decimal  @default(0.75) @db.Decimal(5, 2)
+  esicWageCeiling   Decimal  @default(21000) @db.Decimal(14, 2)
+  professionTax      Decimal  @default(0) @db.Decimal(14, 2)
+  workingDaysMonth   Int      @default(30)
+  effectiveFrom      DateTime @default(now()) @db.Date
+  effectiveTo        DateTime? @db.Date
+  isActive           Boolean  @default(true)
+  notes              String?  @db.Text
+  createdBy          Int?
+  createdAt          DateTime @default(now()) @db.DateTime(3)
+  updatedAt          DateTime @updatedAt @db.DateTime(3)
+
+  @@index([isActive, effectiveFrom, effectiveTo])
+  @@map("salary_rules")
+}
+
+model PayrollStatutorySetting {
+  id                 Int      @id @default(autoincrement())
+  statutoryType      String   @db.VarChar(30)
+  stateCode          String?  @db.VarChar(10)
+  employeeRate       Decimal  @default(0) @db.Decimal(7, 4)
+  employerRate       Decimal  @default(0) @db.Decimal(7, 4)
+  wageBasis          String   @default("GROSS") @db.VarChar(30)
+  wageCeiling        Decimal? @db.Decimal(14, 2)
+  eligibilityJson    String?  @db.Text
+  configurationJson  String?  @db.Text
+  effectiveFrom      DateTime @db.Date
+  effectiveTo        DateTime? @db.Date
+  isActive           Boolean  @default(true)
+  createdBy          Int?
+  createdAt          DateTime @default(now()) @db.DateTime(3)
+  updatedAt          DateTime @updatedAt @db.DateTime(3)
+
+  @@index([statutoryType, stateCode, isActive])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("payroll_statutory_settings")
+}
+
+// Reusable salary templates: named, shareable component sets that HR can
+// assign to a salary structure instead of re-typing the same split for
+// every employee. The structure retains its own copy of the components, so
+// editing a template later does not rewrite live structures.
+
+model SalaryTemplate {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique @db.VarChar(40)
+  name        String   @db.VarChar(100)
+  description String?  @db.VarChar(255)
+  currency    String   @default("INR") @db.VarChar(3)
+  isActive    Boolean  @default(true)
+  createdBy   Int?
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+  updatedAt   DateTime @updatedAt @db.DateTime(3)
+
+  components SalaryTemplateComponent[]
+  structures SalaryStructure[]
+
+  @@index([isActive])
+  @@map("salary_templates")
+}
+
+model SalaryTemplateComponent {
+  id                Int      @id @default(autoincrement())
+  templateId        Int
+  template          SalaryTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  name              String   @db.VarChar(100)
+  type              String   @default("EARNING") @db.VarChar(20)
+  calculationType   String   @default("FIXED") @db.VarChar(30)
+  amount            Decimal? @db.Decimal(14, 2)
+  percentage        Decimal? @db.Decimal(5, 2)
+  formula           String?
+  payheadCode       String?  @db.VarChar(40)
+  prorateAttendance Boolean  @default(false)
+  sortOrder         Int      @default(0)
+  isActive          Boolean  @default(true)
+
+  @@index([templateId])
+  @@map("salary_template_components")
+}
+
+// One-time earnings/deductions applied to a single payroll run: bonuses,
+// incentives, arrears, salary advances, correction entries. Created ahead
+// of a pay run, then linked to the record that consumed it.
+
+model PayrollOneTimeAdjustment {
+  id              Int      @id @default(autoincrement())
+  employeeId      Int
+  payrollRecordId Int?
+  type            String   @default("ONE_TIME_EARNING") @db.VarChar(30)
+  amount          Decimal  @db.Decimal(14, 2)
+  reason          String?  @db.VarChar(500)
+  approvedBy      Int?
+  appliedAt       DateTime?
+  createdAt       DateTime @default(now()) @db.DateTime(3)
+
+  payrollRecord PayrollRecord? @relation(fields: [payrollRecordId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId])
+  @@index([payrollRecordId])
+  @@index([type])
+  @@map("payroll_one_time_adjustments")
+}
+
+model EmployeePayrollProfile {
+  id                 Int      @id @default(autoincrement())
+  employeeId         Int      @unique
+  // State code for state-specific PT/LWF rates, or null for the default
+  // (stateCode-less) setting.
+  stateCode          String?  @db.VarChar(10)
+  pan                String?  @db.VarChar(20)
+  uan                String?  @db.VarChar(30)
+  bankName           String?  @db.VarChar(120)
+  bankAccountMasked  String?  @db.VarChar(40)
+  bankIfsc           String?  @db.VarChar(20)
+  taxRegime          String   @default("NEW") @db.VarChar(20)
+  pfApplicable       Boolean  @default(true)
+  esiApplicable      Boolean  @default(false)
+  voluntaryPfRate    Decimal? @db.Decimal(7, 4)
+  salaryOnHold       Boolean  @default(false)
+  holdReason         String?  @db.VarChar(500)
+  // Exiter context for proration and eligibility: an exit date in the pay
+  // period prorates earnings for the days worked; the notice period is the
+  // contractual days to be accounted for when calculating the exit month.
+  exitDate           DateTime? @db.Date
+  noticePeriodDays   Int      @default(0)
+  createdAt          DateTime @default(now()) @db.DateTime(3)
+  updatedAt          DateTime @updatedAt @db.DateTime(3)
+
+  @@index([pan])
+  @@map("employee_payroll_profiles")
+}
+
+model PayrollPeriod {
+  id                 Int      @id @default(autoincrement())
+  month              Int
+  year               Int
+  payrollGroup       String?  @db.VarChar(100)
+  status             String   @default("DRAFT") @db.VarChar(30)
+  lockedAt           DateTime?
+  lockedBy           Int?
+  paidAt             DateTime?
+  createdBy          Int?
+  // Multi-step review gates (HR review -> Finance review -> Approver).
+  hrReviewedAt       DateTime?
+  hrReviewedBy       Int?
+  financeReviewedAt  DateTime?
+  financeReviewedBy  Int?
+  // Authorized unlock trail: a locked period may only be reopened with a
+  // recorded reason and the actor who unlocked it.
+  unlockedAt         DateTime?
+  unlockedBy         Int?
+  unlockReason       String?  @db.VarChar(500)
+  createdAt          DateTime @default(now()) @db.DateTime(3)
+  updatedAt          DateTime @updatedAt @db.DateTime(3)
+
+  records    PayrollRecord[]      @relation("PayrollRecordPeriod")
+  approvals  PayrollApproval[]
+  auditLogs  PayrollAuditLog[]
+
+  @@unique([month, year, payrollGroup])
+  @@index([year, month, status])
+  @@map("payroll_periods")
+}
+
+model PayrollApproval {
+  id                 Int      @id @default(autoincrement())
+  payrollRecordId    Int
+  payrollRecord      PayrollRecord @relation(fields: [payrollRecordId], references: [id], onDelete: Cascade)
+  payrollPeriodId    Int?
+  payrollPeriod      PayrollPeriod? @relation(fields: [payrollPeriodId], references: [id], onDelete: SetNull)
+  action             String   @db.VarChar(30)
+  comment            String?  @db.VarChar(1000)
+  actedBy            Int
+  actedAt            DateTime @default(now()) @db.DateTime(3)
+
+  @@index([payrollRecordId, actedAt])
+  @@index([payrollPeriodId, actedAt])
+  @@map("payroll_approvals")
+}
+
+model EmployeeLoan {
+  id                 Int      @id @default(autoincrement())
+  employeeId         Int
+  loanType           String   @default("LOAN") @db.VarChar(30)
+  principalAmount    Decimal  @db.Decimal(14, 2)
+  outstandingAmount  Decimal  @db.Decimal(14, 2)
+  emiAmount          Decimal  @db.Decimal(14, 2)
+  startDate          DateTime @db.Date
+  endDate            DateTime? @db.Date
+  status             String   @default("ACTIVE") @db.VarChar(30)
+  createdBy          Int?
+  createdAt          DateTime @default(now()) @db.DateTime(3)
+  updatedAt          DateTime @updatedAt @db.DateTime(3)
+
+  @@index([employeeId, status])
+  @@map("employee_loans")
+}
+
+model EmployeeLoanRepayment {
+  id                 Int      @id @default(autoincrement())
+  loanId             Int
+  payrollRecordId    Int?
+  amount             Decimal  @db.Decimal(14, 2)
+  paidOn             DateTime @db.Date
+  createdAt          DateTime @default(now()) @db.DateTime(3)
+
+  payrollRecord PayrollRecord? @relation(fields: [payrollRecordId], references: [id], onDelete: SetNull)
+
+  @@index([loanId, paidOn])
+  @@map("employee_loan_repayments")
+}
+
+model EmployeeTaxDeclaration {
+  id                 Int      @id @default(autoincrement())
+  employeeId         Int
+  financialYear      String   @db.VarChar(10)
+  taxRegime          String   @db.VarChar(20)
+  declarationJson    String?  @db.Text
+  proofJson          String?  @db.Text
+  status             String   @default("DRAFT") @db.VarChar(30)
+  submittedAt        DateTime?
+  verifiedBy         Int?
+  verifiedAt         DateTime?
+  createdAt          DateTime @default(now()) @db.DateTime(3)
+  updatedAt          DateTime @updatedAt @db.DateTime(3)
+
+  @@unique([employeeId, financialYear])
+  @@map("employee_tax_declarations")
+}
+
+model EmployeeReimbursement {
+  id                 Int      @id @default(autoincrement())
+  employeeId         Int
+  componentCode      String?  @db.VarChar(40)
+  claimDate          DateTime @db.Date
+  amount             Decimal  @db.Decimal(14, 2)
+  description        String?  @db.VarChar(500)
+  receiptPath        String?  @db.VarChar(500)
+  status             String   @default("PENDING") @db.VarChar(30)
+  approvedBy         Int?
+  approvedAt         DateTime?
+  payrollRecordId    Int?
+  payrollRecord      PayrollRecord? @relation(fields: [payrollRecordId], references: [id], onDelete: SetNull)
+  createdAt          DateTime @default(now()) @db.DateTime(3)
+  updatedAt          DateTime @updatedAt @db.DateTime(3)
+
+  @@index([employeeId, status])
+  @@map("employee_reimbursements")
+}
+
+model PayrollAuditLog {
+  id                 Int      @id @default(autoincrement())
+  payrollRecordId    Int?
+  payrollRecord      PayrollRecord? @relation(fields: [payrollRecordId], references: [id], onDelete: SetNull)
+  payrollPeriodId    Int?
+  payrollPeriod      PayrollPeriod? @relation(fields: [payrollPeriodId], references: [id], onDelete: SetNull)
+  actorId            Int?
+  action             String   @db.VarChar(100)
+  reason             String?  @db.VarChar(1000)
+  beforeValue        String?  @db.Text
+  afterValue         String?  @db.Text
+  createdAt          DateTime @default(now()) @db.DateTime(3)
+
+  @@index([payrollRecordId, createdAt])
+  @@index([payrollPeriodId, createdAt])
+  @@map("payroll_audit_logs")
 }
 
 // ------------------------------------------------------ invitation tokens

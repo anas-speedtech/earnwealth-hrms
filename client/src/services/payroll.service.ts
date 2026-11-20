@@ -58,6 +58,7 @@ export interface PayrollRecordItem {
   id: string;
   employeeId: string;
   salaryStructureId: string;
+  periodId: string | null;
   month: number;
   year: number;
   status: string;
@@ -70,6 +71,10 @@ export interface PayrollRecordItem {
   approvedBy: string | null;
   approvedAt: string | null;
   rejectionReason: string | null;
+  reviewComment: string | null;
+  lockedAt: string | null;
+  lockedBy: string | null;
+  paidAt: string | null;
   createdAt: string;
   components: PayrollComponentItem[];
 }
@@ -143,9 +148,135 @@ export interface PayrollSummary {
   latestPayroll: PayrollRecordItem | null;
 }
 
+// A payroll period is the month-level run that HR drives through the
+// lifecycle: DRAFT -> CALCULATED -> UNDER_REVIEW -> PENDING_APPROVAL ->
+// APPROVED -> LOCKED -> PAID, with an authorized-unlock path back.
+export interface PayrollPeriod {
+  id: number;
+  month: number;
+  year: number;
+  payrollGroup: string | null;
+  status: 'DRAFT' | 'CALCULATED' | 'UNDER_REVIEW' | 'PENDING_APPROVAL' | 'APPROVED' | 'LOCKED' | 'PAID';
+  hrReviewedAt: string | null;
+  hrReviewedBy: number | null;
+  financeReviewedAt: string | null;
+  financeReviewedBy: number | null;
+  lockedAt: string | null;
+  lockedBy: number | null;
+  paidAt: string | null;
+  unlockedAt: string | null;
+  unlockedBy: number | null;
+  unlockReason: string | null;
+  createdBy: number | null;
+  createdAt: string;
+}
+
+// One-time earnings/deductions queued for a pay run (bonuses, arrears,
+// advances...). `payrollRecordId` is null until the record that consumed it.
+export interface OneTimeAdjustment {
+  id: number;
+  employeeId: number;
+  payrollRecordId: number | null;
+  type: 'ONE_TIME_EARNING' | 'ONE_TIME_DEDUCTION' | 'BONUS' | 'INCENTIVE' | 'ARREARS' | 'SALARY_ADVANCE';
+  amount: string;
+  reason: string | null;
+  approvedBy: number | null;
+  appliedAt: string | null;
+  createdAt: string;
+}
+
+export interface EmployeeLoan {
+  id: number;
+  employeeId: number;
+  loanType: 'LOAN' | 'ADVANCE';
+  principalAmount: string;
+  outstandingAmount: string;
+  emiAmount: string;
+  startDate: string;
+  endDate: string | null;
+  status: 'ACTIVE' | 'CLOSED';
+  createdAt: string;
+}
+
+export interface EmployeeReimbursement {
+  id: number;
+  employeeId: number;
+  componentCode: string | null;
+  claimDate: string;
+  amount: string;
+  description: string | null;
+  receiptPath: string | null;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  approvedBy: number | null;
+  approvedAt: string | null;
+  payrollRecordId: number | null;
+  createdAt: string;
+}
+
+export interface StatutorySetting {
+  id: number;
+  statutoryType: 'EPF' | 'EPS' | 'EDLI' | 'PF_ADMIN' | 'ESI' | 'PT' | 'LWF' | 'TDS' | 'GRATUITY' | 'BONUS';
+  stateCode: string | null;
+  employeeRate: string;
+  employerRate: string;
+  wageBasis: string;
+  wageCeiling: string | null;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  isActive: boolean;
+}
+
+export interface EmployeePayrollProfile {
+  id: number; employeeId: number; pan: string | null; uan: string | null; bankName: string | null;
+  bankAccountMasked: string | null; bankIfsc: string | null; taxRegime: 'OLD' | 'NEW';
+  pfApplicable: boolean; esiApplicable: boolean; voluntaryPfRate: string | null; salaryOnHold: boolean; holdReason: string | null;
+}
+
+export interface AttendancePayrollInputs {
+  totalCalendarDays: number; workingDays: number; presentDays: number; paidLeaveDays: number;
+  unpaidLeaveDays: number; lopDays: number; halfDays: number; prorationFactor: number; warnings: string[];
+}
+
 // ---- Service ----
 
 export const payrollService = {
+  // ---- Statutory settings ----
+  async listStatutorySettings(params: { statutoryType?: string; stateCode?: string; asOf?: string } = {}): Promise<StatutorySetting[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: StatutorySetting[] }>(`${API_BASE_URL}/payroll/statutory-settings`, { headers: { Authorization: `Bearer ${session?.accessToken}` }, params });
+    return data.data;
+  },
+
+  async createStatutorySetting(payload: Record<string, unknown>): Promise<StatutorySetting> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: StatutorySetting }>(`${API_BASE_URL}/payroll/statutory-settings`, payload, { headers: { Authorization: `Bearer ${session?.accessToken}` } });
+    return data.data;
+  },
+
+  async updateStatutorySetting(id: number, payload: Record<string, unknown>): Promise<StatutorySetting> {
+    const session = getSession();
+    const { data } = await axios.put<{ data: StatutorySetting }>(`${API_BASE_URL}/payroll/statutory-settings/${id}`, payload, { headers: { Authorization: `Bearer ${session?.accessToken}` } });
+    return data.data;
+  },
+
+  async getEmployeePayrollProfile(employeeId: string): Promise<EmployeePayrollProfile | null> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: EmployeePayrollProfile | null }>(`${API_BASE_URL}/payroll/employees/${employeeId}/profile`, { headers: { Authorization: `Bearer ${session?.accessToken}` } });
+    return data.data;
+  },
+
+  async saveEmployeePayrollProfile(employeeId: string, payload: Partial<EmployeePayrollProfile>): Promise<EmployeePayrollProfile> {
+    const session = getSession();
+    const { data } = await axios.put<{ data: EmployeePayrollProfile }>(`${API_BASE_URL}/payroll/employees/${employeeId}/profile`, payload, { headers: { Authorization: `Bearer ${session?.accessToken}` } });
+    return data.data;
+  },
+
+  async getAttendancePayrollInputs(employeeId: string, month: number, year: number): Promise<AttendancePayrollInputs> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: AttendancePayrollInputs }>(`${API_BASE_URL}/payroll/employees/${employeeId}/attendance-inputs`, { headers: { Authorization: `Bearer ${session?.accessToken}` }, params: { month, year } });
+    return data.data;
+  },
+
   // ---- Salary Structure ----
 
   async createSalaryStructure(payload: {
@@ -219,7 +350,7 @@ export const payrollService = {
 
   // ---- Payroll Records ----
 
-  async createPayroll(payload: { employeeId: string; month: number; year: number }): Promise<PayrollRecordItem> {
+  async createPayroll(payload: { employeeId: string; month: number; year: number; applyAttendanceProration?: boolean }): Promise<PayrollRecordItem> {
     const session = getSession();
     const { data } = await axios.post<{ data: PayrollRecordItem }>(
       `${API_BASE_URL}/payroll/records`,
@@ -234,6 +365,7 @@ export const payrollService = {
     employeeIds: string[];
     month: number;
     year: number;
+    applyAttendanceProration?: boolean;
   }): Promise<PayrollRecordItem[]> {
     const session = getSession();
     const { data } = await axios.post<{ data: PayrollRecordItem[] }>(
@@ -287,10 +419,175 @@ export const payrollService = {
     return data.data;
   },
 
+  // Record-level lifecycle: freeze (lock) / authorized reopen (unlock) /
+  // disbursement moment (paid).
+  async lockPayroll(payrollId: string): Promise<PayrollRecordItem> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: PayrollRecordItem }>(
+      `${API_BASE_URL}/payroll/records/${payrollId}/lock`,
+      {},
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async unlockPayroll(payrollId: string, reason: string): Promise<PayrollRecordItem> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: PayrollRecordItem }>(
+      `${API_BASE_URL}/payroll/records/${payrollId}/unlock`,
+      { comment: reason },
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async markPayrollPaid(payrollId: string): Promise<PayrollRecordItem> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: PayrollRecordItem }>(
+      `${API_BASE_URL}/payroll/records/${payrollId}/paid`,
+      {},
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
   async getPayroll(payrollId: string): Promise<PayrollRecordItem> {
     const session = getSession();
     const { data } = await axios.get<{ data: PayrollRecordItem }>(
       `${API_BASE_URL}/payroll/records/${payrollId}`,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  // ---- Payroll period lifecycle ----
+
+  async getOrCreatePayrollPeriod(payload: { month: number; year: number; payrollGroup?: string | null }): Promise<PayrollPeriod> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: PayrollPeriod }>(
+      `${API_BASE_URL}/payroll/periods`,
+      payload,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async transitionPayrollPeriod(periodId: number, status: PayrollPeriod['status'], reason = ''): Promise<PayrollPeriod> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: PayrollPeriod }>(
+      `${API_BASE_URL}/payroll/periods/${periodId}/transition`,
+      { status, reason },
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async recordPayrollPeriodReview(periodId: number, gate: 'HR_REVIEW' | 'FINANCE_REVIEW'): Promise<PayrollPeriod> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: PayrollPeriod }>(
+      `${API_BASE_URL}/payroll/periods/${periodId}/review`,
+      { gate },
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  // ---- One-time adjustments ----
+
+  async listOneTimeAdjustments(params: { employeeId?: number; status?: 'APPLIED' | 'PENDING' } = {}): Promise<OneTimeAdjustment[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: OneTimeAdjustment[] }>(
+      `${API_BASE_URL}/payroll/one-time-adjustments`,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` }, params }
+    );
+    return data.data;
+  },
+
+  async createOneTimeAdjustment(payload: {
+    employeeId: number;
+    type: OneTimeAdjustment['type'];
+    amount: number;
+    reason?: string | null;
+  }): Promise<OneTimeAdjustment> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: OneTimeAdjustment }>(
+      `${API_BASE_URL}/payroll/one-time-adjustments`,
+      payload,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  // ---- Loans / advances ----
+
+  async listEmployeeLoans(employeeId: string): Promise<EmployeeLoan[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: EmployeeLoan[] }>(
+      `${API_BASE_URL}/payroll/employees/${employeeId}/loans`,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async createEmployeeLoan(employeeId: string, payload: {
+    loanType?: 'LOAN' | 'ADVANCE';
+    principalAmount: number;
+    emiAmount: number;
+    startDate: string;
+    endDate?: string | null;
+  }): Promise<EmployeeLoan> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: EmployeeLoan }>(
+      `${API_BASE_URL}/payroll/employees/${employeeId}/loans`,
+      payload,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async recordLoanRepayment(loanId: number, payload: { amount: number; paidOn?: string; payrollRecordId?: number | null }): Promise<unknown> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: unknown }>(
+      `${API_BASE_URL}/payroll/loans/${loanId}/repayments`,
+      payload,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  // ---- Reimbursements ----
+
+  async listReimbursements(params: { employeeId?: number; status?: string } = {}): Promise<EmployeeReimbursement[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: EmployeeReimbursement[] }>(
+      `${API_BASE_URL}/payroll/reimbursements`,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` }, params }
+    );
+    return data.data;
+  },
+
+  async createReimbursement(payload: {
+    employeeId: number;
+    componentCode?: string | null;
+    claimDate: string;
+    amount: number;
+    description?: string | null;
+    receiptPath?: string | null;
+  }): Promise<EmployeeReimbursement> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: EmployeeReimbursement }>(
+      `${API_BASE_URL}/payroll/reimbursements`,
+      payload,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  async reviewReimbursement(id: number, action: 'approve' | 'reject'): Promise<EmployeeReimbursement> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: EmployeeReimbursement }>(
+      `${API_BASE_URL}/payroll/reimbursements/${id}/${action}`,
+      {},
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
     return data.data;

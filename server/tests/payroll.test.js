@@ -2,29 +2,34 @@ const { PayrollService } = require('../src/services/payroll.service');
 const { AppError, AppErrorCodes } = require('../src/errors/AppError');
 const { Role } = require('../src/types/index');
 
-// Mock Prisma to avoid DB connection in unit tests
-jest.mock('@prisma/client', () => {
-  const mockPrisma = {
-    employeeProfile: { findUnique: jest.fn() },
-    salaryStructure: {
-      findUnique: jest.fn(),
-      findMany: jest.fn(),
-      count: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-    },
-    payrollRecord: {
-      findUnique: jest.fn(),
-      findMany: jest.fn(),
-      count: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-    },
-    payrollComponent: { findMany: jest.fn(), update: jest.fn() },
-    payslip: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
-  };
-  return { PrismaClient: jest.fn(() => mockPrisma) };
-});
+// Mock Prisma to avoid DB connection in unit tests.
+// mockPrisma is exposed on globalThis so individual tests can re-point
+// delegate implementations (e.g. employeeProfile.findUnique) as needed.
+const mockPrisma = {
+  employeeProfile: { findUnique: jest.fn() },
+  salaryStructure: {
+    findUnique: jest.fn(),
+    findFirst: jest.fn(),
+    findMany: jest.fn(),
+    count: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+  },
+  payrollRecord: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    count: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+  },
+  payrollComponent: { findMany: jest.fn(), update: jest.fn() },
+  payslip: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
+};
+globalThis.__mockPrisma = mockPrisma;
+
+jest.mock('@prisma/client', () => ({
+  PrismaClient: jest.fn(() => mockPrisma),
+}));
 
 describe('PayrollService', () => {
   describe('canManagePayroll', () => {
@@ -46,40 +51,60 @@ describe('PayrollService', () => {
   });
 
   describe('authorizePayrollAccess', () => {
-    test('SUPER_ADMIN is authorized', () => {
-      expect(() => {
-        PayrollService.authorizePayrollAccess({ role: Role.SUPER_ADMIN }, { employeeId: 'any' });
-      }).not.toThrow();
+    // The service resolves the EMPLOYEE's profile via the DB and compares the
+    // record's employeeProfile.id to it, so the tests are async and mock the
+    // profile lookup. Payroll records carry the INT profile id, not the
+    // caller's user id.
+    beforeEach(() => {
+      globalThis.__mockPrisma.employeeProfile.findUnique.mockReset();
     });
 
-    test('ADMIN is authorized', () => {
-      expect(() => {
-        PayrollService.authorizePayrollAccess({ role: Role.HR_ADMIN }, { employeeId: 'any' });
-      }).not.toThrow();
+    test('SUPER_ADMIN is authorized', async () => {
+      await expect(
+        PayrollService.authorizePayrollAccess({ role: Role.SUPER_ADMIN }, { employeeId: 1 })
+      ).resolves.toBeUndefined();
     });
 
-    test('HR is authorized', () => {
-      expect(() => {
-        PayrollService.authorizePayrollAccess({ role: Role.HR_ADMIN }, { employeeId: 'any' });
-      }).not.toThrow();
+    test('ADMIN is authorized', async () => {
+      await expect(
+        PayrollService.authorizePayrollAccess({ role: Role.HR_ADMIN }, { employeeId: 1 })
+      ).resolves.toBeUndefined();
     });
 
-    test('EMPLOYEE can access own payroll', () => {
-      expect(() => {
+    test('HR is authorized', async () => {
+      await expect(
+        PayrollService.authorizePayrollAccess({ role: Role.HR_ADMIN }, { employeeId: 1 })
+      ).resolves.toBeUndefined();
+    });
+
+    test('EMPLOYEE can access own payroll', async () => {
+      globalThis.__mockPrisma.employeeProfile.findUnique.mockResolvedValue({ id: 100 });
+      await expect(
         PayrollService.authorizePayrollAccess(
-          { role: Role.EMPLOYEE, id: 'emp-1' },
-          { employeeId: 'emp-1' }
-        );
-      }).not.toThrow();
+          { role: Role.EMPLOYEE, id: 'user-emp' },
+          { employeeId: 100 }
+        )
+      ).resolves.toBeUndefined();
     });
 
-    test('EMPLOYEE cannot access another employee payroll', () => {
-      expect(() => {
+    test('EMPLOYEE cannot access another employee payroll', async () => {
+      globalThis.__mockPrisma.employeeProfile.findUnique.mockResolvedValue({ id: 100 });
+      await expect(
         PayrollService.authorizePayrollAccess(
-          { role: Role.EMPLOYEE, id: 'emp-1' },
-          { employeeId: 'emp-2' }
-        );
-      }).toThrow(AppError);
+          { role: Role.EMPLOYEE, id: 'user-emp' },
+          { employeeId: 999 }
+        )
+      ).rejects.toThrow(AppError);
+    });
+
+    test('EMPLOYEE with no profile is denied', async () => {
+      globalThis.__mockPrisma.employeeProfile.findUnique.mockResolvedValue(null);
+      await expect(
+        PayrollService.authorizePayrollAccess(
+          { role: Role.EMPLOYEE, id: 'user-orphan' },
+          { employeeId: 100 }
+        )
+      ).rejects.toThrow(AppError);
     });
   });
 

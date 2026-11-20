@@ -29,7 +29,7 @@ docker compose up -d
 cp server/.env.example server/.env
 # Edit server/.env with your database credentials and JWT secrets
 
-# 4. Run database migrations
+# 4. Run database migrations (development)
 npm run db:migrate
 
 # 5. Seed initial data
@@ -47,6 +47,7 @@ npm run dev
 | `npm run dev:server` | Start backend only |
 | `npm run dev:client` | Start frontend only |
 | `npm run build` | Build both packages for production |
+| `npm run db:deploy` | Apply committed Prisma migrations to the configured production database |
 | `npm test` | Run server tests |
 | `npm run db:studio` | Open Prisma Studio (database browser) |
 
@@ -85,6 +86,20 @@ EWS-HRMS1/
 See `.env.example` (root), `server/.env.example`, and `client/.env.example` for all required variables.
 
 **Never commit `.env` files to version control.**
+
+## Production database deployment
+
+Payroll tables are managed exclusively by the committed Prisma schema and
+migrations. Before starting a production build/release, run:
+
+```bash
+npm run db:deploy
+npm run build
+```
+
+`build` deliberately does not alter a database. Keeping schema deployment as
+an explicit step prevents a frontend/server build from unexpectedly mutating a
+production database; `db:deploy` creates the included payroll tables.
 
 ## Default Ports
 

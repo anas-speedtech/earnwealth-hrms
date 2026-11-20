@@ -24,7 +24,10 @@ function getPrisma() {
  * already exists it is updated; otherwise it is created.
  */
 async function syncToEmployeeProfile(prismaClient, employeeRow) {
-  if (!employeeRow || !employeeRow.id) return;
+  // employee_profiles.userId is NOT NULL and is the upsert key: only mirror
+  // employees that have a linked login account. Provisioning a login later
+  // re-syncs the profile.
+  if (!employeeRow || !employeeRow.id || !employeeRow.userId) return;
   // Upsert keyed on userId (the unique link to the account). Including userId
   // is mandatory: the column is NOT NULL, so an insert that omits it fails
   // with "Field 'userId' doesn't have a default value".
@@ -389,14 +392,20 @@ class EmployeeService {
       reportingManagerId
     );
 
+    // The INSERT above does not expose the auto-generated id, so resolve it
+    // by the unique employeeCode before the record is read back.
     const insertedRows = await prismaClient.$queryRawUnsafe(
-      'SELECT id, employeeCode, name, userId, departmentId, reportingManagerId, isActive FROM employees WHERE id = ? LIMIT 1',
-      inserted.id
+      'SELECT id, employeeCode, name, userId, departmentId, reportingManagerId, isActive FROM employees WHERE employeeCode = ? LIMIT 1',
+      employeeCode
     );
     const inserted = insertedRows && insertedRows[0];
 
     // Mirror into Prisma's employee_profiles so payslip / payroll can find us.
-    void syncToEmployeeProfile(prismaClient, inserted);
+    // No-op for employees without a linked login account (see the guard in
+    // syncToEmployeeProfile: the upsert key userId is NOT NULL).
+    if (inserted) {
+      void syncToEmployeeProfile(prismaClient, inserted);
+    }
 
     try {
       await prismaClient.auditLog.create({

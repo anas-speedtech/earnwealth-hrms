@@ -13,11 +13,12 @@
     "dev:client": "cd client && npm run dev",
     "install:all": "npm install",
     "build": "npm run build:server && npm run build:client",
-    "build:server": "cd server && npm run build",
+    "build:server": "cd server && npx prisma generate --schema ../prisma/schema.prisma && npm run build",
     "build:client": "cd client && npm run build",
     "test": "cd server && npm test",
     "db:generate": "cd server && npx prisma generate --schema ../prisma/schema.prisma",
     "db:migrate": "cd server && npx prisma migrate dev --schema ../prisma/schema.prisma",
+    "db:deploy": "cd server && npx prisma migrate deploy --schema ../prisma/schema.prisma",
     "db:seed": "cd server && node seed-all.js",
     "db:studio": "cd server && npx prisma studio --schema ../prisma/schema.prisma",
     "db:push": "cd server && npx prisma db push --schema ../prisma/schema.prisma",
@@ -26,7 +27,8 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "prettier": "^3.4.2"
+    "prettier": "^3.4.2",
+    "prisma": "^6.7.0"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -39,5 +41,8 @@
     "@prisma/engines@6.7.0": true,
     "prisma@6.7.0": true,
     "bcrypt@5.1.1": true
+  },
+  "dependencies": {
+    "@prisma/client": "^6.7.0"
   }
 }

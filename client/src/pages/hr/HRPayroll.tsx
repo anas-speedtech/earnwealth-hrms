@@ -2,12 +2,25 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
-import { payrollService, SalaryStructureItem, SalaryComponentItem, PayrollRecordItem, SalaryPayhead, SalaryRules, SalarySplitPreview } from '../../services/payroll.service';
+import { payrollService, SalaryStructureItem, SalaryComponentItem, PayrollRecordItem, SalaryPayhead, SalaryRules, SalarySplitPreview, PayrollPeriod, OneTimeAdjustment } from '../../services/payroll.service';
 import { previewSalarySplitLocal } from '../../utils/salary';
 import { organizationService, Employee } from '../../services/organization.service';
 import toast from 'react-hot-toast';
 
-type Tab = 'salary-structures' | 'prepare-payroll' | 'salary-headers' | 'salary-config' | 'review';
+type Tab = 'salary-structures' | 'prepare-payroll' | 'salary-headers' | 'salary-config' | 'review' | 'period-lifecycle';
+
+// The period state machine mirrors the server (PayrollService.PERIOD_TRANSITIONS).
+// LOCKED -> APPROVED is the authorized-unlock path (requires a reason).
+const PERIOD_FLOW: { from: string; to: PayrollPeriod['status']; label: string; unlock?: boolean }[] = [
+  { from: 'DRAFT', to: 'CALCULATED', label: 'Mark Calculated' },
+  { from: 'CALCULATED', to: 'UNDER_REVIEW', label: 'Send to HR Review' },
+  { from: 'UNDER_REVIEW', to: 'PENDING_APPROVAL', label: 'Submit for Approval' },
+  { from: 'UNDER_REVIEW', to: 'CALCULATED', label: 'Send Back to Calculation' },
+  { from: 'PENDING_APPROVAL', to: 'APPROVED', label: 'Approve' },
+  { from: 'APPROVED', to: 'LOCKED', label: 'Lock' },
+  { from: 'LOCKED', to: 'PAID', label: 'Mark Paid' },
+  { from: 'LOCKED', to: 'APPROVED', label: 'Unlock (authorized)', unlock: true },
+];
 
 const PAYROLL_STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED'] as const;
 
@@ -242,6 +255,107 @@ export default function HRPayrollPage() {
     setRules((prev) => (prev ? { ...prev, [field]: value } : prev));
   };
 
+  // ---- Payroll period lifecycle + one-time adjustments ----
+  const [periods, setPeriods] = useState<PayrollPeriod[]>([]);
+  const [periodsLoading, setPeriodsLoading] = useState(false);
+  const [periodBusy, setPeriodBusy] = useState<number | null>(null);
+  const [adjustments, setAdjustments] = useState<OneTimeAdjustment[]>([]);
+  const [adjustmentsLoading, setAdjustmentsLoading] = useState(false);
+  const [adjustmentForm, setAdjustmentForm] = useState({ employeeId: '', type: 'BONUS' as OneTimeAdjustment['type'], amount: '', reason: '' });
+  const [adjustmentSaving, setAdjustmentSaving] = useState(false);
+
+  const fetchPeriods = useCallback(async (month: number, year: number) => {
+    setPeriodsLoading(true);
+    try {
+      const period = await payrollService.getOrCreatePayrollPeriod({ month, year });
+      setPeriods((prev) => [...prev.filter((p) => !(p.month === month && p.year === year)), period]);
+    } catch {
+      toast.error('Failed to load the payroll period.');
+    } finally {
+      setPeriodsLoading(false);
+    }
+  }, []);
+
+  const fetchAdjustments = useCallback(async () => {
+    setAdjustmentsLoading(true);
+    try {
+      setAdjustments(await payrollService.listOneTimeAdjustments({ status: 'PENDING' }));
+    } catch {
+      toast.error('Failed to load one-time adjustments.');
+    } finally {
+      setAdjustmentsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'period-lifecycle') {
+      fetchPeriods(payrollMonth, payrollYear);
+      fetchAdjustments();
+    }
+  }, [activeTab, payrollMonth, payrollYear, fetchPeriods, fetchAdjustments]);
+
+  const handlePeriodTransition = async (period: PayrollPeriod, to: PayrollPeriod['status'], unlock: boolean) => {
+    setPeriodBusy(period.id);
+    try {
+      let reason = '';
+      if (unlock) {
+        const entered = window.prompt('A locked period can only be reopened with a recorded reason. Enter the correction reason:');
+        if (entered === null) return;
+        reason = entered.trim();
+      }
+      const updated = await payrollService.transitionPayrollPeriod(period.id, to, reason);
+      setPeriods((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      toast.success(unlock ? `Period unlocked: ${reason}` : `Period is now ${to}.`);
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to update the period.';
+      toast.error(message);
+    } finally {
+      setPeriodBusy(null);
+    }
+  };
+
+  const handleRecordReview = async (period: PayrollPeriod, gate: 'HR_REVIEW' | 'FINANCE_REVIEW') => {
+    setPeriodBusy(period.id);
+    try {
+      const updated = await payrollService.recordPayrollPeriodReview(period.id, gate);
+      setPeriods((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      toast.success(`${gate === 'HR_REVIEW' ? 'HR' : 'Finance'} review recorded for the period.`);
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to record the review.';
+      toast.error(message);
+    } finally {
+      setPeriodBusy(null);
+    }
+  };
+
+  const handleCreateAdjustment = async () => {
+    const employeeId = parseInt(adjustmentForm.employeeId, 10);
+    const amount = parseFloat(adjustmentForm.amount);
+    if (!employeeId || !Number.isFinite(amount) || amount <= 0) {
+      toast.error('Provide a valid employee ID and a positive amount.');
+      return;
+    }
+    setAdjustmentSaving(true);
+    try {
+      await payrollService.createOneTimeAdjustment({
+        employeeId,
+        type: adjustmentForm.type,
+        amount,
+        reason: adjustmentForm.reason || null,
+      });
+      toast.success('One-time adjustment queued for the next payroll run.');
+      setAdjustmentForm((f) => ({ ...f, amount: '', reason: '' }));
+      fetchAdjustments();
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to create the adjustment.';
+      toast.error(message);
+    } finally {
+      setAdjustmentSaving(false);
+    }
+  };
+
+  const currentPeriod = periods.find((p) => p.month === payrollMonth && p.year === payrollYear) || null;
+
   // Create/update salary structure
   const handleSaveStructure = async () => {
     if (!selectedEmployee) return;
@@ -253,9 +367,15 @@ export default function HRPayrollPage() {
 
     setStructureSaving(true);
     try {
-      const validComponents = structureComponents.filter(
-        (c) => c.name.trim() && c.type && c.amount && parseFloat(c.amount) > 0
-      );
+      const validComponents = structureComponents.filter((c) => {
+        if (!c.name.trim() || !c.type) return false;
+        if (c.calculationType === 'FORMULA') return Boolean(c.formula?.trim());
+        if (c.calculationType === 'BALANCE') return true;
+        if (c.calculationType === 'PERCENTAGE_OF_CTC' || c.calculationType === 'PERCENTAGE_OF_BASIC') {
+          return Number(c.percentage) >= 0;
+        }
+        return Number(c.amount) >= 0;
+      });
 
       if (editingStructure) {
         await payrollService.updateSalaryStructure(editingStructure.id, {
@@ -278,8 +398,8 @@ export default function HRPayrollPage() {
             description: c.description ?? undefined,
             type: c.type,
             calculationType: c.calculationType || 'FIXED',
-            amount: parseFloat(c.amount),
-            percentage: c.percentage,
+            amount: c.calculationType === 'FIXED' ? Number(c.amount || 0) : null,
+            percentage: c.calculationType.startsWith('PERCENTAGE') ? Number(c.percentage || 0) : null,
             formula: c.formula,
             sortOrder: c.sortOrder || 0,
             isActive: c.isActive ?? true,
@@ -337,6 +457,57 @@ export default function HRPayrollPage() {
       toast.error(message);
     } finally {
       setSubmittingId(null);
+    }
+  };
+
+  // Record-level lock / unlock / paid. These freeze the calculation so the
+  // approved numbers can never drift; unlocking requires a recorded reason.
+  const [recordLifecycleBusy, setRecordLifecycleBusy] = useState<string | null>(null);
+
+  const handleLockRecord = async (record: PayrollRecordItem) => {
+    if (!confirm(`Lock record ${record.id}? Locked payroll is immutable until an authorized unlock.`)) return;
+    setRecordLifecycleBusy(record.id);
+    try {
+      await payrollService.lockPayroll(record.id);
+      toast.success('Payroll record locked.');
+      fetchPayrollRecords();
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to lock the record.';
+      toast.error(message);
+    } finally {
+      setRecordLifecycleBusy(null);
+    }
+  };
+
+  const handleUnlockRecord = async (record: PayrollRecordItem) => {
+    const entered = window.prompt('Unlocking reopens this record. Enter the correction reason:');
+    if (entered === null) return;
+    if (!entered.trim()) { toast.error('A correction reason is required to unlock.'); return; }
+    setRecordLifecycleBusy(record.id);
+    try {
+      await payrollService.unlockPayroll(record.id, entered.trim());
+      toast.success('Payroll record unlocked.');
+      fetchPayrollRecords();
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to unlock the record.';
+      toast.error(message);
+    } finally {
+      setRecordLifecycleBusy(null);
+    }
+  };
+
+  const handleMarkPaid = async (record: PayrollRecordItem) => {
+    if (!confirm(`Mark record ${record.id} as paid? This records the disbursement moment.`)) return;
+    setRecordLifecycleBusy(record.id);
+    try {
+      await payrollService.markPayrollPaid(record.id);
+      toast.success('Payroll record marked as paid.');
+      fetchPayrollRecords();
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to mark as paid.';
+      toast.error(message);
+    } finally {
+      setRecordLifecycleBusy(null);
     }
   };
 
@@ -510,7 +681,7 @@ export default function HRPayrollPage() {
                 <div className="space-y-2 max-h-60 overflow-y-auto">
                   {structureComponents.map((comp, idx) => (
                     <div key={comp.id} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-lg">
-                      <div className="col-span-3">
+                      <div className="col-span-2">
                         <input
                           type="text"
                           value={comp.name}
@@ -530,6 +701,27 @@ export default function HRPayrollPage() {
                         </select>
                       </div>
                       <div className="col-span-2">
+                        <select
+                          value={comp.calculationType || 'FIXED'}
+                          onChange={(e) => updateComponent(idx, 'calculationType', e.target.value)}
+                          className="w-full px-2 py-1 border border-slate-300 rounded text-xs focus:outline-none"
+                          title="Calculation method"
+                        >
+                          <option value="FIXED">Fixed amount</option>
+                          <option value="PERCENTAGE_OF_CTC">% of CTC</option>
+                          <option value="PERCENTAGE_OF_BASIC">% of Basic</option>
+                          <option value="FORMULA">Formula</option>
+                          <option value="BALANCE">Balance amount</option>
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        {comp.calculationType === 'FORMULA' ? (
+                          <input type="text" value={comp.formula || ''} onChange={(e) => updateComponent(idx, 'formula', e.target.value)} placeholder="BASIC * 50%" className="w-full px-2 py-1 border border-slate-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500" />
+                        ) : comp.calculationType === 'PERCENTAGE_OF_CTC' || comp.calculationType === 'PERCENTAGE_OF_BASIC' ? (
+                          <input type="number" value={comp.percentage ?? ''} onChange={(e) => updateComponent(idx, 'percentage', e.target.value)} placeholder="Percent" className="w-full px-2 py-1 border border-slate-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500" min="0" step="0.01" />
+                        ) : comp.calculationType === 'BALANCE' ? (
+                          <span className="block text-xs text-slate-500 py-1">Remainder</span>
+                        ) : (
                         <input
                           type="number"
                           value={comp.amount}
@@ -539,8 +731,9 @@ export default function HRPayrollPage() {
                           min="0"
                           step="0.01"
                         />
+                        )}
                       </div>
-                      <div className="col-span-3">
+                      <div className="col-span-2">
                         <input
                           type="text"
                           value={comp.description || ''}
@@ -605,6 +798,7 @@ export default function HRPayrollPage() {
             { key: 'salary-headers', label: 'Salary Headers' },
             { key: 'salary-config', label: 'Salary Configuration' },
             { key: 'prepare-payroll', label: 'Payroll Preparation' },
+            { key: 'period-lifecycle', label: 'Period & Lifecycle' },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -1045,6 +1239,141 @@ export default function HRPayrollPage() {
           </div>
         )}
 
+        {activeTab === 'period-lifecycle' && (
+          <div className="space-y-6">
+            {/* Period card: status, review gates, transitions */}
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-[13px] font-medium text-slate-700">Payroll Period — {monthNames[payrollMonth - 1]} {payrollYear}</h3>
+                {currentPeriod && (
+                  <span className="text-[12px] font-semibold px-2.5 py-1 rounded-full bg-cyan-50 text-cyan-700">{currentPeriod.status.replace(/_/g, ' ')}</span>
+                )}
+              </div>
+              {periodsLoading ? (
+                <div className="py-6 text-center text-[13px] text-slate-500">Loading period…</div>
+              ) : currentPeriod ? (
+                <div className="space-y-4">
+                  {/* Review gate summary */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-slate-200 p-3">
+                      <p className="text-[12px] font-medium text-slate-600">HR Review</p>
+                      <p className="text-[13px] text-slate-900">{currentPeriod.hrReviewedAt ? 'Recorded' : 'Pending'}</p>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 p-3">
+                      <p className="text-[12px] font-medium text-slate-600">Finance Review</p>
+                      <p className="text-[13px] text-slate-900">{currentPeriod.financeReviewedAt ? 'Recorded' : 'Pending'}</p>
+                    </div>
+                  </div>
+                  {/* Available transitions, computed from the period state machine */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {PERIOD_FLOW
+                      .filter((step) => step.from === currentPeriod.status)
+                      .map((step) => (
+                        <button
+                          key={`${step.from}-${step.to}`}
+                          onClick={() => handlePeriodTransition(currentPeriod, step.to, Boolean(step.unlock))}
+                          disabled={periodBusy === currentPeriod.id}
+                          className={`text-[12px] px-3 py-1.5 rounded-lg disabled:opacity-50 ${
+                            step.unlock
+                              ? 'border border-amber-400 text-amber-700 hover:bg-amber-50'
+                              : 'bg-cyan-600 text-white hover:bg-cyan-700'
+                          }`}
+                        >
+                          {step.label}
+                        </button>
+                      ))}
+                    <button
+                      onClick={() => handleRecordReview(currentPeriod, 'HR_REVIEW')}
+                      disabled={periodBusy === currentPeriod.id || !!currentPeriod.hrReviewedAt}
+                      className="text-[12px] px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Record HR Review
+                    </button>
+                    <button
+                      onClick={() => handleRecordReview(currentPeriod, 'FINANCE_REVIEW')}
+                      disabled={periodBusy === currentPeriod.id || !!currentPeriod.financeReviewedAt}
+                      className="text-[12px] px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Record Finance Review
+                    </button>
+                  </div>
+                  {/* Unlock trail */}
+                  {currentPeriod.unlockedAt && (
+                    <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      Last authorized unlock: {new Date(currentPeriod.unlockedAt).toLocaleString()} — {currentPeriod.unlockReason || 'no reason recorded'}
+                    </p>
+                  )}
+                  {currentPeriod.lockedAt && !currentPeriod.unlockedAt && (
+                    <p className="text-[12px] text-slate-500">Locked: {new Date(currentPeriod.lockedAt).toLocaleString()}</p>
+                  )}
+                  {currentPeriod.paidAt && (
+                    <p className="text-[12px] text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">Period paid: {new Date(currentPeriod.paidAt).toLocaleString()}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="py-6 text-center text-[13px] text-slate-500">
+                  No period yet for this month —{' '}
+                  <button onClick={() => fetchPeriods(payrollMonth, payrollYear)} className="text-cyan-600 hover:underline">create it</button>.
+                </div>
+              )}
+            </div>
+
+            {/* One-time adjustments */}
+            <div className="bg-white rounded-xl border border-slate-200">
+              <div className="px-6 py-4 border-b border-slate-200">
+                <h3 className="text-[15px] font-semibold text-slate-900">One-time Adjustments (pending)</h3>
+                <p className="mt-1 text-[12px] text-slate-500">
+                  Bonuses, incentives, arrears and advances are consumed by the next payroll run for the employee and linked back to the record that applied them.
+                </p>
+              </div>
+              <div className="p-4 grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+                <Field label="Employee ID (profile)"><input type="number" value={adjustmentForm.employeeId} onChange={(e) => setAdjustmentForm((f) => ({ ...f, employeeId: e.target.value }))} className={inputCls} /></Field>
+                <Field label="Type">
+                  <select value={adjustmentForm.type} onChange={(e) => setAdjustmentForm((f) => ({ ...f, type: e.target.value as OneTimeAdjustment['type'] }))} className={inputCls}>
+                    <option value="BONUS">Bonus</option>
+                    <option value="INCENTIVE">Incentive</option>
+                    <option value="ONE_TIME_EARNING">One-time Earning</option>
+                    <option value="ARREARS">Arrears</option>
+                    <option value="SALARY_ADVANCE">Salary Advance</option>
+                    <option value="ONE_TIME_DEDUCTION">One-time Deduction</option>
+                  </select>
+                </Field>
+                <Field label="Amount"><input type="number" value={adjustmentForm.amount} onChange={(e) => setAdjustmentForm((f) => ({ ...f, amount: e.target.value }))} className={inputCls} /></Field>
+                <Field label="Reason (optional)"><input value={adjustmentForm.reason} onChange={(e) => setAdjustmentForm((f) => ({ ...f, reason: e.target.value }))} className={inputCls} /></Field>
+                <button onClick={handleCreateAdjustment} disabled={adjustmentSaving} className="px-4 py-2 bg-cyan-600 text-white text-[13px] rounded-lg hover:bg-cyan-700 disabled:opacity-50">
+                  {adjustmentSaving ? 'Queuing…' : 'Queue Adjustment'}
+                </button>
+              </div>
+              {adjustmentsLoading ? (
+                <div className="p-6 text-center text-[13px] text-slate-500">Loading…</div>
+              ) : adjustments.length === 0 ? (
+                <div className="px-6 pb-4 text-[12px] text-slate-500">No pending one-time adjustments.</div>
+              ) : (
+                <table className="w-full">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-[12px] font-medium text-slate-500 uppercase">Employee</th>
+                      <th className="px-6 py-3 text-left text-[12px] font-medium text-slate-500 uppercase">Type</th>
+                      <th className="px-6 py-3 text-right text-[12px] font-medium text-slate-500 uppercase">Amount</th>
+                      <th className="px-6 py-3 text-left text-[12px] font-medium text-slate-500 uppercase">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {adjustments.map((adj) => (
+                      <tr key={adj.id}>
+                        <td className="px-6 py-3 text-[13px] font-mono text-slate-700">{adj.employeeId}</td>
+                        <td className="px-6 py-3 text-[13px] text-slate-700">{adj.type.replace(/_/g, ' ')}</td>
+                        <td className="px-6 py-3 text-[13px] text-slate-700 text-right">{formatCurrency(adj.amount)}</td>
+                        <td className="px-6 py-3 text-[12px] text-slate-500">{adj.reason || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'prepare-payroll' && (
           <div className="space-y-6">
             {/* Period Selection */}
@@ -1167,8 +1496,36 @@ export default function HRPayrollPage() {
                                   {submittingId === record.id ? '...' : 'Submit'}
                                 </button>
                               )}
-                              {record.status === 'APPROVED' && (
-                                <span className="text-xs text-emerald-600">Locked</span>
+                              {record.status === 'APPROVED' && !record.lockedAt && (
+                                <button
+                                  onClick={() => handleLockRecord(record)}
+                                  disabled={recordLifecycleBusy === record.id}
+                                  className="text-xs bg-amber-500 text-white px-2 py-1 rounded hover:bg-amber-600 disabled:opacity-50"
+                                >
+                                  {recordLifecycleBusy === record.id ? '...' : 'Lock'}
+                                </button>
+                              )}
+                              {record.status === 'APPROVED' && record.lockedAt && !record.paidAt && (
+                                <>
+                                  <button
+                                    onClick={() => handleMarkPaid(record)}
+                                    disabled={recordLifecycleBusy === record.id}
+                                    className="text-xs bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700 disabled:opacity-50"
+                                  >
+                                    {recordLifecycleBusy === record.id ? '...' : 'Mark Paid'}
+                                  </button>
+                                  <button
+                                    onClick={() => handleUnlockRecord(record)}
+                                    disabled={recordLifecycleBusy === record.id}
+                                    className="text-xs border border-slate-300 text-slate-700 px-2 py-1 rounded hover:bg-slate-100 disabled:opacity-50"
+                                    title="Authorized unlock — a correction reason is recorded in the audit log"
+                                  >
+                                    Unlock
+                                  </button>
+                                </>
+                              )}
+                              {record.status === 'APPROVED' && record.paidAt && (
+                                <span className="text-xs text-emerald-600">Paid</span>
                               )}
                             </div>
                             {/* Component Detail */}

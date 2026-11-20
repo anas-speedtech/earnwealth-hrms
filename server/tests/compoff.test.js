@@ -50,6 +50,11 @@ const mockModel = {
     if (lower.includes('comp_off_ledger') && lower.includes('sum(')) {
       return mockModel._ledgerSumRows || [{ totalEarned: '0', totalUsed: '0', totalAdjusted: '0' }];
     }
+    // The balance is now computed by summing earned/used days off the credits
+    // table (not the ledger), so route that SUM query to the same fixture.
+    if (lower.includes('comp_off_credits') && lower.includes('sum(earneddays)')) {
+      return mockModel._ledgerSumRows || [{ totalEarned: '0', totalUsed: '0', totalAdjusted: '0' }];
+    }
     if (lower.includes('count(*)') && lower.includes('comp_off_credits')) {
       return [{ total: String(mockModel._creditCount || 0) }];
     }
@@ -256,7 +261,8 @@ function setAttendance(empId, date, opts = {}) {
     ],
     corrections: opts.corrections || [],
     punchTime: new Date(d.getTime() + 9 * 3600000),
-    workedDate: new Date(d.getTime() + 9 * 3600000),
+    // The raw SQL CAST(DATE(punchTime) AS CHAR) returns an ISO day string.
+    workedDate: new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10),
   };
   mockModel.attendance.findUnique.mockImplementation(R(record));
   mockModel.attendance.findMany.mockImplementation(R([record]));

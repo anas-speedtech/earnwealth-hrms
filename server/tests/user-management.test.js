@@ -33,7 +33,10 @@ jest.mock('@prisma/client', () => ({
 const { UserManagementService } = require('../src/services/user-management.service');
 
 // ── Helper to configure mock for create flow ─────────────────────────────────
-function configureMockForCreate(existingEmail = null) {
+// The service (least-privilege contract) requires a manually-entered,
+// numeric employee code for every provisioned account, and the dup-code
+// lookup only reports a collision when the test opts in via `existingCode`.
+function configureMockForCreate({ existingEmail = null, existingCode = null } = {}) {
   let capturedRole = 'EMPLOYEE';
   const handler = (templateOrSql, ...bindings) => {
     let sqlStr = '';
@@ -62,7 +65,8 @@ function configureMockForCreate(existingEmail = null) {
       }]);
     }
     if (sqlStr.includes('FROM employees WHERE employeeCode')) {
-      return Promise.resolve([{ id: 5, userId: null }]);
+      // Duplicate only when the test opts in; otherwise the code is free.
+      return Promise.resolve(existingCode ? [{ id: 5, userId: null }] : []);
     }
     if (sqlStr.includes('FROM employees WHERE name')) {
       return Promise.resolve([{ id: 9, name: 'Manager Name' }]);
@@ -71,7 +75,7 @@ function configureMockForCreate(existingEmail = null) {
   };
   mockQueryRaw.mockImplementation(handler);
   mockQueryRawUnsafe.mockImplementation(handler);
-  
+
   // Capture role from INSERT statement
   mockExecuteRaw.mockImplementation((templateOrSql, ...bindings) => {
     let sqlStr = '';
@@ -103,11 +107,16 @@ describe('UserManagementService.create() — role permissions', () => {
       email: 'emp.test@example.com',
       password: 'TestPass123!',
       role: 'EMPLOYEE',
+      // The service requires a manual numeric employee code and a reporting
+      // manager for every Employee account.
+      employeeCode: '1001',
+      reportingManager: 'Manager Name',
     });
     expect(result).toBeDefined();
     expect(result.id).toBe('99');
     expect(result.email).toBe('emp.test@example.com');
     expect(result.role).toBe('EMPLOYEE');
+    expect(result.employeeCode).toBe('1001');
   });
 
   test('HR Admin creating an HR Admin account is rejected with 403', async () => {
@@ -136,19 +145,21 @@ describe('UserManagementService.create() — role permissions', () => {
     ).rejects.toMatchObject({ code: AppErrorCodes.FORBIDDEN, statusCode: 403 });
   });
 
-  test('Super Admin creating an Employee account is permitted', async () => {
+  // Least-privilege contract: Super Admins may only appoint HR Admins;
+  // Employee accounts are provisioned by HR Admins.
+  test('Super Admin creating an Employee account is rejected with 403', async () => {
     configureMockForCreate();
     const actor = { id: 1, role: 'SUPER_ADMIN' };
-    const result = await UserManagementService.create(actor, {
-      name: 'Test Employee',
-      email: 'emp.test2@example.com',
-      password: 'TestPass123!',
-      role: 'EMPLOYEE',
-    });
-    expect(result).toBeDefined();
-    expect(result.id).toBe('99');
-    expect(result.email).toBe('emp.test2@example.com');
-    expect(result.role).toBe('EMPLOYEE');
+    await expect(
+      UserManagementService.create(actor, {
+        name: 'Test Employee',
+        email: 'emp.test2@example.com',
+        password: 'TestPass123!',
+        role: 'EMPLOYEE',
+        employeeCode: '1002',
+        reportingManager: 'Manager Name',
+      })
+    ).rejects.toMatchObject({ code: AppErrorCodes.FORBIDDEN, statusCode: 403 });
   });
 
   test('Super Admin creating an HR Admin account is permitted', async () => {
@@ -159,11 +170,15 @@ describe('UserManagementService.create() — role permissions', () => {
       email: 'hr.new2@example.com',
       password: 'TestPass123!',
       role: 'HR_ADMIN',
+      // The manual numeric employee code is required for every provisioned
+      // account (the service validates it before any insert).
+      employeeCode: '2001',
     });
     expect(result).toBeDefined();
     expect(result.id).toBe('99');
     expect(result.email).toBe('hr.new2@example.com');
     expect(result.role).toBe('HR_ADMIN');
+    expect(result.employeeCode).toBe('2001');
   });
 
   test('Super Admin creating a Super Admin account is rejected with 403', async () => {
@@ -180,14 +195,17 @@ describe('UserManagementService.create() — role permissions', () => {
   });
 
   test('Duplicate email is rejected with 409', async () => {
-    configureMockForCreate('existing@example.com');
+    configureMockForCreate({ existingEmail: 'existing@example.com' });
     const actor = { id: 1, role: 'SUPER_ADMIN' };
+    // Super Admin may only appoint HR Admins, so use that role to reach the
+    // email-dup check (code check passes; email collision is what fires).
     await expect(
       UserManagementService.create(actor, {
         name: 'Duplicate User',
         email: 'existing@example.com',
         password: 'TestPass123!',
-        role: 'EMPLOYEE',
+        role: 'HR_ADMIN',
+        employeeCode: '3001',
       })
     ).rejects.toMatchObject({ code: AppErrorCodes.DUPLICATE_ENTRY, statusCode: 409 });
   });
@@ -207,32 +225,51 @@ describe('UserManagementService.create() — role permissions', () => {
 
   test('Employee code and reporting manager are saved and returned', async () => {
     configureMockForCreate();
-    const actor = { id: 1, role: 'SUPER_ADMIN' };
+    const actor = { id: 1, role: 'HR_ADMIN' };
     const result = await UserManagementService.create(actor, {
       name: 'Linked Employee',
       email: 'linked@example.com',
       password: 'TestPass123!',
       role: 'EMPLOYEE',
-      employeeCode: 'EMP-1001',
+      employeeCode: '1001',
       reportingManager: 'Manager Name',
     });
-    expect(result.employeeCode).toBe('EMP-1001');
+    expect(result.employeeCode).toBe('1001');
     expect(result.reportingManager).toBe('Manager Name');
   });
 
-  test('Unknown employee code is rejected with 400', async () => {
+  test('Duplicate employee code is rejected with 409', async () => {
+    configureMockForCreate({ existingCode: '4001' });
+    const actor = { id: 1, role: 'HR_ADMIN' };
+    await expect(
+      UserManagementService.create(actor, {
+        name: 'Clash',
+        email: 'clash@example.com',
+        password: 'TestPass123!',
+        role: 'EMPLOYEE',
+        employeeCode: '4001',
+        reportingManager: 'Manager Name',
+      })
+    ).rejects.toMatchObject({ code: AppErrorCodes.DUPLICATE_ENTRY, statusCode: 409 });
+  });
+
+  test('Missing employee code is rejected with 400', async () => {
     configureMockForCreate();
-    // Override the employee lookup to return no rows.
-    const originalImpl = mockQueryRawUnsafe.getMockImplementation();
-    mockQueryRawUnsafe.mockImplementation((templateOrSql, ...bindings) => {
-      const sqlStr = Array.isArray(templateOrSql) ? templateOrSql.join('') : String(templateOrSql);
-      if (sqlStr.includes('FROM employees WHERE employeeCode')) {
-        return Promise.resolve([]);
-      }
-      if (originalImpl) return originalImpl(templateOrSql, ...bindings);
-      return Promise.resolve([]);
-    });
-    const actor = { id: 1, role: 'SUPER_ADMIN' };
+    const actor = { id: 1, role: 'HR_ADMIN' };
+    await expect(
+      UserManagementService.create(actor, {
+        name: 'No Code',
+        email: 'nocode@example.com',
+        password: 'TestPass123!',
+        role: 'EMPLOYEE',
+        reportingManager: 'Manager Name',
+      })
+    ).rejects.toMatchObject({ code: AppErrorCodes.VALIDATION_ERROR, statusCode: 400 });
+  });
+
+  test('Non-numeric employee code is rejected with 400', async () => {
+    configureMockForCreate();
+    const actor = { id: 1, role: 'HR_ADMIN' };
     await expect(
       UserManagementService.create(actor, {
         name: 'Orphan',
@@ -240,7 +277,8 @@ describe('UserManagementService.create() — role permissions', () => {
         password: 'TestPass123!',
         role: 'EMPLOYEE',
         employeeCode: 'EMP-9999',
+        reportingManager: 'Manager Name',
       })
-    ).rejects.toMatchObject({ statusCode: 400 });
+    ).rejects.toMatchObject({ code: AppErrorCodes.VALIDATION_ERROR, statusCode: 400 });
   });
 });
