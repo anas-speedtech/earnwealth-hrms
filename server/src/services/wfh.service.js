@@ -319,7 +319,7 @@ class WFHService {
     };
   }
 
-  async reviewBase(reqUser, requestId, reviewComment) {
+  static async reviewBase(reqUser, requestId, reviewComment) {
     if (![Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to review WFH requests.', 403);
     }
