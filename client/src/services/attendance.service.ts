@@ -82,8 +82,10 @@ export interface MatrixDay {
   out: string | null;
   // 'L' = approved leave day, 'P' = full present (in by 09:30, out at/after
   // 18:30), 'H' = half day (FHDL / SHDL / incomplete), '—' = no data.
-  status: 'P' | 'H' | 'L' | '—';
+  status: 'P' | 'FHDL' | 'SHDL' | 'LWP' | 'L' | 'WFH' | 'CO' | '—';
   onLeave: boolean;
+  onWfh: boolean;
+  onCompOff: boolean;
   halfDay: boolean;
   // Half-day markers shown in the cell: 'FHDL' = first punch-in after 09:30
   // (first half missed), 'SHDL' = last punch-out before 18:30 (second half
