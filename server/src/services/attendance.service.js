@@ -415,19 +415,34 @@ class AttendanceService {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'HR has locked this attendance day.', 403);
     }
 
-    const wfh = await prisma.$queryRawUnsafe(
-      "SELECT id, requestDate FROM wfh_requests WHERE employeeId = ? AND status = 'APPROVED' AND (requestDate = ? OR (requestDate < ? AND endDate >= ?)) LIMIT 1",
-      profileId,
-      date,
-      date,
+    // Self-punch is allowed on: (a) a day with an approved WFH request, or
+    // (b) a weekly-off / holiday (comp-off earning day).  Check the day type
+    // before falling through to the WFH-only gate.
+    const dateObj = new Date(date + 'T00:00:00');
+    const dayOfWeek = dateObj.getUTCDay ? dateObj.getUTCDay() : dateObj.getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    const holidayRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM holidays WHERE date = ? LIMIT 1`,
       date
-    );
-    if (!wfh || !wfh.length) {
-      throw new AppError(
-        AppErrorCodes.INVALID_INPUT,
-        'Self-punch is only allowed on a day covered by an approved WFH request, without device data.',
-        400
+    ).catch(() => []);
+    const isHoliday = holidayRows && holidayRows.length > 0;
+
+    if (!isWeekend && !isHoliday) {
+      const wfh = await prisma.$queryRawUnsafe(
+        "SELECT id, requestDate FROM wfh_requests WHERE employeeId = ? AND status = 'APPROVED' AND (requestDate = ? OR (requestDate < ? AND endDate >= ?)) LIMIT 1",
+        profileId,
+        date,
+        date,
+        date
       );
+      if (!wfh || !wfh.length) {
+        throw new AppError(
+          AppErrorCodes.INVALID_INPUT,
+          'Self-punch is only allowed on a day covered by an approved WFH request, without device data.',
+          400
+        );
+      }
     }
 
     const deviceRows = await prisma.$queryRawUnsafe(

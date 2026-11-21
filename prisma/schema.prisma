@@ -746,6 +746,11 @@ model PayrollPeriod {
   lockedBy           Int?
   paidAt             DateTime?
   createdBy          Int?
+  // Payroll cutoff: the last day of the month considered "available"
+  // for attendance when calculating this period.  E.g. 28 means days
+  // 29–end are treated as not-yet-available and excluded from
+  // proration so payroll can run on the 28th without waiting.
+  payrollCutoffDay   Int?     @default(null)
   // Multi-step review gates (HR review -> Finance review -> Approver).
   hrReviewedAt       DateTime?
   hrReviewedBy       Int?

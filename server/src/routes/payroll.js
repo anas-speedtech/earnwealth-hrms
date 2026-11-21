@@ -343,7 +343,7 @@ router.put('/payroll/employees/:employeeId/profile', authenticate, authorize(Rol
   try { res.json({ data: await PayrollService.upsertEmployeePayrollProfile(req.user, req.params.employeeId, req.body) }); } catch (err) { next(err); }
 });
 router.get('/payroll/employees/:employeeId/attendance-inputs', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
-  try { res.json({ data: await PayrollService.getAttendancePayrollInputs(req.user, req.params.employeeId, Number(req.query.month), Number(req.query.year)) }); } catch (err) { next(err); }
+  try { res.json({ data: await PayrollService.getAttendancePayrollInputs(req.user, req.params.employeeId, Number(req.query.month), Number(req.query.year), Number(req.query.periodId)) }); } catch (err) { next(err); }
 });
 router.get('/payroll/employees/:employeeId/loans', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => { try { res.json({ data: await PayrollService.listEmployeeLoans(req.user, req.params.employeeId) }); } catch (err) { next(err); } });
 router.post('/payroll/employees/:employeeId/loans', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(loanSchema), async (req, res, next) => { try { res.status(201).json({ data: await PayrollService.createEmployeeLoan(req.user, req.params.employeeId, req.body) }); } catch (err) { next(err); } });
