@@ -211,6 +211,14 @@ export default function HRAttendancePage() {
       );
     }
 
+    if (cell.isOffDay && !cell.hasPunch) {
+      return (
+        <div className="flex h-full min-h-[2.75rem] items-center justify-center rounded-sm bg-slate-100 px-1 py-1 text-slate-500">
+          <span className="text-[10px] font-semibold">WO</span>
+        </div>
+      );
+    }
+
     if (!cell.hasPunch) {
       return (
         <div className="min-h-[2.75rem] rounded-sm border border-dashed border-slate-200" />
