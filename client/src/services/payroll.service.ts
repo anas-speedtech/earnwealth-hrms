@@ -143,7 +143,6 @@ export interface SalarySplitPreview {
 }
 
 export interface PayrollSummary {
-  monthlyCTC: string;
   currency: string;
   latestPayroll: PayrollRecordItem | null;
 }
@@ -588,6 +587,42 @@ export const payrollService = {
     const { data } = await axios.post<{ data: EmployeeReimbursement }>(
       `${API_BASE_URL}/payroll/reimbursements/${id}/${action}`,
       {},
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  // ---- Period password lock ----
+
+  async lockPeriodWithPassword(periodId: number, password: string): Promise<{ period: PayrollPeriod; lockedRecords: number }> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: { period: PayrollPeriod; lockedRecords: number } }>(
+      `${API_BASE_URL}/payroll/periods/${periodId}/lock`,
+      { password },
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  // ---- Bulk payslip generation ----
+
+  async generateBulkPayslips(periodId: number): Promise<Array<{ id: number; payrollRecordId: number; employeeId: number; employeeCode: string | null; month: number; year: number; generatedAt: string }>> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: Array<{ id: number; payrollRecordId: number; employeeId: number; employeeCode: string | null; month: number; year: number; generatedAt: string }> }>(
+      `${API_BASE_URL}/payroll/periods/${periodId}/generate-payslips`,
+      {},
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  // ---- HR reopen (authorized unlock of a locked period) ----
+
+  async reopenLockedPeriod(periodId: number, reason: string): Promise<{ period: PayrollPeriod; reopenedRecords: number }> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: { period: PayrollPeriod; reopenedRecords: number } }>(
+      `${API_BASE_URL}/payroll/periods/${periodId}/reopen`,
+      { reason },
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
     return data.data;
