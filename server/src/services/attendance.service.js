@@ -96,6 +96,14 @@ class AttendanceService {
        ORDER BY punchTime ASC`,
       ...(employeeId != null ? [monthStart, monthEnd, employeeId] : [monthStart, monthEnd])
     );
+    const hrDayLocks = await prisma.attendanceDayLock.findMany({
+      where: { isLocked: true, date: { gte: monthStart, lt: new Date(Date.UTC(yearNum, monthNum, 1)) } },
+      select: { employeeId: true, date: true, lockedBy: true, reason: true },
+    });
+    const lockedDays = new Map();
+    for (const lock of hrDayLocks) {
+      lockedDays.set(`${lock.employeeId}:${new Date(lock.date).getUTCDate()}`, lock);
+    }
 
     // Approved leaves overlapping the month — a leave day overrides punch
     // data in the cell (matches the reference report where leave days show
@@ -234,6 +242,7 @@ class AttendanceService {
         const onWfh = empWfhDays?.has(d);
         const onCompOff = empCompOffDays?.has(d);
         const isOffDay = offDays.has(d);
+        const hrLock = lockedDays.get(`${emp.id}:${d}`);
 
         // Classification follows the standard 09:30–18:30 window:
         //  - a first punch-in after 09:30 -> FHDL (First Half Day Leave)
@@ -281,6 +290,8 @@ class AttendanceService {
           onLeave,
           onWfh,
           onCompOff,
+          hrLocked: Boolean(hrLock),
+          lockReason: hrLock?.reason || null,
           halfDay,
           halfDayTags: tags,
           isOffDay,
@@ -355,6 +366,29 @@ class AttendanceService {
     };
   }
 
+  static async setDayLock(reqUser, { employeeId, date, isLocked, reason }) {
+    if (!this.canAccessAll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'Only HR Admin or Super Admin can lock attendance days.', 403);
+    }
+    const dayStart = this.istDayRange(date, false);
+    if (!dayStart) throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'A valid attendance date is required.', 400);
+    const prisma = this.getPrisma();
+    const employee = await prisma.employee.findUnique({ where: { id: Number(employeeId) }, select: { id: true } });
+    if (!employee) throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
+    const lock = await prisma.attendanceDayLock.upsert({
+      where: { employeeId_date: { employeeId: employee.id, date: dayStart } },
+      create: { employeeId: employee.id, date: dayStart, isLocked: Boolean(isLocked), lockedBy: Number(reqUser.id), reason: reason || null },
+      update: { isLocked: Boolean(isLocked), lockedBy: Number(reqUser.id), reason: reason || null },
+    });
+    await prisma.auditLog.create({ data: {
+      actorId: String(reqUser.id), actorRole: reqUser.role,
+      action: lock.isLocked ? 'LOCK_ATTENDANCE_DAY' : 'UNLOCK_ATTENDANCE_DAY',
+      entityType: 'AttendanceDayLock', entityId: String(lock.id),
+      metadata: JSON.stringify({ employeeId: employee.id, date, reason: reason || null }),
+    } });
+    return { employeeId: String(employee.id), date, isLocked: lock.isLocked, reason: lock.reason };
+  }
+
   /**
    * Employee applies a manual punch pair for a specific calendar day — the
    * day-click flow on the employee calendar. Guarded by the same rule the
@@ -372,6 +406,13 @@ class AttendanceService {
     const dayEnd = this.istDayRange(date, true);
     if (!dayStart || !dayEnd) {
       throw new AppError(AppErrorCodes.INVALID_INPUT, 'A valid date (YYYY-MM-DD) is required.', 400);
+    }
+    const hrLock = await prisma.attendanceDayLock.findUnique({
+      where: { employeeId_date: { employeeId: Number(profileId), date: dayStart } },
+      select: { isLocked: true },
+    });
+    if (hrLock?.isLocked) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'HR has locked this attendance day.', 403);
     }
 
     const wfh = await prisma.$queryRawUnsafe(
