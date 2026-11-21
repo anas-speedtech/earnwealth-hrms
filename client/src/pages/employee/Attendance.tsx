@@ -286,7 +286,14 @@ export default function EmployeeAttendancePage() {
                 <p className="text-[12px] text-slate-500">
                   Day status:{' '}
                   <span className="font-medium text-slate-700">
-                    {selectedDay.status === 'P' ? 'Present' : selectedDay.status === 'H' ? 'Half day' : selectedDay.status === 'L' ? 'Leave' : 'No data'}
+                    {selectedDay.status === 'P' ? 'Present'
+                      : selectedDay.status === 'FHDL' ? 'First Half Day Leave'
+                      : selectedDay.status === 'SHDL' ? 'Second Half Day Leave'
+                      : selectedDay.status === 'LWP' ? 'Loss of Pay'
+                      : selectedDay.status === 'L' ? 'Leave'
+                      : selectedDay.status === 'WFH' ? 'Work From Home'
+                      : selectedDay.status === 'CO' ? 'Comp-Off'
+                      : 'No data'}
                   </span>
                 </p>
               )}
@@ -310,8 +317,12 @@ function renderDayCell(cell: MyMatrixDay, onOpen: () => void) {
     const tone =
       cell.status === 'P'
         ? 'border-emerald-200 bg-emerald-50'
-        : cell.status === 'H'
+        : cell.status === 'FHDL'
           ? 'border-orange-200 bg-orange-50'
+          : cell.status === 'SHDL'
+            ? 'border-amber-200 bg-amber-50'
+            : cell.status === 'LWP'
+              ? 'border-rose-200 bg-rose-50'
           : 'border-slate-200 bg-slate-50';
     return (
       <button
