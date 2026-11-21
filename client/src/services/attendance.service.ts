@@ -86,6 +86,8 @@ export interface MatrixDay {
   onLeave: boolean;
   onWfh: boolean;
   onCompOff: boolean;
+  hrLocked?: boolean;
+  lockReason?: string | null;
   halfDay: boolean;
   // Half-day markers shown in the cell: 'FHDL' = first punch-in after 09:30
   // (first half missed), 'SHDL' = last punch-out before 18:30 (second half
@@ -210,6 +212,11 @@ export const attendanceService = {
     const { data } = await api.get('/attendance/matrix', {
       params: { year, month },
     });
+    return data;
+  },
+
+  async setDayLock(employeeId: string, date: string, isLocked: boolean, reason?: string): Promise<{ isLocked: boolean }> {
+    const { data } = await api.put(`/attendance/employees/${employeeId}/day-lock`, { date, isLocked, reason });
     return data;
   },
 

@@ -167,6 +167,20 @@ export default function HRAttendancePage() {
     }
   };
 
+  const toggleDayLock = async (employeeId: string, day: number, currentlyLocked: boolean) => {
+    const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const action = currentlyLocked ? 'unlock' : 'lock';
+    if (!window.confirm(`${action[0].toUpperCase()}${action.slice(1)} attendance for ${date}?`)) return;
+    try {
+      await attendanceService.setDayLock(employeeId, date, !currentlyLocked);
+      toast.success(`Attendance day ${action === 'lock' ? 'locked' : 'unlocked'}.`);
+      loadMatrix();
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Could not update the attendance lock.';
+      toast.error(message);
+    }
+  };
+
   // ============ matrix cell rendering ============
 
   // Working window is 09:30 in / 18:30 out, lunch break after 13:45.
@@ -365,7 +379,7 @@ export default function HRAttendancePage() {
                           {row.name}
                         </td>
                         {row.days.map((cell) => (
-                          <td key={cell.day} className="min-w-[2.5rem] px-0.5 py-1">
+                          <td key={cell.day} onClick={() => toggleDayLock(row.employeeId, cell.day, Boolean(cell.hrLocked))} title={cell.hrLocked ? 'Locked by HR — click to unlock' : 'Click to lock attendance'} className={`min-w-[2.5rem] cursor-pointer px-0.5 py-1 ${cell.hrLocked ? 'ring-2 ring-inset ring-slate-500/60' : 'hover:ring-2 hover:ring-inset hover:ring-cyan-400/50'}`}>
                             {renderDayCell(cell)}
                           </td>
                         ))}

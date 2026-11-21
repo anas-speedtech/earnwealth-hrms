@@ -118,6 +118,20 @@ model AttendanceLog {
   @@map("attendance_logs")
 }
 
+model AttendanceDayLock {
+  id Int @id @default(autoincrement())
+  employeeId Int
+  date DateTime @db.Date
+  isLocked Boolean @default(true)
+  lockedBy Int
+  reason String? @db.VarChar(500)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+  @@unique([employeeId, date])
+  @@index([date, isLocked])
+  @@map("attendance_day_locks")
+}
+
 // --------------------------------------------------------------- leaves
 
 model Leave {

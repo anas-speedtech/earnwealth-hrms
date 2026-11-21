@@ -1,7 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 const { authenticate, authorize } = require('../middleware/auth');
-const { validateQuery } = require('../middleware/validate');
+const { validateBody, validateQuery } = require('../middleware/validate');
 const { AttendanceService } = require('../services/attendance.service');
 const { Role } = require('../types/index');
 
@@ -22,6 +22,7 @@ const matrixQuerySchema = z.object({
   year: z.coerce.number().int().positive().default(new Date().getFullYear()),
   month: z.coerce.number().int().min(1).max(12).default(new Date().getMonth() + 1),
 });
+const dayLockSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), isLocked: z.boolean(), reason: z.string().max(500).optional().nullable() });
 
 // Punch in — any authenticated user punches in for themselves or authorized roles for their target
 router.post('/attendance/punch-in', authenticate, async (req, res, next) => {
@@ -95,6 +96,10 @@ router.get('/attendance/matrix', authenticate, authorize(Role.SUPER_ADMIN, Role.
   } catch (err) {
     next(err);
   }
+});
+
+router.put('/attendance/employees/:id/day-lock', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(dayLockSchema), async (req, res, next) => {
+  try { res.json(await AttendanceService.setDayLock(req.user, { employeeId: req.params.id, ...req.body })); } catch (err) { next(err); }
 });
 
 // Self-only month matrix for the employee calendar (same look as the HR
