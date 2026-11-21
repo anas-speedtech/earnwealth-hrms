@@ -73,6 +73,27 @@ export default function HRPayrollPage() {
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [_editingComponentsId, _setEditingComponentsId] = useState<string | null>(null);
 
+  // Detail panel: clicked employee row, editable payout
+  const [detailRecord, setDetailRecord] = useState<PayrollRecordItem | null>(null);
+  const [detailComponents, setDetailComponents] = useState<PayrollRecordItem['components']>([]);
+  const [detailSaving, setDetailSaving] = useState(false);
+  const [detailDirty, setDetailDirty] = useState(false);
+
+  // Period-level lock dialog (password confirmation)
+  const [lockDialogOpen, setLockDialogOpen] = useState(false);
+  const [lockPassword, setLockPassword] = useState('');
+  const [lockBusy, setLockBusy] = useState(false);
+  const [lockError, setLockError] = useState('');
+
+  // Period-level reopen dialog
+  const [reopenDialogOpen, setReopenDialogOpen] = useState(false);
+  const [reopenReason, setReopenReason] = useState('');
+  const [reopenBusy, setReopenBusy] = useState(false);
+
+  // Bulk payslip generation
+  const [payslipGenBusy, setPayslipGenBusy] = useState(false);
+  const [payslipGenResult, setPayslipGenResult] = useState<{ generated: number; skipped: number } | null>(null);
+
   // Fetch salary structure when employee selected
   useEffect(() => {
     if (!selectedEmployee) {
@@ -508,6 +529,126 @@ export default function HRPayrollPage() {
       toast.error(message);
     } finally {
       setRecordLifecycleBusy(null);
+    }
+  };
+
+  // ---- Detail panel: click row → editable payout ----
+
+  const handleOpenDetail = async (record: PayrollRecordItem) => {
+    setDetailRecord(record);
+    setDetailComponents(record.components);
+    setDetailDirty(false);
+  };
+
+  const handleDetailAmountChange = (index: number, raw: string) => {
+    const next = [...detailComponents];
+    next[index] = { ...next[index], amount: raw };
+    setDetailComponents(next);
+    setDetailDirty(true);
+  };
+
+  const handleDetailSave = async () => {
+    if (!detailRecord || !detailDirty) return;
+    const overrides = detailComponents
+      .filter((c) => c.id && Number(c.amount) !== Number(c.amount)) // will use original as base
+      .map((c) => ({ id: c.id, amount: Number(c.amount) }));
+    setDetailSaving(true);
+    try {
+      const updated = await payrollService.updatePayrollComponents(detailRecord.id, overrides);
+      setDetailRecord(updated);
+      setDetailComponents(updated.components);
+      setDetailDirty(false);
+      toast.success('Components updated.');
+      fetchPayrollRecords();
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to save changes.';
+      toast.error(message);
+    } finally {
+      setDetailSaving(false);
+    }
+  };
+
+  const handleCloseDetail = () => {
+    if (detailDirty && !confirm('Unsaved changes will be lost. Close anyway?')) return;
+    setDetailRecord(null);
+    setDetailComponents([]);
+    setDetailDirty(false);
+  };
+
+  // ---- Period-level lock with password confirmation ----
+
+  const handleOpenLockDialog = () => {
+    setLockPassword('');
+    setLockError('');
+    setLockDialogOpen(true);
+  };
+
+  const handleConfirmLockPeriod = async () => {
+    if (!currentPeriod) return;
+    setLockBusy(true);
+    setLockError('');
+    try {
+      const result = await payrollService.lockPeriodWithPassword(currentPeriod.id, lockPassword);
+      setPeriods((prev) => prev.map((p) => (p.id === result.period.id ? result.period : p)));
+      toast.success(`Period locked. ${result.lockedRecords} record(s) frozen.`);
+      setLockDialogOpen(false);
+      setLockPassword('');
+      fetchPayrollRecords();
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to lock the period.';
+      setLockError(message);
+      if ((err as { response?: { status?: number } }).response?.status === 401) {
+        toast.error('Password confirmation failed.');
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setLockBusy(false);
+    }
+  };
+
+  // ---- HR Reopen (authorized unlock of locked period) ----
+
+  const handleOpenReopenDialog = () => {
+    setReopenReason('');
+    setReopenDialogOpen(true);
+  };
+
+  const handleConfirmReopen = async () => {
+    if (!currentPeriod || !reopenReason.trim()) return;
+    setReopenBusy(true);
+    try {
+      const result = await payrollService.reopenLockedPeriod(currentPeriod.id, reopenReason.trim());
+      setPeriods((prev) => prev.map((p) => (p.id === result.period.id ? result.period : p)));
+      toast.success(`Period reopened. ${result.reopenedRecords} record(s) are editable again.`);
+      setReopenDialogOpen(false);
+      setReopenReason('');
+      fetchPayrollRecords();
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to reopen the period.';
+      toast.error(message);
+    } finally {
+      setReopenBusy(false);
+    }
+  };
+
+  // ---- Bulk payslip generation ----
+
+  const handleBulkGeneratePayslips = async () => {
+    if (!currentPeriod) return;
+    setPayslipGenBusy(true);
+    setPayslipGenResult(null);
+    try {
+      const result = await payrollService.generateBulkPayslips(currentPeriod.id);
+      const generated = result.length;
+      const skipped = payrollRecords.filter((r) => r.status === 'APPROVED' && r.lockedAt).length - generated;
+      setPayslipGenResult({ generated, skipped: Math.max(0, skipped) });
+      toast.success(`${generated} payslip(s) generated and archived.`);
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || 'Failed to generate payslips.';
+      toast.error(message);
+    } finally {
+      setPayslipGenBusy(false);
     }
   };
 
@@ -1376,7 +1517,7 @@ export default function HRPayrollPage() {
 
         {activeTab === 'prepare-payroll' && (
           <div className="space-y-6">
-            {/* Period Selection */}
+            {/* Period Selection + Period-level actions */}
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="flex items-center gap-4 flex-wrap">
                 <div>
@@ -1422,131 +1563,302 @@ export default function HRPayrollPage() {
                   >
                     Create All Active
                   </button>
+                  {/* Period-level lock — only enabled when the period is APPROVED */}
+                  {currentPeriod && currentPeriod.status === 'APPROVED' && !currentPeriod.lockedAt && (
+                    <button
+                      onClick={handleOpenLockDialog}
+                      disabled={periodsLoading}
+                      className="px-4 py-2 bg-amber-600 text-white text-[13px] rounded-lg hover:bg-amber-700 disabled:opacity-50"
+                      title="Lock the entire period (requires password confirmation)"
+                    >
+                      Lock Period
+                    </button>
+                  )}
+                  {/* Generate payslips from locked/paid period */}
+                  {currentPeriod && (currentPeriod.status === 'LOCKED' || currentPeriod.status === 'PAID') && (
+                    <button
+                      onClick={handleBulkGeneratePayslips}
+                      disabled={payslipGenBusy}
+                      className="px-4 py-2 bg-emerald-600 text-white text-[13px] rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {payslipGenBusy ? 'Generating…' : 'Generate Payslips'}
+                    </button>
+                  )}
+                  {/* HR reopen — only on a LOCKED period */}
+                  {currentPeriod && currentPeriod.status === 'LOCKED' && (
+                    <button
+                      onClick={handleOpenReopenDialog}
+                      disabled={periodsLoading}
+                      className="px-4 py-2 border border-amber-400 text-amber-700 text-[13px] rounded-lg hover:bg-amber-50 disabled:opacity-50"
+                    >
+                      HR Reopen
+                    </button>
+                  )}
                 </div>
               </div>
-            </div>
-
-            {/* Payroll Records */}
-            <div className="bg-white rounded-xl border border-slate-200">
-              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-                <h3 className="text-[15px] font-semibold text-slate-900">Payroll Records — {monthNames[payrollMonth - 1]} {payrollYear}</h3>
-                <input
-                  type="text"
-                  value={payrollFilter}
-                  onChange={(e) => setPayrollFilter(e.target.value)}
-                  placeholder="Filter records..."
-                  className="px-3 py-1.5 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                />
-              </div>
-              {payrollLoading ? (
-                <div className="p-8 text-center text-slate-500">Loading...</div>
-              ) : payrollRecords.length === 0 ? (
-                <div className="p-8 text-center text-slate-500">No payroll records for this period. Click "Create All Active" to generate them.</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-[12px] font-medium text-slate-500 uppercase">Employee ID</th>
-                        <th className="px-6 py-3 text-left text-[12px] font-medium text-slate-500 uppercase">Status</th>
-                        <th className="px-6 py-3 text-right text-[12px] font-medium text-slate-500 uppercase">Gross Earnings</th>
-                        <th className="px-6 py-3 text-right text-[12px] font-medium text-slate-500 uppercase">Deductions</th>
-                        <th className="px-6 py-3 text-right text-[12px] font-medium text-slate-500 uppercase">Net Pay</th>
-                        <th className="px-6 py-3 text-left text-[12px] font-medium text-slate-500 uppercase">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200">
-                      {payrollRecords.map((record) => (
-                        <tr key={record.id} className="hover:bg-slate-50">
-                          <td className="px-6 py-4 text-[13px] text-slate-900 font-mono">{record.employeeId}</td>
-                          <td className="px-6 py-4">
-                            <div className="flex flex-col gap-1">
-                              {statusBadge(record.status)}
-                              {record.rejectionReason && (
-                                <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded truncate max-w-[200px]" title={record.rejectionReason}>
-                                  Rejected: {record.rejectionReason}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-[13px] text-slate-600 text-right">{formatCurrency(record.grossEarnings)}</td>
-                          <td className="px-6 py-4 text-[13px] text-slate-600 text-right">{formatCurrency(record.totalDeductions)}</td>
-                          <td className="px-6 py-4 text-[13px] font-medium text-slate-900 text-right">{formatCurrency(record.netPay)}</td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => {
-                                  const el = document.getElementById(`components-${record.id}`);
-                                  el?.classList.toggle('hidden');
-                                }}
-                                className="text-xs text-cyan-600 hover:text-cyan-700"
-                              >
-                                Details
-                              </button>
-                              {record.status === 'DRAFT' && (
-                                <button
-                                  onClick={() => {
-                                    if (confirm('Submit this payroll for Super Admin approval?')) {
-                                      handleSubmit(record.id);
-                                    }
-                                  }}
-                                  disabled={submittingId === record.id}
-                                  className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 disabled:opacity-50"
-                                >
-                                  {submittingId === record.id ? '...' : 'Submit'}
-                                </button>
-                              )}
-                              {record.status === 'APPROVED' && !record.lockedAt && (
-                                <button
-                                  onClick={() => handleLockRecord(record)}
-                                  disabled={recordLifecycleBusy === record.id}
-                                  className="text-xs bg-amber-500 text-white px-2 py-1 rounded hover:bg-amber-600 disabled:opacity-50"
-                                >
-                                  {recordLifecycleBusy === record.id ? '...' : 'Lock'}
-                                </button>
-                              )}
-                              {record.status === 'APPROVED' && record.lockedAt && !record.paidAt && (
-                                <>
-                                  <button
-                                    onClick={() => handleMarkPaid(record)}
-                                    disabled={recordLifecycleBusy === record.id}
-                                    className="text-xs bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700 disabled:opacity-50"
-                                  >
-                                    {recordLifecycleBusy === record.id ? '...' : 'Mark Paid'}
-                                  </button>
-                                  <button
-                                    onClick={() => handleUnlockRecord(record)}
-                                    disabled={recordLifecycleBusy === record.id}
-                                    className="text-xs border border-slate-300 text-slate-700 px-2 py-1 rounded hover:bg-slate-100 disabled:opacity-50"
-                                    title="Authorized unlock — a correction reason is recorded in the audit log"
-                                  >
-                                    Unlock
-                                  </button>
-                                </>
-                              )}
-                              {record.status === 'APPROVED' && record.paidAt && (
-                                <span className="text-xs text-emerald-600">Paid</span>
-                              )}
-                            </div>
-                            {/* Component Detail */}
-                            <div id={`components-${record.id}`} className="hidden mt-2 bg-slate-50 rounded-lg p-3">
-                              <p className="text-[12px] font-medium text-slate-500 mb-2">Salary Components</p>
-                              <div className="space-y-1">
-                                {record.components.map((comp) => (
-                                  <div key={comp.id} className="flex justify-between text-xs">
-                                    <span className="text-slate-700">{comp.name}</span>
-                                    <span className="text-slate-600">{formatCurrency(comp.amount)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {/* Payslip generation result */}
+              {payslipGenResult && (
+                <div className="mt-3 text-[12px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                  {payslipGenResult.generated} payslip(s) generated and archived.
+                  {payslipGenResult.skipped > 0 && ` ${payslipGenResult.skipped} already existed (skipped).`}
                 </div>
               )}
+            </div>
+
+            {/* Payroll Records — enhanced monthly grid */}
+            <div className={`bg-white rounded-xl border border-slate-200 ${detailRecord ? 'md:grid md:grid-cols-2 md:gap-0' : ''}`}>
+              <div className={detailRecord ? 'md:border-r md:border-slate-200' : ''}>
+                <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                  <h3 className="text-[15px] font-semibold text-slate-900">Payroll Records — {monthNames[payrollMonth - 1]} {payrollYear}</h3>
+                  <input
+                    type="text"
+                    value={payrollFilter}
+                    onChange={(e) => setPayrollFilter(e.target.value)}
+                    placeholder="Filter records..."
+                    className="px-3 py-1.5 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  />
+                </div>
+                {payrollLoading ? (
+                  <div className="p-8 text-center text-slate-500">Loading...</div>
+                ) : payrollRecords.length === 0 ? (
+                  <div className="p-8 text-center text-slate-500">No payroll records for this period. Click "Create All Active" to generate them.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-[12px] font-medium text-slate-500 uppercase">Employee</th>
+                          <th className="px-6 py-3 text-left text-[12px] font-medium text-slate-500 uppercase">Status</th>
+                          <th className="px-6 py-3 text-right text-[12px] font-medium text-slate-500 uppercase">Earnings</th>
+                          <th className="px-6 py-3 text-right text-[12px] font-medium text-slate-500 uppercase">Deductions</th>
+                          <th className="px-6 py-3 text-right text-[12px] font-medium text-slate-500 uppercase">Net Pay</th>
+                          <th className="px-6 py-3 text-left text-[12px] font-medium text-slate-500 uppercase">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {payrollRecords.map((record) => {
+                          const earnings = record.components.filter((c) => c.type === 'EARNING').reduce((s, c) => s + Number(c.amount), 0);
+                          const deductions = record.components.filter((c) => c.type === 'DEDUCTION').reduce((s, c) => s + Number(c.amount), 0);
+                          const isSelected = detailRecord?.id === record.id;
+                          return (
+                            <tr
+                              key={record.id}
+                              className={`cursor-pointer ${isSelected ? 'bg-cyan-50' : 'hover:bg-slate-50'}`}
+                              onClick={() => handleOpenDetail(record)}
+                            >
+                              <td className="px-6 py-4 text-[13px] text-slate-900">
+                                <div className="font-medium">{record.employeeId}</div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="flex flex-col gap-1">
+                                  {statusBadge(record.status)}
+                                  {record.lockedAt && (
+                                    <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">Locked</span>
+                                  )}
+                                  {record.paidAt && (
+                                    <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">Paid</span>
+                                  )}
+                                  {record.rejectionReason && (
+                                    <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded truncate max-w-[200px]" title={record.rejectionReason}>
+                                      Rejected: {record.rejectionReason}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 text-[13px] text-emerald-700 text-right font-medium">{formatCurrency(earnings)}</td>
+                              <td className="px-6 py-4 text-[13px] text-red-700 text-right font-medium">{formatCurrency(deductions)}</td>
+                              <td className="px-6 py-4 text-[13px] font-semibold text-slate-900 text-right">{formatCurrency(Number(record.netPay))}</td>
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => handleOpenDetail(record)}
+                                    className="text-xs text-cyan-600 hover:text-cyan-700"
+                                  >
+                                    {isSelected ? 'Hide' : 'View'}
+                                  </button>
+                                  {record.status === 'DRAFT' && (
+                                    <button
+                                      onClick={() => {
+                                        if (confirm('Submit this payroll for Super Admin approval?')) {
+                                          handleSubmit(record.id);
+                                        }
+                                      }}
+                                      disabled={submittingId === record.id}
+                                      className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 disabled:opacity-50"
+                                    >
+                                      {submittingId === record.id ? '...' : 'Submit'}
+                                    </button>
+                                  )}
+                                  {record.status === 'APPROVED' && !record.lockedAt && (
+                                    <button
+                                      onClick={() => handleLockRecord(record)}
+                                      disabled={recordLifecycleBusy === record.id}
+                                      className="text-xs bg-amber-500 text-white px-2 py-1 rounded hover:bg-amber-600 disabled:opacity-50"
+                                    >
+                                      {recordLifecycleBusy === record.id ? '...' : 'Lock'}
+                                    </button>
+                                  )}
+                                  {record.status === 'APPROVED' && record.lockedAt && !record.paidAt && (
+                                    <>
+                                      <button
+                                        onClick={() => handleMarkPaid(record)}
+                                        disabled={recordLifecycleBusy === record.id}
+                                        className="text-xs bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700 disabled:opacity-50"
+                                      >
+                                        {recordLifecycleBusy === record.id ? '...' : 'Paid'}
+                                      </button>
+                                      <button
+                                        onClick={() => handleUnlockRecord(record)}
+                                        disabled={recordLifecycleBusy === record.id}
+                                        className="text-xs border border-slate-300 text-slate-700 px-2 py-1 rounded hover:bg-slate-100 disabled:opacity-50"
+                                        title="Authorized unlock — a correction reason is recorded in the audit log"
+                                      >
+                                        Unlock
+                                      </button>
+                                    </>
+                                  )}
+                                  {record.status === 'APPROVED' && record.paidAt && (
+                                    <span className="text-xs text-emerald-600">Paid</span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Detail panel: editable monthly payout */}
+              {detailRecord && (
+                <div className="bg-slate-50 border-t md:border-t-0">
+                  <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                    <h3 className="text-[13px] font-semibold text-slate-900">
+                      Payout Detail — Record {detailRecord.id}
+                      <span className="ml-2 text-[11px] font-normal text-slate-500">
+                        {monthNames[detailRecord.month - 1]} {detailRecord.year}
+                      </span>
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {detailDirty && (
+                        <>
+                          <button onClick={() => { setDetailComponents(detailRecord.components); setDetailDirty(false); }} className="text-xs text-slate-600 hover:text-slate-800">Discard</button>
+                          <button onClick={handleDetailSave} disabled={detailSaving} className="text-xs bg-cyan-600 text-white px-3 py-1 rounded hover:bg-cyan-700 disabled:opacity-50">
+                            {detailSaving ? 'Saving…' : 'Save'}
+                          </button>
+                        </>
+                      )}
+                      <button onClick={handleCloseDetail} className="text-xs text-slate-500 hover:text-slate-700">Close</button>
+                    </div>
+                  </div>
+                  <div className="p-4 overflow-y-auto" style={{ maxHeight: '60vh' }}>
+                    {detailComponents.length === 0 ? (
+                      <p className="text-[13px] text-slate-500">No components for this record.</p>
+                    ) : (
+                      <table className="w-full">
+                        <thead className="bg-white">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-[11px] font-medium text-slate-500 uppercase">Component</th>
+                            <th className="px-4 py-2 text-left text-[11px] font-medium text-slate-500 uppercase">Type</th>
+                            <th className="px-4 py-2 text-right text-[11px] font-medium text-slate-500 uppercase">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {detailComponents.map((comp, idx) => (
+                            <tr key={comp.id || idx}>
+                              <td className="px-4 py-2.5 text-[13px] text-slate-800">{comp.name}</td>
+                              <td className="px-4 py-2.5 text-[12px]">
+                                <span className={`px-2 py-0.5 rounded-full ${comp.type === 'EARNING' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                                  {comp.type}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-right">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={comp.amount}
+                                  disabled={!!(detailRecord.lockedAt) || detailRecord.status === 'PAID'}
+                                  onChange={(e) => handleDetailAmountChange(idx, e.target.value)}
+                                  className={`w-28 px-2 py-1 text-right text-[13px] border rounded ${detailDirty && !detailRecord.lockedAt && detailRecord.status !== 'PAID' ? 'border-cyan-300 bg-white focus:ring-2 focus:ring-cyan-500' : 'border-slate-200 bg-slate-100 text-slate-500'} focus:outline-none disabled:opacity-60`}
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-white">
+                          <tr>
+                            <td colSpan={2} className="px-4 py-2 text-[12px] font-medium text-slate-600 text-right">Net Pay</td>
+                            <td className="px-4 py-2 text-right text-[13px] font-semibold text-slate-900">
+                              {formatCurrency(detailComponents.filter((c) => c.type === 'EARNING').reduce((s, c) => s + Number(c.amount), 0) - detailComponents.filter((c) => c.type === 'DEDUCTION').reduce((s, c) => s + Number(c.amount), 0))}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    )}
+                    {detailRecord.lockedAt && (
+                      <p className="mt-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        This record is locked and immutable. Unlock the period to edit components.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Password-confirmed period lock dialog */}
+        {lockDialogOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setLockDialogOpen(false)}>
+            <div className="bg-white rounded-xl border border-slate-200 p-6 w-full max-w-sm shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-[15px] font-semibold text-slate-900 mb-1">Lock Payroll Period</h3>
+              <p className="text-[12px] text-slate-500 mb-4">
+                Locking <strong>{currentPeriod ? `${monthNames[currentPeriod.month - 1]} ${currentPeriod.year}` : 'the period'}</strong> will freeze all approved payroll records. Enter your password to confirm.
+              </p>
+              {lockError && <p className="text-[12px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">{lockError}</p>}
+              <input
+                type="password"
+                value={lockPassword}
+                onChange={(e) => setLockPassword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmLockPeriod(); }}
+                placeholder="Enter your password"
+                className={`w-full px-3 py-2 border rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500 mb-4 ${lockError ? 'border-red-300' : 'border-slate-300'}`}
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setLockDialogOpen(false)} className="px-4 py-2 text-[13px] text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50">Cancel</button>
+                <button onClick={handleConfirmLockPeriod} disabled={lockBusy || !lockPassword} className="px-4 py-2 bg-amber-600 text-white text-[13px] rounded-lg hover:bg-amber-700 disabled:opacity-50">
+                  {lockBusy ? 'Locking…' : 'Lock Period'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* HR Reopen dialog */}
+        {reopenDialogOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setReopenDialogOpen(false)}>
+            <div className="bg-white rounded-xl border border-slate-200 p-6 w-full max-w-sm shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-[15px] font-semibold text-slate-900 mb-1">HR Reopen — Authorized Unlock</h3>
+              <p className="text-[12px] text-slate-500 mb-4">
+                Reopening will unfreeze all locked records in <strong>{currentPeriod ? `${monthNames[currentPeriod.month - 1]} ${currentPeriod.year}` : 'this period'}</strong>. A correction reason is recorded in the audit log.
+              </p>
+              <textarea
+                value={reopenReason}
+                onChange={(e) => setReopenReason(e.target.value)}
+                placeholder="Correction reason (required)"
+                rows={3}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-cyan-500 mb-4 resize-none"
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setReopenDialogOpen(false)} className="px-4 py-2 text-[13px] text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50">Cancel</button>
+                <button onClick={handleConfirmReopen} disabled={reopenBusy || !reopenReason.trim()} className="px-4 py-2 bg-amber-600 text-white text-[13px] rounded-lg hover:bg-amber-700 disabled:opacity-50">
+                  {reopenBusy ? 'Reopening…' : 'Reopen Period'}
+                </button>
+              </div>
             </div>
           </div>
         )}

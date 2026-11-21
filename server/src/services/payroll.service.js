@@ -6,6 +6,7 @@ const { logger } = require('../utils/logger');
 const { generatePayslipPDF, getPayslipFilename } = require('../utils/pdfPayslip');
 const { PayrollFormulaEngine } = require('./formula-engine');
 const { AttendanceService } = require('./attendance.service');
+const { comparePassword } = require('../utils/password');
 
 let prisma;
 
@@ -1432,6 +1433,182 @@ class PayrollService {
     return period;
   }
 
+  // Lock a payroll period after verifying the HR user's password. This is
+  // the confirmation gate: a wrong password aborts with 401 and the period
+  // stays in its current state. On success the period moves to LOCKED and
+  // every attached approved record becomes frozen.
+  static async lockPayrollPeriodWithPassword(reqUser, periodId, password) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to lock payroll periods.', 403);
+    }
+    const prismaClient = getPrisma();
+    const user = await prismaClient.user.findUnique({
+      where: { id: Number(reqUser.id) },
+      select: { id: true, passwordHash: true },
+    });
+    if (!user || !user.passwordHash) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'Account not found or has no password set.', 403);
+    }
+    const valid = await comparePassword(String(password || ''), user.passwordHash);
+    if (!valid) {
+      throw new AppError(AppErrorCodes.UNAUTHORIZED, 'Password confirmation failed.', 401);
+    }
+    const previous = await prismaClient.payrollPeriod.findUnique({ where: { id: Number(periodId) } });
+    if (!previous) throw new AppError(AppErrorCodes.NOT_FOUND, 'Payroll period not found.', 404);
+    if (previous.status === 'LOCKED') {
+      throw new AppError(PayrollErrorCodes.PAYROLL_LOCKED, 'Period is already locked.', 409);
+    }
+    if (previous.status === 'PAID') {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'A paid period cannot be locked.', 409);
+    }
+    const now = new Date();
+    const period = await prismaClient.payrollPeriod.update({
+      where: { id: previous.id },
+      data: { status: 'LOCKED', lockedAt: now, lockedBy: Number(reqUser.id) },
+    });
+    // Freeze every attached approved record that is not already locked.
+    const records = await prismaClient.payrollRecord.findMany({
+      where: { periodId: period.id, status: 'APPROVED', lockedAt: null },
+    });
+    for (const rec of records) {
+      await prismaClient.payrollRecord.update({
+        where: { id: rec.id },
+        data: { lockedAt: now, lockedBy: Number(reqUser.id) },
+      });
+      await this.writePayrollAudit(prismaClient, {
+        payrollRecordId: rec.id, actorId: reqUser.id,
+        action: 'PAYROLL_LOCKED',
+        beforeValue: { lockedAt: null }, afterValue: { lockedAt: now },
+      });
+    }
+    await this.writePayrollAudit(prismaClient, {
+      payrollPeriodId: period.id, actorId: reqUser.id,
+      action: 'PERIOD_LOCKED', beforeValue: previous, afterValue: period,
+    });
+    return { period, lockedRecords: records.length };
+  }
+
+  // Bulk-generate PDF payslips for every approved record in a period and
+  // archive them (payslips table + pdfPath). Returns an array of generated
+  // payslips. Only approved records that do not already have a payslip are
+  // processed — re-running skips duplicates.
+  static async generateBulkPayslips(reqUser, periodId) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to generate payslips.', 403);
+    }
+    const prismaClient = getPrisma();
+    const period = await prismaClient.payrollPeriod.findUnique({
+      where: { id: Number(periodId) },
+    });
+    if (!period) throw new AppError(AppErrorCodes.NOT_FOUND, 'Payroll period not found.', 404);
+    if (period.status !== 'LOCKED' && period.status !== 'PAID') {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR,
+        'Payslips can only be generated for a locked or paid period.', 409);
+    }
+    // Find approved records in this period that still need a payslip.
+    const existing = await prismaClient.payslip.findMany({
+      where: { payrollRecord: { periodId: Number(periodId) } },
+      select: { payrollRecordId: true },
+    });
+    const existingIds = new Set(existing.map((p) => p.payrollRecordId));
+    const records = await prismaClient.payrollRecord.findMany({
+      where: {
+        periodId: Number(periodId),
+        status: 'APPROVED',
+        id: { notIn: Array.from(existingIds) },
+      },
+      include: {
+        components: { orderBy: { sortOrder: 'asc' } },
+        employee: true,
+      },
+    });
+    const results = [];
+    for (const payroll of records) {
+      const existingPayslip = await prismaClient.payslip.findUnique({
+        where: { payrollRecordId: payroll.id },
+      });
+      if (existingPayslip) continue;
+      const payslip = await prismaClient.payslip.create({
+        data: {
+          payrollRecordId: payroll.id,
+          employeeId: payroll.employeeId,
+          month: payroll.month,
+          year: payroll.year,
+          pdfPath: null,
+          generatedBy: reqUser.id,
+        },
+      });
+      await this.writePayrollAudit(prismaClient, {
+        payrollRecordId: payroll.id, actorId: reqUser.id,
+        action: 'PAYSLIP_GENERATED', afterValue: { payslipId: payslip.id },
+      });
+      results.push({
+        id: payslip.id,
+        payrollRecordId: payslip.payrollRecordId,
+        employeeId: payslip.employeeId,
+        employeeCode: payroll.employee?.employeeCode || null,
+        month: payslip.month,
+        year: payslip.year,
+        generatedAt: payslip.generatedAt,
+      });
+    }
+    return results;
+  }
+
+  // Reopen a locked period back to APPROVED. Requires a mandatory reason;
+  // this is the authorized unlock path that the frontend's "HR Reopen"
+  // button invokes after password confirmation. All records frozen during
+  // the lock are also reopened to APPROVED (lockedAt/By cleared).
+  static async reopenLockedPeriod(reqUser, periodId, reason) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to reopen payroll periods.', 403);
+    }
+    if (!reason || !String(reason).trim()) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'A correction reason is required to reopen a locked period.', 400);
+    }
+    const prismaClient = getPrisma();
+    const previous = await prismaClient.payrollPeriod.findUnique({ where: { id: Number(periodId) } });
+    if (!previous) throw new AppError(AppErrorCodes.NOT_FOUND, 'Payroll period not found.', 404);
+    if (previous.status !== 'LOCKED') {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR,
+        'Only a locked payroll period can be reopened.', 409);
+    }
+    const now = new Date();
+    const period = await prismaClient.payrollPeriod.update({
+      where: { id: previous.id },
+      data: {
+        status: 'APPROVED',
+        unlockedAt: now,
+        unlockedBy: Number(reqUser.id),
+        unlockReason: String(reason).trim().slice(0, 500),
+        lockedAt: null,
+        lockedBy: null,
+      },
+    });
+    // Reopen every record locked during this period.
+    const lockedRecords = await prismaClient.payrollRecord.findMany({
+      where: { periodId: period.id, status: 'APPROVED', lockedAt: { not: null } },
+    });
+    for (const rec of lockedRecords) {
+      await prismaClient.payrollRecord.update({
+        where: { id: rec.id },
+        data: { lockedAt: null, lockedBy: null },
+      });
+      await this.writePayrollAudit(prismaClient, {
+        payrollRecordId: rec.id, actorId: reqUser.id,
+        action: 'PAYROLL_UNLOCKED', reason: period.unlockReason,
+        beforeValue: { lockedAt: rec.lockedAt, lockedBy: rec.lockedBy },
+        afterValue: { lockedAt: null, lockedBy: null },
+      });
+    }
+    await this.writePayrollAudit(prismaClient, {
+      payrollPeriodId: period.id, actorId: reqUser.id,
+      action: 'PERIOD_REOPENED', reason: period.unlockReason,
+      beforeValue: previous, afterValue: period,
+    });
+    return { period, reopenedRecords: lockedRecords.length };
+  }
+
   // ---- Effective-dated statutory configuration ----
 
   static async listStatutorySettings(reqUser, { statutoryType, stateCode, asOf } = {}) {
@@ -1977,8 +2154,9 @@ class PayrollService {
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
     });
 
+    // Employee self-service summary intentionally excludes CTC (monthly and
+    // annual). Only the latest payroll's net pay and status are exposed.
     return {
-      monthlyCTC: structure.monthlyCTC,
       currency: structure.currency,
       latestPayroll: latestPayroll ? this.formatPayrollRecord(latestPayroll) : null,
     };

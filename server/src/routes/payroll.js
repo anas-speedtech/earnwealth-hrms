@@ -703,4 +703,53 @@ router.get('/payroll/my-summary', authenticate, authorize(Role.EMPLOYEE), async 
   }
 });
 
+// ---- New workflow endpoints (password-confirmed lock, bulk payslips, HR reopen) ----
+
+const passwordConfirmSchema = z.object({ password: z.string().min(1) });
+const reopenPeriodSchema = z.object({ reason: z.string().min(3).max(500) });
+
+router.post(
+  '/payroll/periods/:id/lock',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  validateBody(passwordConfirmSchema),
+  async (req, res, next) => {
+    try {
+      const result = await PayrollService.lockPayrollPeriodWithPassword(req.user, req.params.id, req.body.password);
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/payroll/periods/:id/generate-payslips',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  async (req, res, next) => {
+    try {
+      const result = await PayrollService.generateBulkPayslips(req.user, req.params.id);
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/payroll/periods/:id/reopen',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  validateBody(reopenPeriodSchema),
+  async (req, res, next) => {
+    try {
+      const result = await PayrollService.reopenLockedPeriod(req.user, req.params.id, req.body.reason);
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 module.exports = router;
