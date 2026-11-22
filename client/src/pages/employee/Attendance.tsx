@@ -275,9 +275,9 @@ export default function EmployeeAttendancePage() {
                   {selectedDay.locked ? (
                     <>This day has device attendance and is <span className="font-medium text-slate-700">locked</span>. Corrections go through HR.</>
                   ) : selectedDay.hasPunch ? (
-                    <>Your punch times for this day are shown above. Manual entries can be re-applied on WFH days.</>
+                    <>Your punch times for this day are shown above. Manual entries can be re-applied on WFH days, weekly offs, and holidays.</>
                   ) : (
-                    <>You can apply a punch here only on a day with an approved WFH request. Apply for WFH first, then come back and punch in/out.</>
+                    <>You can apply a punch here only on an approved WFH day, a weekly off, or a holiday. Apply for WFH first, then come back and punch in/out.</>
                   )}
                 </p>
               )}

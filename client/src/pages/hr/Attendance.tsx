@@ -275,8 +275,13 @@ export default function HRAttendancePage() {
 
   const dayNumbers = useMemo(() => {
     const days = matrix?.daysInMonth ?? new Date(year, month, 0).getDate();
+<<<<<<< Updated upstream
     // Cap columns at today's date for the current month so future days
     // (where attendance hasn't happened yet) aren't shown as blank cells.
+=======
+    // For the current month, stop at today — future days have no attendance
+    // yet, so showing them as blank dashed cells just adds noise.
+>>>>>>> Stashed changes
     const now = new Date();
     const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
     const effectiveDays = isCurrentMonth ? Math.min(days, now.getDate()) : days;

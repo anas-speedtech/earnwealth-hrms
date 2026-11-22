@@ -233,7 +233,10 @@ export interface EmployeePayrollProfile {
 
 export interface AttendancePayrollInputs {
   totalCalendarDays: number; workingDays: number; presentDays: number; paidLeaveDays: number;
-  unpaidLeaveDays: number; lopDays: number; halfDays: number; prorationFactor: number; warnings: string[];
+  unpaidLeaveDays: number; lopDays: number; halfDays: number; prorationFactor: number;
+  /** Last day of the month counted for proration (PAYROLL_CUTOFF_DAY). */
+  cutoffDay?: number;
+  warnings: string[];
 }
 
 // ---- Service ----
