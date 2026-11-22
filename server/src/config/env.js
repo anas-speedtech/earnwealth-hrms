@@ -33,6 +33,11 @@ const env = {
   // The bootstrap Super Admin address. Kept here so the login rate limiter can
   // exempt the owner from lockout (see middleware/rateLimiter.js).
   BOOTSTRAP_SUPER_ADMIN_EMAIL: process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL,
+  // Last day of the month whose attendance counts toward payroll. Payroll is
+  // typically run on the 28th, before the month ends — without a cutoff the
+  // remaining days read as absent and proration docks pay unfairly. Set to 0
+  // (or leave unset) to use the full calendar month.
+  PAYROLL_CUTOFF_DAY: Number(process.env.PAYROLL_CUTOFF_DAY) || 0,
 };
 
 // Build DATABASE_URL from DB_* fields if not explicitly provided.

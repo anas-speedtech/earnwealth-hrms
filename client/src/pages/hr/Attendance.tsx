@@ -210,7 +210,15 @@ export default function HRAttendancePage() {
     }
 
     if (cell.status === 'LWP') {
-      return <div className="flex h-full min-h-[2.75rem] items-center justify-center rounded-sm bg-rose-100 px-1 py-1 text-rose-800"><span className="text-[10px] font-semibold">LWP</span></div>;
+      return (
+        <div className="flex min-h-[2.75rem] flex-col justify-between rounded-sm bg-rose-100 px-1.5 py-1 text-rose-800">
+          <div className="space-y-px text-[10px] leading-tight tabular-nums">
+            {cell.in && <span>{cell.in}</span>}
+            {cell.out && <span>{cell.out}</span>}
+          </div>
+          <span className="text-[10px] font-semibold">LWP</span>
+        </div>
+      );
     }
 
     if (cell.compOffEligible) {
@@ -267,7 +275,17 @@ export default function HRAttendancePage() {
 
   const dayNumbers = useMemo(() => {
     const days = matrix?.daysInMonth ?? new Date(year, month, 0).getDate();
-    return Array.from({ length: days }, (_, i) => i + 1);
+<<<<<<< Updated upstream
+    // Cap columns at today's date for the current month so future days
+    // (where attendance hasn't happened yet) aren't shown as blank cells.
+=======
+    // For the current month, stop at today — future days have no attendance
+    // yet, so showing them as blank dashed cells just adds noise.
+>>>>>>> Stashed changes
+    const now = new Date();
+    const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
+    const effectiveDays = isCurrentMonth ? Math.min(days, now.getDate()) : days;
+    return Array.from({ length: effectiveDays }, (_, i) => i + 1);
   }, [matrix, year, month]);
 
   // ============ view ============

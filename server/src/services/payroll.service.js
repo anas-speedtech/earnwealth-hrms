@@ -7,6 +7,7 @@ const { generatePayslipPDF, getPayslipFilename } = require('../utils/pdfPayslip'
 const { PayrollFormulaEngine } = require('./formula-engine');
 const { AttendanceService } = require('./attendance.service');
 const { comparePassword } = require('../utils/password');
+const { env } = require('../config/env');
 
 let prisma;
 
@@ -1716,7 +1717,7 @@ class PayrollService {
     return updated;
   }
 
-  static async getAttendancePayrollInputs(reqUser, employeeProfileId, month, year) {
+  static async getAttendancePayrollInputs(reqUser, employeeProfileId, month, year, periodId) {
     if (!this.canManagePayroll(reqUser) || !this.isValidMonthYear(Number(month), Number(year))) {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'A valid employee and payroll period are required.', 400);
     }
@@ -1728,7 +1729,33 @@ class PayrollService {
       return { totalCalendarDays: new Date(Number(year), Number(month), 0).getDate(), workingDays: 0, presentDays: 0, paidLeaveDays: 0, unpaidLeaveDays: 0, lopDays: 0, halfDays: 0, prorationFactor: 1, warnings: ['No linked attendance employee record found; salary was not prorated.'] };
     }
     const matrix = await AttendanceService.computeMatrix(prismaClient, { yearNum: Number(year), monthNum: Number(month), employeeId: legacyEmployee.id });
-    const days = matrix.rows[0]?.days || [];
+    const allDays = matrix.rows[0]?.days || [];
+
+<<<<<<< Updated upstream
+    // Look up the period's payroll cutoff day.  If set (e.g. 28), only days
+    // up to and including the cutoff are considered "available" for attendance
+    // when calculating payroll.  This lets payroll run on the 28th without
+    // waiting for the remaining 2–3 days of the month.
+    let cutoffDay = allDays.length;
+    if (Number(periodId)) {
+      const period = await prismaClient.payrollPeriod.findUnique({
+        where: { id: Number(periodId) },
+        select: { payrollCutoffDay: true },
+      });
+      if (period?.payrollCutoffDay && period.payrollCutoffDay > 0 && period.payrollCutoffDay < cutoffDay) {
+        cutoffDay = period.payrollCutoffDay;
+      }
+    }
+    const days = allDays.filter((d) => d.day <= cutoffDay);
+=======
+    // Payroll is usually run before the month ends (e.g. on the 28th), so days
+    // after the cutoff have no attendance yet. Counting them as absent would
+    // dock pay for days the employee has not worked through no fault of their
+    // own — restrict the proration window to the cutoff instead.
+    const cutoffDay = Number(env.PAYROLL_CUTOFF_DAY) || 0;
+    const effectiveCutoff = cutoffDay > 0 && cutoffDay < allDays.length ? cutoffDay : allDays.length;
+    const days = allDays.filter((day) => day.day <= effectiveCutoff);
+>>>>>>> Stashed changes
     const working = days.filter((day) => !day.isOffDay);
     const present = working.reduce((total, day) => total + (day.status === 'P' ? 1 : day.status === 'H' ? 0.5 : 0), 0);
     // The existing leave module does not yet expose paid/unpaid classification;
@@ -1738,14 +1765,27 @@ class PayrollService {
     const halfDays = working.filter((day) => day.status === 'H').length;
     const lop = Math.max(0, working.length - present - paidLeave);
     const prorationFactor = working.length > 0 ? Math.min(1, Math.max(0, (present + paidLeave) / working.length)) : 1;
+    const warnings = [
+      ...(paidLeave ? ['Approved leave is currently treated as paid; review leave classification before finalizing payroll.'] : []),
+      ...(working.length > 0 && present === 0 && paidLeave === 0 ? ['No paid attendance was found; verify attendance before approving payroll.'] : []),
+      ...(cutoffDay < allDays.length ? [`Payroll cutoff is day ${cutoffDay}; days ${cutoffDay + 1}–${allDays.length} are excluded from proration.`] : []),
+    ];
     return {
-      totalCalendarDays: matrix.daysInMonth, workingDays: working.length, presentDays: present,
+      totalCalendarDays: allDays.length, workingDays: working.length, presentDays: present,
       paidLeaveDays: paidLeave, unpaidLeaveDays: 0, lopDays: lop, halfDays,
       prorationFactor,
+<<<<<<< Updated upstream
+      warnings,
+=======
+      cutoffDay: effectiveCutoff,
       warnings: [
         ...(paidLeave ? ['Approved leave is currently treated as paid; review leave classification before finalizing payroll.'] : []),
         ...(working.length > 0 && present === 0 && paidLeave === 0 ? ['No paid attendance was found; verify attendance before approving payroll.'] : []),
+        ...(effectiveCutoff < allDays.length
+          ? [`Payroll cutoff is day ${effectiveCutoff} (PAYROLL_CUTOFF_DAY); days ${effectiveCutoff + 1}–${allDays.length} are excluded from proration.`]
+          : []),
       ],
+>>>>>>> Stashed changes
     };
   }
 
