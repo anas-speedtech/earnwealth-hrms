@@ -750,7 +750,9 @@ model PayrollPeriod {
   // for attendance when calculating this period.  E.g. 28 means days
   // 29–end are treated as not-yet-available and excluded from
   // proration so payroll can run on the 28th without waiting.
-  payrollCutoffDay   Int?     @default(null)
+  // Null (the default for an optional field) falls back to
+  // PAYROLL_CUTOFF_DAY, then to the full calendar month.
+  payrollCutoffDay   Int?
   // Multi-step review gates (HR review -> Finance review -> Approver).
   hrReviewedAt       DateTime?
   hrReviewedBy       Int?
