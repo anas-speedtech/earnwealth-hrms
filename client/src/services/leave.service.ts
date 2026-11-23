@@ -1,5 +1,21 @@
 import api from './api';
 
+export interface ProbationEmployee {
+  employeeId: string;
+  employeeCode: string;
+  name: string;
+  designation: string | null;
+  joiningDate: string | null;
+  probationEnds: string;
+  daysRemaining: number;
+}
+
+export interface ProbationStatus {
+  inProbation: boolean;
+  probationEnds: string | null;
+  daysRemaining: number;
+}
+
 export interface LeaveTypeItem {
   id: string;
   name: string;
@@ -141,6 +157,18 @@ export const leaveService = {
   // Any authenticated: Get active leave types for application
   async getActiveLeaveTypes(): Promise<LeaveTypeItem[]> {
     const { data } = await api.get<LeaveTypeItem[]>('/leaves/types');
+    return data;
+  },
+
+  // HR/Super-Admin: active employees inside their 6-month probation window.
+  async getProbationList(): Promise<{ inProbation: number; employees: ProbationEmployee[] }> {
+    const { data } = await api.get<{ inProbation: number; employees: ProbationEmployee[] }>('/leaves/probation');
+    return data;
+  },
+
+  // Employee: own probation status (banner on the dashboard).
+  async getMyProbation(): Promise<ProbationStatus> {
+    const { data } = await api.get<ProbationStatus>('/leaves/my-probation');
     return data;
   },
 

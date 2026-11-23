@@ -29,6 +29,7 @@ const createSchema = z.object({
     .min(3, 'Employee code must be at least 3 digits.')
     .max(50, 'Employee code must be at most 50 digits.'),
   designation: z.string().trim().max(100).optional(),
+  grade: z.string().trim().max(50).optional().nullable(),
   reportingManager: z.string().trim().max(120).optional(),
   // Date of joining (item 4). `YYYY-MM-DD`; the service falls back to today
   // when omitted or malformed, so it is intentionally non-fatal here.
@@ -133,8 +134,13 @@ router.get('/me/personal-profile', async (req, res, next) => {
 });
 
 // Update the calling user's personal profile (upsert).
+//
+// Only HR Admin / Super Admin may write personal profile fields (address,
+// DOB, emergency contact, personal email, anniversary). Employees keep the
+// read access above but no longer self-edit: the record is HR-maintained.
 router.put(
   '/me/personal-profile',
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
   validateBody(personalProfileSchema),
   async (req, res, next) => {
     try {

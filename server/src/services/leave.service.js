@@ -20,6 +20,30 @@ function getPrisma() {
 
 const PAGE_SIZE = 20;
 
+// Every new joiner serves a 6-month probation period from the date of
+// joining. During probation the employee may apply for NO leave type other
+// than PROBATION (Probation Leave) — enforced below in applyLeave.
+const PROBATION_MONTHS = 6;
+
+/**
+ * An employee is in probation when now < joiningDate + PROBATION_MONTHS.
+ * Returns { inProbation, probationEnds } so callers can message the exact
+ * date to the employee. A missing/invalid joining date is treated as NOT in
+ * probation (existing staff whose date was never recorded keep full access).
+ */
+function probationStatus(joiningDate) {
+  const joined = joiningDate ? new Date(joiningDate) : null;
+  if (!joined || Number.isNaN(joined.getTime())) {
+    return { inProbation: false, probationEnds: null };
+  }
+  const ends = new Date(joined);
+  ends.setMonth(ends.getMonth() + PROBATION_MONTHS);
+  return {
+    inProbation: new Date() < ends,
+    probationEnds: ends.toISOString().slice(0, 10),
+  };
+}
+
 /**
  * Leave module.
  *
@@ -68,9 +92,16 @@ async function resolveEmployeeId(prismaClient, reqUser, targetEmployeeId) {
 class LeaveService {
   // ---- Leave Types ----
 
-  static async listLeaveTypes() {
+  /**
+   * Lists active leave types. For an employee caller (reqUser with a linked
+   * employee record) still in their 6-month probation period, the list is
+   * restricted to Probation Leave — the Apply Leave screen shows exactly what
+   * they are allowed to apply for. The backend gate in applyLeave is the
+   * authority; this only keeps the picker honest.
+   */
+  static async listLeaveTypes(reqUser) {
     const prismaClient = getPrisma();
-    const types = await prismaClient.$queryRawUnsafe(
+    let types = await prismaClient.$queryRawUnsafe(
       `SELECT id, name, displayName, description, code, classification,
               isHalfDayAllowed, isActive,
               annualEntitlementDays, isUnlimited, appliesToBoardLevel
@@ -78,6 +109,18 @@ class LeaveService {
        WHERE isActive = 1
        ORDER BY displayName ASC`
     );
+
+    // Probation restriction on the picker (the applyLeave gate is the
+    // authority; this just shows probationers only what they may apply).
+    if (reqUser && reqUser.role === Role.EMPLOYEE) {
+      const rows = await prismaClient.$queryRawUnsafe(
+        'SELECT joiningDate FROM employees WHERE userId = ? LIMIT 1',
+        reqUser.id
+      );
+      if (rows.length && probationStatus(rows[0].joiningDate).inProbation) {
+        types = types.filter((t) => t.name === 'PROBATION');
+      }
+    }
     return types;
   }
 
@@ -316,7 +359,7 @@ class LeaveService {
     const { startDate, endDate, leaveTypeId, reason, isHalfDay = false } = payload;
 
     const own = await prismaClient.$queryRawUnsafe(
-      'SELECT id, userId FROM employees WHERE userId = ? LIMIT 1',
+      'SELECT id, userId, joiningDate FROM employees WHERE userId = ? LIMIT 1',
       reqUser.id
     );
     if (!own.length) {
@@ -348,6 +391,18 @@ class LeaveService {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Unknown leave type.', 400);
     }
     const typeName = typeRow[0].name;
+
+    // Probation policy: within the first 6 months from joining, the employee
+    // may apply for Probation Leave only. The gate runs after type
+    // resolution so the message can name the attempted type.
+    const { inProbation, probationEnds } = probationStatus(own[0].joiningDate);
+    if (inProbation && typeName !== 'PROBATION') {
+      throw new AppError(
+        AppErrorCodes.VALIDATION_ERROR,
+        `You are on probation (until ${probationEnds}). Only Probation Leave can be applied for during the probation period.`,
+        403
+      );
+    }
 
     // Employees may only apply for leave types that are configured for them
     // (a leave_balances row exists for this employee + type, in any year).
@@ -663,8 +718,62 @@ class LeaveService {
     return LeaveService.getBalances(prismaClient, employeeId, year);
   }
 
-  static async getAllLeaveTypes() {
-    return LeaveService.listLeaveTypes();
+  static async getAllLeaveTypes(reqUser) {
+    return LeaveService.listLeaveTypes(reqUser);
+  }
+
+  // ---- Probation ----
+
+  /**
+   * HR/Super-Admin view: every active employee currently in their 6-month
+   * probation window, with the date it ends and days remaining. Powers the
+   * "Probation" tile and panel on the HR dashboard.
+   */
+  static async getProbationSummary(reqUser) {
+    if (!canAccessAll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view probation data.', 403);
+    }
+    const prismaClient = getPrisma();
+    const rows = await prismaClient.$queryRawUnsafe(
+      'SELECT e.id, e.employeeCode, e.name, e.designation, e.joiningDate FROM employees e WHERE e.isActive = 1 ORDER BY e.joiningDate DESC'
+    );
+    const now = new Date();
+    const employees = (rows || [])
+      .map((r) => {
+        const st = probationStatus(r.joiningDate);
+        if (!st.inProbation) return null;
+        const daysRemaining = Math.max(0, Math.ceil((new Date(st.probationEnds) - now) / 86400000));
+        return {
+          employeeId: String(r.id),
+          employeeCode: r.employeeCode,
+          name: r.name,
+          designation: r.designation,
+          joiningDate: r.joiningDate ? new Date(r.joiningDate).toISOString().slice(0, 10) : null,
+          probationEnds: st.probationEnds,
+          daysRemaining,
+        };
+      })
+      .filter(Boolean);
+    return { inProbation: employees.length, employees };
+  }
+
+  /**
+   * Self view: the calling employee's own probation status. Drives the
+   * banner on the employee dashboard.
+   */
+  static async getMyProbationStatus(reqUser) {
+    const prismaClient = getPrisma();
+    const rows = await prismaClient.$queryRawUnsafe(
+      'SELECT joiningDate FROM employees WHERE userId = ? LIMIT 1',
+      reqUser.id
+    );
+    if (!rows.length) return { inProbation: false, probationEnds: null, daysRemaining: 0 };
+    const st = probationStatus(rows[0].joiningDate);
+    return {
+      inProbation: st.inProbation,
+      probationEnds: st.probationEnds,
+      daysRemaining: st.inProbation ? Math.max(0, Math.ceil((new Date(st.probationEnds) - new Date()) / 86400000)) : 0,
+    };
   }
 
   // Initialize per-year balances for an employee from each leave type's
@@ -733,11 +842,21 @@ class LeaveService {
   static async seedLeaveTypesForEmployee(employeeId, typeKeys, year) {
     const prismaClient = getPrisma();
     const empId = Number(employeeId);
-    if (!empId || !Array.isArray(typeKeys) || typeKeys.length === 0) return 0;
+    if (!empId) return 0;
     const targetYear = Number(year) || new Date().getFullYear();
 
+    // Probation policy: every new joiner is in probation and may apply for
+    // ONLY Probation Leave, so a PROBATION balance row is always seeded for
+    // them even when HR checked no types in the creation form. (Rows for the
+    // checked types are also seeded; they simply can't be applied until
+    // probation ends — the gate is in applyLeave, not here.)
+    const keys = Array.isArray(typeKeys) ? typeKeys.slice() : [];
+    if (!keys.some((k) => String(k).toUpperCase() === 'PROBATION')) keys.push('PROBATION');
+    if (keys.length === 0) keys.push('PROBATION');
+    const effectiveKeys = keys;
+
     let created = 0;
-    for (const key of typeKeys) {
+    for (const key of effectiveKeys) {
       const typeRow = await prismaClient.$queryRawUnsafe(
         'SELECT id, annualEntitlementDays, isUnlimited FROM leave_types WHERE id = ? OR name = ? LIMIT 1',
         key,

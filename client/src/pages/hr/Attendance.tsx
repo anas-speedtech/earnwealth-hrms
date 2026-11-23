@@ -99,6 +99,19 @@ export default function HRAttendancePage() {
   const [matrix, setMatrix] = useState<AttendanceMatrix | null>(null);
   const [matrixLoading, setMatrixLoading] = useState(false);
   const [matrixError, setMatrixError] = useState<string | null>(null);
+  // Employee filter for the calendar grid: matches name or employee code
+  // case-insensitively. Filtered client-side so it applies instantly to the
+  // already-loaded matrix without a second fetch.
+  const [employeeFilter, setEmployeeFilter] = useState('');
+  const filteredRows = useMemo(() => {
+    if (!matrix) return [];
+    const q = employeeFilter.trim().toLowerCase();
+    if (!q) return matrix.rows;
+    return matrix.rows.filter((row) =>
+      (row.name || '').toLowerCase().includes(q) ||
+      (row.employeeCode || '').toLowerCase().includes(q),
+    );
+  }, [matrix, employeeFilter]);
 
   // --- upload ---
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -329,6 +342,16 @@ export default function HRAttendancePage() {
                   ))}
                 </select>
               </div>
+              <div className="min-w-[220px]">
+                <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Employee</label>
+                <input
+                  type="text"
+                  value={employeeFilter}
+                  onChange={(e) => setEmployeeFilter(e.target.value)}
+                  placeholder="Filter by name or employee code…"
+                  className={SELECT}
+                />
+              </div>
               <div className="ml-auto flex flex-wrap items-center gap-4 self-end pb-2 text-xs text-slate-500">
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-100 ring-1 ring-inset ring-emerald-300" /> Present
@@ -364,6 +387,12 @@ export default function HRAttendancePage() {
                   description="Add employees and import biometric data first."
                 />
               </div>
+            ) : filteredRows.length === 0 ? (
+              <div className={`overflow-x-auto ${CARD}`}>
+                <p className="px-4 py-8 text-center text-[13px] text-slate-500">
+                  No employees match “{employeeFilter.trim()}”.
+                </p>
+              </div>
             ) : (
               <div className={`overflow-x-auto ${CARD}`}>
                 <table className="w-full border-collapse text-xs">
@@ -383,7 +412,7 @@ export default function HRAttendancePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {matrix.rows.map((row) => (
+                    {filteredRows.map((row) => (
                       <tr key={row.employeeId} className="border-t border-slate-100">
                         <td className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2 font-medium text-slate-700">
                           {row.employeeCode}

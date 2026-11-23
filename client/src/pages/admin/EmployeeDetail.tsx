@@ -87,6 +87,7 @@ export default function EmployeeDetailPage() {
         firstName?: string;
         lastName?: string;
         designation?: string;
+        grade?: string | null;
         departmentId?: string;
         joiningDate?: string;
         basicSalary?: string;
@@ -101,6 +102,7 @@ export default function EmployeeDetailPage() {
       if (employee.lastName) payload.lastName = employee.lastName;
       if (employee.employeeCode) payload.employeeCode = employee.employeeCode;
       if (employee.designation?.name) payload.designation = employee.designation.name;
+      payload.grade = employee.grade?.trim() ? employee.grade : null;
       payload.departmentId = employee.department?.id;
       payload.status = employee.status;
       if (employee.joiningDate) payload.joiningDate = new Date(employee.joiningDate).toISOString().split('T')[0];
@@ -220,6 +222,7 @@ export default function EmployeeDetailPage() {
               <EditableField label="First Name" value={employee.firstName} onChange={(v) => setEmployee((p) => (p ? { ...p, firstName: v } : p))} />
               <EditableField label="Last Name" value={employee.lastName} onChange={(v) => setEmployee((p) => (p ? { ...p, lastName: v } : p))} />
               <EditableField label="Designation" value={employee.designation?.name || ''} onChange={(v) => setEmployee((p) => (p ? { ...p, designation: v ? { id: '', name: v } : null } : p))} />
+              <EditableField label="Grade" value={employee.grade || ''} onChange={(v) => setEmployee((p) => (p ? { ...p, grade: v } : p))} />
               <EditableField label="Basic Salary" value={String(employee.basicSalary ?? '')} onChange={(v) => setEmployee((p) => (p ? { ...p, basicSalary: v } : p))} />
               <EditableField label="Allowances" value={String(employee.allowances ?? '')} onChange={(v) => setEmployee((p) => (p ? { ...p, allowances: v } : p))} />
               <EditableField label="Deductions" value={String(employee.deductions ?? '')} onChange={(v) => setEmployee((p) => (p ? { ...p, deductions: v } : p))} />
@@ -288,6 +291,7 @@ export default function EmployeeDetailPage() {
               </ReadField>
               <ReadField label="Department" value={employee.department?.name || '—'} />
               <ReadField label="Designation" value={employee.designation?.name || '—'} />
+              <ReadField label="Grade" value={employee.grade || '—'} />
               <ReadField label="Reporting Manager" value={employee.manager?.name || '—'} />
               <ReadField label="Basic Salary" value={String(employee.basicSalary ?? '—')} />
               <ReadField label="Allowances" value={String(employee.allowances ?? '—')} />
