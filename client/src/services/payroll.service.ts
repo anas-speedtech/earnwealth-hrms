@@ -103,6 +103,34 @@ export interface PayrollDashboardStats {
   totalEmployees: number;
 }
 
+// ---- PF / ESIC deduction report ----
+
+export interface StatutoryReportRow {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  pfEmployee: number;
+  esiEmployee: number;
+  pfEmployer: number;
+  esiEmployer: number;
+  totalDeduction: number;
+  totalEmployer: number;
+}
+
+export interface StatutoryDeductionReport {
+  month: number;
+  year: number;
+  employees: StatutoryReportRow[];
+  totals: {
+    pfEmployee: number;
+    esiEmployee: number;
+    pfEmployer: number;
+    esiEmployer: number;
+    totalDeductions: number;
+    totalEmployer: number;
+  };
+}
+
 // A "salary header" — one entry of the organisation-wide payhead catalog
 // (Basic, HRA, PF...). HR configures this list; the salary-structure form
 // then offers these headers instead of free-text components.
@@ -807,6 +835,16 @@ export const payrollService = {
     const { data } = await axios.get<{ data: PayrollDashboardStats }>(
       `${API_BASE_URL}/payroll/stats`,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
+  // PF / ESIC deduction report for a month (per-employee breakdown + totals).
+  async getStatutoryDeductionReport(month: number, year: number): Promise<StatutoryDeductionReport> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: StatutoryDeductionReport }>(
+      `${API_BASE_URL}/payroll/statutory-report`,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` }, params: { month, year } }
     );
     return data.data;
   },

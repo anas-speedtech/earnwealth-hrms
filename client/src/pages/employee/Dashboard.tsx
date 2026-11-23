@@ -4,7 +4,7 @@ import { CalendarDays, CheckCircle2, FileText, Hourglass, type LucideIcon } from
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
-import { leaveService, LeaveBalanceItem } from '../../services/leave.service';
+import { leaveService, LeaveBalanceItem, ProbationStatus } from '../../services/leave.service';
 import { payrollService, PayslipItem } from '../../services/payroll.service';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
@@ -15,6 +15,7 @@ export default function EmployeeDashboardPage() {
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalanceItem[]>([]);
   const [latestPayslip, setLatestPayslip] = useState<PayslipItem | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [probation, setProbation] = useState<ProbationStatus | null>(null);
 
   // Live data for the summary tiles.
   useEffect(() => {
@@ -24,6 +25,9 @@ export default function EmployeeDashboardPage() {
       .catch(() => {});
     payrollService.listMyPayslips()
       .then((result) => { if (mounted) setLatestPayslip(result.payslips?.[0] ?? null); })
+      .catch(() => {});
+    leaveService.getMyProbation()
+      .then((status) => { if (mounted) setProbation(status); })
       .catch(() => {});
     return () => { mounted = false; };
   }, []);
@@ -74,6 +78,18 @@ export default function EmployeeDashboardPage() {
           </div>
           <div className="rounded-full border border-cyan-100 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700">Personal workspace</div>
         </div>
+
+        {/* Probation banner — only shown while the 6-month window runs */}
+        {probation?.inProbation && (
+          <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <Hourglass className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+            <p className="text-[13px] text-amber-800">
+              You are on probation — it ends {probation.probationEnds ? new Date(probation.probationEnds).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+              {probation.daysRemaining > 0 && <> ({probation.daysRemaining} day{probation.daysRemaining === 1 ? '' : 's'} remaining)</>}.
+              Only <span className="font-semibold">Probation Leave</span> can be applied for during this period.
+            </p>
+          </div>
+        )}
 
         {/* My Summary — four tiles, PayBook style */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

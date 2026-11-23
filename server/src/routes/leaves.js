@@ -96,10 +96,21 @@ router.post('/leaves/:id/cancel', authenticate, async (req, res, next) => {
   }
 });
 
-// List active leave types (for dropdown)
+// The calling employee's own probation status (banner on the dashboard).
+router.get('/leaves/my-probation', authenticate, async (req, res, next) => {
+  try {
+    const result = await LeaveService.getMyProbationStatus(req.user);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// List active leave types (for dropdown). An employee caller still in
+// probation gets only Probation Leave back, so the picker matches the rule.
 router.get('/leaves/types', authenticate, async (req, res, next) => {
   try {
-    const types = await LeaveService.listLeaveTypes();
+    const types = await LeaveService.listLeaveTypes(req.user);
     res.json(types);
   } catch (err) {
     next(err);
@@ -107,6 +118,16 @@ router.get('/leaves/types', authenticate, async (req, res, next) => {
 });
 
 // ============ HR / ADMIN / SUPER_ADMIN ENDPOINTS ============
+
+// Employees currently inside their 6-month probation window (HR dashboard).
+router.get('/leaves/probation', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const result = await LeaveService.getProbationSummary(req.user);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Get pending leave requests
 router.get('/leaves/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {

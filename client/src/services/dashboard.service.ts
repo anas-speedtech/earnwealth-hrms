@@ -219,14 +219,16 @@ export const dashboardService = {
   // HR
   // ================================================================
   async getHrSummary(): Promise<DashSummary> {
-    const [pendingLeaves, pendingCredits, payrollResp] = await Promise.all([
+    const [pendingLeaves, pendingCredits, payrollResp, probationResp] = await Promise.all([
       safe(api.get<unknown[]>('/leaves/pending')),
       safe(api.get<CompOffCredit[]>('/compoff/pending')),
       safe(api.get<PayrollStatsResponse>('/payroll/stats')),
+      safe(api.get<{ inProbation: number }>('/leaves/probation')),
     ]);
 
     const pendingLeavesCount = arrayLen(pendingLeaves.data);
     const pendingCreditsCount = arrayLen(pendingCredits.data);
+    const probationCount = toInt(probationResp.data?.inProbation);
     const pendingPayroll = toInt(payrollResp.data?.data?.pendingApproval);
     // approvedThisMonth counts payroll_records APPROVED in the current month.
     // It is a payroll metric only — deliberately NOT folded into the comp-off
@@ -249,6 +251,13 @@ export const dashboardService = {
           value: payrollApprovedThisMonth,
           available: payrollResp.ok,
           href: '/hr/payroll', tone: 'purple',
+        },
+        {
+          key: 'probation', label: 'Employees on Probation',
+          value: probationCount,
+          available: probationResp.ok,
+          subLabel: '6-month window from joining date',
+          href: '/hr/leaves', tone: 'red',
         },
       ],
     };

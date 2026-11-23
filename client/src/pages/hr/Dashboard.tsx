@@ -3,7 +3,7 @@ import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
 import { dashboardService, DashSummary } from '../../services/dashboard.service';
-import { leaveService } from '../../services/leave.service';
+import { leaveService, ProbationEmployee } from '../../services/leave.service';
 import { wfhService } from '../../services/wfh.service';
 import { Panel, StatGrid, TitledStat, StatusChip, ViewAll } from '../../components/dashboard/widgets';
 
@@ -29,6 +29,7 @@ export default function HrDashboardPage() {
   const { user, logout } = useAuth();
   const { pendingWfhs, pendingLeaveRows } = usePendingQueues();
   const { data, loading, error } = useDashboard();
+  const probation = useProbation();
 
   const stats = useMemo(() => toTitledStats(data), [data]);
 
@@ -65,6 +66,37 @@ export default function HrDashboardPage() {
                   ))}
                 </ul>
               )}
+            </Panel>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Panel title={`Employees on Probation${probation.count !== null ? ` (${probation.count})` : ''}`} className="lg:col-span-2">
+              {probation.list.length === 0 ? (
+                <p className="py-6 text-center text-[13px] text-slate-500">No employees are currently in their probation period.</p>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {probation.list.map((row) => (
+                    <li key={row.employeeId} className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
+                      <span className="font-medium text-slate-700">
+                        {row.name}
+                        <span className="ml-2 text-xs font-normal text-slate-400">{row.employeeCode}</span>
+                      </span>
+                      <span className="text-slate-400">Joined {row.joiningDate ? formatDayKey(row.joiningDate) : '—'}</span>
+                      <span className="text-slate-400">→ probation ends {formatDayKey(row.probationEnds)}</span>
+                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700 ring-1 ring-inset ring-red-200/70">
+                        {row.daysRemaining} day{row.daysRemaining === 1 ? '' : 's'} left
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+            <Panel title="Probation Policy">
+              <p className="text-[13px] text-slate-500">
+                Every employee serves a 6-month probation period from the date of joining.
+                During probation they may apply for <span className="font-medium text-slate-700">Probation Leave only</span> —
+                all other leave types open up when the window closes.
+              </p>
             </Panel>
           </div>
 
@@ -109,6 +141,29 @@ function formatDayKey(value: string): string {
   const [, y, m, d] = match;
   const date = new Date(Number(y), Number(m) - 1, Number(d));
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// Employees inside their 6-month probation window, for the dashboard panel.
+function useProbation(): { count: number | null; list: ProbationEmployee[] } {
+  const [state, setState] = useState<{ count: number | null; list: ProbationEmployee[] }>({ count: null, list: [] });
+
+  useEffect(() => {
+    let mounted = true;
+    leaveService
+      .getProbationList()
+      .then((result) => {
+        if (mounted) setState({ count: result.inProbation, list: result.employees });
+      })
+      .catch(() => {
+        // leave the panel empty
+      });
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return state;
 }
 
 function useDashboard(): { data: DashSummary | null; loading: boolean; error: string | null } {

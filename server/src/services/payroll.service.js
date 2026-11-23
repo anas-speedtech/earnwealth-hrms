@@ -2132,6 +2132,85 @@ class PayrollService {
 
   // ---- Dashboard Stats ----
 
+  /**
+   * PF / ESIC deduction report for a month. Sums the statutory components
+   * (employee deductions + employer contributions) across every non-draft
+   * payroll record of the period and breaks them down per employee, so HR can
+   * hand a single sheet to PF/ESIC reconciliation.
+   */
+  static async getStatutoryDeductionReport(reqUser, { month, year }) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view payroll reports.', 403);
+    }
+    if (!this.isValidMonthYear(Number(month), Number(year))) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'A valid month and year are required.', 400);
+    }
+    const prismaClient = getPrisma();
+
+    const COMPONENT_NAMES = [
+      'Provident Fund (Employee)',
+      'ESI (Employee)',
+      'Provident Fund (Employer)',
+      'ESI (Employer)',
+    ];
+
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT pc.payrollRecordId, pc.name, pc.type, pc.amount,
+              pr.status, pr.employeeId, ep.employeeCode, e.name AS employeeName
+       FROM payroll_components pc
+       JOIN payroll_records pr ON pr.id = pc.payrollRecordId
+       LEFT JOIN employee_profiles ep ON ep.id = pr.employeeId
+       LEFT JOIN employees e ON e.userId = ep.userId
+       WHERE pr.month = ? AND pr.year = ?
+         AND pr.status IN ('PENDING_APPROVAL', 'APPROVED')
+         AND pc.name IN (?, ?, ?, ?)`,
+      Number(month), Number(year),
+      ...COMPONENT_NAMES
+    );
+
+    const byEmployee = new Map();
+    let totals = { pfEmployee: 0, esiEmployee: 0, pfEmployer: 0, esiEmployer: 0, totalDeductions: 0, totalEmployer: 0 };
+    const round2 = (v) => Math.round(v * 100) / 100;
+
+    for (const row of rows || []) {
+      const key = String(row.employeeId);
+      let emp = byEmployee.get(key);
+      if (!emp) {
+        emp = {
+          employeeId: key,
+          employeeCode: row.employeeCode || '',
+          employeeName: row.employeeName || '',
+          pfEmployee: 0, esiEmployee: 0, pfEmployer: 0, esiEmployer: 0,
+          totalDeduction: 0, totalEmployer: 0,
+        };
+        byEmployee.set(key, emp);
+      }
+      const amount = Number(row.amount) || 0;
+      if (row.name === 'Provident Fund (Employee)') emp.pfEmployee = round2(emp.pfEmployee + amount);
+      else if (row.name === 'ESI (Employee)') emp.esiEmployee = round2(emp.esiEmployee + amount);
+      else if (row.name === 'Provident Fund (Employer)') emp.pfEmployer = round2(emp.pfEmployer + amount);
+      else if (row.name === 'ESI (Employer)') emp.esiEmployer = round2(emp.esiEmployer + amount);
+    }
+
+    const employees = Array.from(byEmployee.values());
+    for (const emp of employees) {
+      emp.totalDeduction = round2(emp.pfEmployee + emp.esiEmployee);
+      emp.totalEmployer = round2(emp.pfEmployer + emp.esiEmployer);
+    }
+    employees.sort((a, b) => String(a.employeeCode).localeCompare(String(b.employeeCode)));
+
+    for (const emp of employees) {
+      totals.pfEmployee = round2(totals.pfEmployee + emp.pfEmployee);
+      totals.esiEmployee = round2(totals.esiEmployee + emp.esiEmployee);
+      totals.pfEmployer = round2(totals.pfEmployer + emp.pfEmployer);
+      totals.esiEmployer = round2(totals.esiEmployer + emp.esiEmployer);
+    }
+    totals.totalDeductions = round2(totals.pfEmployee + totals.esiEmployee);
+    totals.totalEmployer = round2(totals.pfEmployer + totals.esiEmployer);
+
+    return { month: Number(month), year: Number(year), employees, totals };
+  }
+
   static async getDashboardStats(reqUser) {
     if (!this.canManagePayroll(reqUser)) {
       return null;

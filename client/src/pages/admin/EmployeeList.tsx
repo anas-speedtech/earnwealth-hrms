@@ -193,6 +193,7 @@ export default function EmployeeListPage() {
                       <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Code</th>
                       <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Department</th>
                       <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Designation</th>
+                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Grade</th>
                       <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Status</th>
                       <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Actions</th>
                     </tr>
@@ -209,6 +210,7 @@ export default function EmployeeListPage() {
                         <td className="px-4 py-3 text-[13px] text-slate-600">{emp.employeeCode}</td>
                         <td className="px-4 py-3 text-[13px] text-slate-600">{emp.department?.name || '—'}</td>
                         <td className="px-4 py-3 text-[13px] text-slate-600">{emp.designation?.name || '—'}</td>
+                        <td className="px-4 py-3 text-[13px] text-slate-600">{emp.grade || '—'}</td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusColor(emp.status)}`}>
                             {emp.status}

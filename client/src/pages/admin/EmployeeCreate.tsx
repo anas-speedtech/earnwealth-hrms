@@ -46,6 +46,7 @@ export default function EmployeeCreatePage() {
     firstName: '',
     lastName: '',
     designation: '',
+    grade: '',
     deviceEnrollNo: '',
     email: '',
     password: '',
@@ -160,6 +161,7 @@ export default function EmployeeCreatePage() {
           role: 'HR_ADMIN',
           employeeCode: form.employeeCode,
           designation: form.designation || undefined,
+          grade: form.grade.trim() || undefined,
           reportingManager: managerName || undefined,
           joiningDate: form.joiningDate || undefined,
           leaveTypes: selectedTypeIds,
@@ -171,6 +173,7 @@ export default function EmployeeCreatePage() {
           firstName: form.firstName,
           lastName: form.lastName,
           designation: form.designation,
+          grade: form.grade.trim() || undefined,
           deviceEnrollNo: form.deviceEnrollNo.trim() || undefined,
           // Salary/allowances/deductions are configured in Payroll (salary
           // structure) — the record is created with zeroed pay fields here.
@@ -256,6 +259,9 @@ export default function EmployeeCreatePage() {
                   <option value="">Select…</option>
                   {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
                 </select>
+              </Field>
+              <Field label="Grade" helper="Optional job grade / band.">
+                <input type="text" value={form.grade} onChange={(e) => update('grade', e.target.value)} disabled={isSubmitting} className={inputClass} placeholder="e.g. L3, S4" />
               </Field>
               <Field label="Department">
                 <select value={form.departmentId} onChange={(e) => update('departmentId', e.target.value)} disabled={isSubmitting} className={inputClass}>

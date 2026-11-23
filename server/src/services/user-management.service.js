@@ -75,7 +75,7 @@ class UserManagementService {
    * sequence. The code must be unique across all employees and, once set,
    * it cannot be changed.
    */
-  static async create(actor, { name, email, password, role, employeeCode, designation, reportingManager, joiningDate, leaveTypes }) {
+  static async create(actor, { name, email, password, role, employeeCode, designation, grade, reportingManager, joiningDate, leaveTypes }) {
     // Super Admin may only appoint HR Admin accounts — no Employee, no other
     // Super Admin. HR Admin in turn creates the Employee accounts.
     if (actor.role === 'SUPER_ADMIN' && role !== 'HR_ADMIN') {
@@ -179,6 +179,7 @@ class UserManagementService {
     // The live employees table has NOT NULL designation, so a blank value
     // must fall back to a default rather than inserting NULL.
     const finalDesignation = (designation && String(designation).trim()) || 'Employee';
+    const finalGrade = (grade && String(grade).trim()) || null;
     const passwordHash = await hashPassword(finalPassword);
 
     const created = await prismaClient.$executeRaw`
@@ -206,11 +207,11 @@ class UserManagementService {
     // account-provisioned employee is simply created without one.
     await prismaClient.$executeRawUnsafe(
       `INSERT INTO employees
-        (employeeCode, name, designation, joiningDate, deviceEnrollNo,
+        (employeeCode, name, designation, grade, joiningDate, deviceEnrollNo,
          basicSalary, allowances, deductions, isActive, userId,
          reportingManagerId, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, NULL, 0, 0, 0, 1, ?, ?, NOW(3), NOW(3))`,
-      code, name, finalDesignation, joinDate, Number(user.id), reportingManagerId
+       VALUES (?, ?, ?, ?, ?, NULL, 0, 0, 0, 1, ?, ?, NOW(3), NOW(3))`,
+      code, name, finalDesignation, finalGrade, joinDate, Number(user.id), reportingManagerId
     );
 
     // Configure the leave types this employee is entitled to, via the shared

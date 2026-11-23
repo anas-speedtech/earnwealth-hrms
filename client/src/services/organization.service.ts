@@ -7,6 +7,7 @@ export interface Employee {
   firstName: string;
   lastName: string;
   email: string;
+  grade?: string;
   phoneNumber?: string;
   personalEmail?: string;
   address?: string;
@@ -137,6 +138,9 @@ export const organizationService = {
     firstName: string;
     lastName: string;
     designation: string;
+    // Job grade / band. Optional free text; captured on the record and shown
+    // in the employee table.
+    grade?: string;
     // Optional legacy biometric-device slot (whole number). Leave undefined
     // when the employee has no paired device — the employee code identifies
     // them everywhere else.
@@ -174,6 +178,7 @@ export const organizationService = {
     role: 'HR_ADMIN' | 'EMPLOYEE';
     employeeCode: string;
     designation?: string;
+    grade?: string;
     reportingManager?: string;
     joiningDate?: string;
     leaveTypes?: string[];
@@ -198,6 +203,7 @@ export const organizationService = {
     firstName?: string;
     lastName?: string;
     designation?: string;
+    grade?: string | null;
     departmentId?: string;
     joiningDate?: string;
     basicSalary?: string;

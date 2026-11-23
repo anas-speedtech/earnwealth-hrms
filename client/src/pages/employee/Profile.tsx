@@ -22,6 +22,12 @@ export default function EmployeeProfilePage() {
   const [saving, setSaving] = useState(false);
   const [photoInput, setPhotoInput] = useState<HTMLInputElement | null>(null);
 
+  // Personal fields (address, DOB, emergency contact, ...) are now HR-maintained:
+  // only HR Admin / Super Admin may write them. Everyone else — including a
+  // visiting HR Admin on their own page — sees the values but cannot edit unless
+  // they hold that authority.
+  const canEditPersonal = user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ADMIN';
+
   useEffect(() => {
     let mounted = true;
     personalProfileService
@@ -161,7 +167,9 @@ export default function EmployeeProfilePage() {
         >
           <h2 className="text-[15px] font-bold tracking-tight text-slate-900">Personal Information</h2>
           <p className="mt-0.5 mb-4 text-[13px] text-slate-500">
-            Keep these details up to date. HR keeps your official records; you maintain these here.
+            {canEditPersonal
+              ? 'Maintain the personal details below. HR keeps these records.'
+              : 'These details are maintained by HR. Contact HR to update them.'}
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
@@ -170,6 +178,7 @@ export default function EmployeeProfilePage() {
                 value={personal.address}
                 onChange={(e) => update('address', e.target.value)}
                 placeholder="Residential address"
+                disabled={!canEditPersonal}
               />
             </div>
             <Input
@@ -177,18 +186,21 @@ export default function EmployeeProfilePage() {
               type="date"
               value={personal.dateOfBirth}
               onChange={(e) => update('dateOfBirth', e.target.value)}
+              disabled={!canEditPersonal}
             />
             <Input
               label="Anniversary Date"
               type="date"
               value={personal.anniversaryDate}
               onChange={(e) => update('anniversaryDate', e.target.value)}
+              disabled={!canEditPersonal}
             />
             <Input
               label="Emergency Contact Number"
               value={personal.emergencyContact}
               onChange={(e) => update('emergencyContact', e.target.value)}
               placeholder="e.g. +91 98000 00000"
+              disabled={!canEditPersonal}
             />
             <Input
               label="Personal Email"
@@ -196,13 +208,16 @@ export default function EmployeeProfilePage() {
               value={personal.personalEmail}
               onChange={(e) => update('personalEmail', e.target.value)}
               placeholder="you@example.com"
+              disabled={!canEditPersonal}
             />
           </div>
-          <div className="mt-4 flex items-center gap-3 border-t border-slate-100 pt-4">
-            <Button type="submit" variant="primary" isLoading={saving}>
-              <Save size={14} className="mr-1.5" /> Save Personal Information
-            </Button>
-          </div>
+          {canEditPersonal && (
+            <div className="mt-4 flex items-center gap-3 border-t border-slate-100 pt-4">
+              <Button type="submit" variant="primary" isLoading={saving}>
+                <Save size={14} className="mr-1.5" /> Save Personal Information
+              </Button>
+            </div>
+          )}
         </form>
       </div>
     </DashboardShell>

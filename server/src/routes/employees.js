@@ -25,6 +25,9 @@ const createSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   designation: z.string().min(1),
+  // Job grade / band. Optional free text; captured on the record and shown
+  // in the employee table.
+  grade: z.string().trim().max(50).optional().nullable(),
   // Legacy biometric-device slot. Optional: the employee code is the
   // identifier everywhere else, so an account may be created without one.
   deviceEnrollNo: z.preprocess(
@@ -54,6 +57,7 @@ const updateSchema = z.object({
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
   designation: z.string().min(1).optional(),
+  grade: z.string().trim().max(50).optional().nullable(),
   departmentId: z.coerce.string().optional(),
   joiningDate: z.string().optional(),
   basicSalary: z.coerce.number().min(0).optional(),

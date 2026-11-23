@@ -135,7 +135,7 @@ class EmployeeService {
     const total = countRows && countRows[0] ? Number(countRows[0].count) : 0;
 
     const rows = await prismaClient.$queryRawUnsafe(
-      `SELECT e.id, e.userId, e.employeeCode, e.name, e.designation, e.joiningDate,
+      `SELECT e.id, e.userId, e.employeeCode, e.name, e.designation, e.grade, e.joiningDate,
               e.departmentText, e.isActive, d.id AS departmentId, d.name AS departmentName, u.email,
               e.reportingManagerId, m.name AS reportingManagerName
        FROM employees e
@@ -161,6 +161,7 @@ class EmployeeService {
         firstName,
         lastName,
         email: e.email || '',
+        grade: e.grade || '',
         phoneNumber: null,
         department: e.departmentId == null ? null : { id: String(e.departmentId), name: e.departmentName || e.departmentText || '' },
         designation: e.designation ? { id: '', name: e.designation } : null,
@@ -186,7 +187,7 @@ class EmployeeService {
   static async getById(reqUser, employeeProfileId) {
     const prismaClient = getPrisma();
     const rows = await prismaClient.$queryRawUnsafe(
-      `SELECT e.id, e.userId, e.employeeCode, e.name, e.designation, e.joiningDate,
+      `SELECT e.id, e.userId, e.employeeCode, e.name, e.designation, e.grade, e.joiningDate,
               e.departmentText, e.basicSalary, e.allowances, e.deductions, e.isActive,
               e.reportingManagerId, m.name AS reportingManagerName,
               d.id AS departmentId, d.name AS departmentName, u.email
@@ -219,6 +220,7 @@ class EmployeeService {
       employeeCode: profile.employeeCode || '',
       firstName,
       lastName,
+      grade: profile.grade || '',
       dateOfBirth: null,
       gender: null,
       phoneNumber: null,
@@ -375,11 +377,16 @@ class EmployeeService {
       void userInserted;
     }
 
+    const grade = (data.grade !== undefined && data.grade !== null)
+      ? String(data.grade).trim() || null
+      : null;
+
     await prismaClient.$executeRawUnsafe(
-      'INSERT INTO employees (employeeCode, name, designation, joiningDate, deviceEnrollNo, basicSalary, allowances, deductions, isActive, departmentId, departmentText, userId, reportingManagerId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))',
+      'INSERT INTO employees (employeeCode, name, designation, grade, joiningDate, deviceEnrollNo, basicSalary, allowances, deductions, isActive, departmentId, departmentText, userId, reportingManagerId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))',
       employeeCode,
       name,
       designation,
+      grade,
       dateValue.toISOString().slice(0, 10),
       deviceEnrollNo,
       numericValues.basicSalary,
@@ -445,6 +452,7 @@ class EmployeeService {
       firstName,
       lastName,
       designation,
+      grade: grade || '',
       joiningDate: dateValue.toISOString().slice(0, 10),
       departmentId,
       department: departmentId ? { id: String(departmentId), name: departmentText || '' } : null,
@@ -462,7 +470,7 @@ class EmployeeService {
     const prismaClient = getPrisma();
 
     const existingRows = await prismaClient.$queryRawUnsafe(
-      'SELECT id, name, designation, departmentId, departmentText, isActive, joiningDate, employeeCode, basicSalary, allowances, deductions, reportingManagerId FROM employees WHERE id = ? LIMIT 1',
+      'SELECT id, name, designation, grade, departmentId, departmentText, isActive, joiningDate, employeeCode, basicSalary, allowances, deductions, reportingManagerId FROM employees WHERE id = ? LIMIT 1',
       employeeProfileId
     );
 
@@ -527,6 +535,11 @@ class EmployeeService {
     if (data.designationId !== undefined && data.designation === undefined) {
       updates.push('designation = ?');
       values.push(String(data.designationId || '').trim());
+    }
+
+    if (data.grade !== undefined) {
+      updates.push('grade = ?');
+      values.push(String(data.grade || '').trim() || null);
     }
 
     // Reporting manager is mandatory: it may be changed to a different valid
@@ -631,7 +644,7 @@ class EmployeeService {
     }
 
     const updatedRows = await prismaClient.$queryRawUnsafe(
-      'SELECT e.id, e.employeeCode, e.name, e.userId, e.departmentId, e.reportingManagerId, e.isActive FROM employees e LEFT JOIN employees m ON m.id = e.reportingManagerId WHERE e.id = ? LIMIT 1',
+      'SELECT e.id, e.employeeCode, e.name, e.designation, e.grade, e.userId, e.departmentId, e.reportingManagerId, e.isActive FROM employees e LEFT JOIN employees m ON m.id = e.reportingManagerId WHERE e.id = ? LIMIT 1',
       employeeProfileId
     );
     const updated = updatedRows && updatedRows[0];
@@ -672,6 +685,7 @@ class EmployeeService {
       firstName: String(updated.name || '').trim().split(/\s+/)[0] || '',
       lastName: String(updated.name || '').trim().split(/\s+/).slice(1).join(' '),
       designation: updated.designation ? { id: '', name: updated.designation } : null,
+      grade: updated.grade || '',
       manager: updated.reportingManagerName ? { id: String(updated.reportingManagerId), name: updated.reportingManagerName } : null,
       department: updated.departmentId ? { id: String(updated.departmentId), name: updated.departmentText || '' } : null,
       joiningDate: updated.joiningDate,

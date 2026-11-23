@@ -694,6 +694,19 @@ router.get('/payroll/stats', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_A
   }
 });
 
+// PF / ESIC deduction report for a month (per-employee breakdown + totals).
+router.get('/payroll/statutory-report', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const result = await PayrollService.getStatutoryDeductionReport(req.user, {
+      month: req.query.month,
+      year: req.query.year,
+    });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/payroll/my-summary', authenticate, authorize(Role.EMPLOYEE), async (req, res, next) => {
   try {
     const result = await PayrollService.getMyPayrollSummary(req.user);

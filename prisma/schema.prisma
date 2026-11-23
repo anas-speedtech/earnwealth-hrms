@@ -52,6 +52,9 @@ model Employee {
   employeeCode   String   @unique @db.VarChar(50)
   name           String   @db.VarChar(120)
   designation    String   @db.VarChar(100)
+  // Job grade / band. Free-text and optional; captured on the employee record
+  // and shown in the employee table.
+  grade          String?  @db.VarChar(50)
   joiningDate    DateTime @db.Date
   deviceEnrollNo Int?     @unique
   basicSalary    Decimal  @db.Decimal(12, 2)
