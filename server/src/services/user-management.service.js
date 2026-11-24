@@ -380,6 +380,97 @@ class UserManagementService {
 
     return { id: String(userId), message: 'Password updated. The user must sign in again.' };
   }
+
+  /**
+   * Deletes an account and its linked employee record.
+   *
+   * This is the "stale entry" path: an orphaned login (a `users` row with no
+   * matching `employees` row, or an employee record whose login was never
+   * linked) that shows up in Accounts but is unreachable from Employee
+   * Details. The delete is ordered so every foreign key resolves before the
+   * rows it protects disappear:
+   *
+   *   1. employee_profiles  — the payroll family (records, payslips, salary
+   *      structures, WFH, corrections) cascades off this row.
+   *   2. employees          — attendance, leave balances, comp-off, expense
+   *      claims all cascade; headId / reportingManager are SET NULL.
+   *   3. users              — refresh tokens + notifications cascade; the
+   *      linked employees.employeeCode slot is already gone.
+   *
+   * The Super Admin may delete any HR Admin / Employee account. An HR Admin
+   * may only delete Employee accounts (mirroring the setActive / reset
+   * rules). A Super Admin is never deleted, which would lock everyone out.
+   */
+  static async remove(actor, userId) {
+    const prismaClient = getPrisma();
+    const targetId = Number(userId);
+
+    const rows = await prismaClient.$queryRaw`
+      SELECT id, role, email FROM users WHERE id = ${targetId} LIMIT 1
+    `;
+    if (!rows.length) {
+      throw new AppError(AppErrorCodes.NOT_FOUND, 'Account not found.', 404);
+    }
+    const target = rows[0];
+
+    if (target.role === 'SUPER_ADMIN') {
+      throw new AppError(
+        AppErrorCodes.FORBIDDEN,
+        'The Super Admin account cannot be deleted.',
+        403
+      );
+    }
+    // No one may delete their own account through this path.
+    if (Number(target.id) === Number(actor.id)) {
+      throw new AppError(
+        AppErrorCodes.FORBIDDEN,
+        'You cannot delete your own account.',
+        403
+      );
+    }
+    // HR Admin is limited to Employee accounts, not HR Admins.
+    if (actor.role === 'HR_ADMIN' && target.role !== 'EMPLOYEE') {
+      throw new AppError(
+        AppErrorCodes.FORBIDDEN,
+        'HR Admin can only delete Employee accounts.',
+        403
+      );
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+      // 1. Drop the payroll-facing profile first so its cascades clear.
+      await tx.$executeRawUnsafe(
+        'DELETE FROM employee_profiles WHERE userId = ?',
+        targetId
+      );
+      // 2. Drop the legacy employee record (attendance / leave / comp-off /
+      //    expense claims cascade; manager references SET NULL).
+      await tx.$executeRawUnsafe(
+        'DELETE FROM employees WHERE userId = ?',
+        targetId
+      );
+      // 3. Drop the login account last (refresh tokens + notifications cascade).
+      await tx.$executeRawUnsafe(
+        'DELETE FROM users WHERE id = ?',
+        targetId
+      );
+    });
+
+    await AuthService.logAudit(
+      String(actor.id),
+      actor.role,
+      'DELETE_USER',
+      'User',
+      String(target.id)
+    );
+    logger.info('Account deleted', { actorId: actor.id, targetId: target.id, targetRole: target.role });
+
+    return {
+      id: String(target.id),
+      message: 'Account and linked employee record deleted.',
+      email: target.email,
+    };
+  }
 }
 
 module.exports = { UserManagementService };

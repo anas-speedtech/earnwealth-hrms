@@ -198,6 +198,16 @@ export const organizationService = {
     return data;
   },
 
+  /**
+   * Delete an account and its linked employee record — the cleanup path for
+   * stale entries (orphaned logins that appear in Accounts but have no
+   * reachable employee record).
+   */
+  async deleteAdminAccount(id: string): Promise<{ id: string; message: string; email: string }> {
+    const { data } = await api.delete(`/admin-users/${id}`);
+    return data;
+  },
+
   async updateEmployee(id: string, payload: {
     employeeCode?: string;
     firstName?: string;

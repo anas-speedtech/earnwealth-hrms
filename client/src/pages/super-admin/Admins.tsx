@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, KeyRound } from 'lucide-react';
+import { Plus, Users, KeyRound, Trash2 } from 'lucide-react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import { useAuth } from '../../contexts/AuthContext';
@@ -55,6 +55,10 @@ export default function SuperAdminAdminsPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [resetting, setResetting] = useState(false);
 
+  // Delete-account state: the confirmation modal target + in-flight id.
+  const [deleteTarget, setDeleteTarget] = useState<AdminAccount | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ADMIN';
   // The Super Admin can reset any account (including HR Admins and their own);
   // an HR Admin is limited to Employee accounts — the server enforces the same.
@@ -97,6 +101,31 @@ export default function SuperAdminAdminsPage() {
       toast.error(message);
     } finally {
       setResetting(false);
+    }
+  };
+
+  const openDelete = (account: AdminAccount) => {
+    setDeleteTarget(account);
+  };
+
+  const closeDelete = () => setDeleteTarget(null);
+
+  const handleDelete = async () => {
+    if (!deleteTarget || deletingId) return;
+    setDeletingId(deleteTarget.id);
+    try {
+      await organizationService.deleteAdminAccount(deleteTarget.id);
+      toast.success(`Account for ${deleteTarget.name} deleted.`);
+      closeDelete();
+      load();
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message || 'Could not delete the account.';
+      toast.error(message);
+      closeDelete();
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -258,6 +287,17 @@ export default function SuperAdminAdminsPage() {
                               <span className="hidden sm:inline">Reset password</span>
                             </button>
                           )}
+                          {canManage && (
+                            <button
+                              type="button"
+                              onClick={() => openDelete(account)}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] font-medium text-slate-600 transition-colors hover:border-red-300 hover:text-red-600"
+                              title={`Delete ${account.name}'s account`}
+                            >
+                              <Trash2 size={13} />
+                              <span className="hidden sm:inline">Delete</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -321,6 +361,43 @@ export default function SuperAdminAdminsPage() {
                   className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
                 />
               </div>
+            </div>
+          )}
+        </Modal>
+
+        {/* Delete account modal — the stale-entry cleanup */}
+        <Modal
+          isOpen={deleteTarget !== null}
+          onClose={closeDelete}
+          title={deleteTarget ? `Delete account — ${deleteTarget.name}` : 'Delete account'}
+          footer={
+            <>
+              <Button variant="secondary" onClick={closeDelete} disabled={!!deletingId}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleDelete}
+                isLoading={!!deletingId}
+                disabled={!!deletingId}
+              >
+                {deletingId ? 'Deleting…' : 'Delete account'}
+              </Button>
+            </>
+          }
+        >
+          {deleteTarget && (
+            <div className="space-y-4">
+              <p className="text-[13px] text-slate-500">
+                This permanently removes the account for{' '}
+                <strong className="text-slate-700">{deleteTarget.name}</strong> ({deleteTarget.email})
+                and its linked employee record, along with the attendance, leave and payroll
+                data tied to it. This cannot be undone.
+              </p>
+              <p className="text-[13px] text-slate-500">
+                Use this to clear <strong className="text-slate-700">stale entries</strong> — accounts
+                that appear in Accounts but have no reachable employee record.
+              </p>
             </div>
           )}
         </Modal>
