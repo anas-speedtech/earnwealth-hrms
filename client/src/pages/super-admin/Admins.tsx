@@ -280,22 +280,20 @@ export default function SuperAdminAdminsPage() {
                             <button
                               type="button"
                               onClick={() => openReset(account)}
-                              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] font-medium text-slate-600 transition-colors hover:border-cyan-300 hover:text-cyan-700"
+                              className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-cyan-300 hover:text-cyan-700"
                               title={`Reset ${account.name}'s password`}
                             >
-                              <KeyRound size={13} />
-                              <span className="hidden sm:inline">Reset password</span>
+                              <KeyRound size={14} />
                             </button>
                           )}
                           {canManage && (
                             <button
                               type="button"
                               onClick={() => openDelete(account)}
-                              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] font-medium text-slate-600 transition-colors hover:border-red-300 hover:text-red-600"
+                              className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 text-slate-500 transition-colors hover:border-red-300 hover:text-red-600"
                               title={`Delete ${account.name}'s account`}
                             >
-                              <Trash2 size={13} />
-                              <span className="hidden sm:inline">Delete</span>
+                              <Trash2 size={14} />
                             </button>
                           )}
                         </div>

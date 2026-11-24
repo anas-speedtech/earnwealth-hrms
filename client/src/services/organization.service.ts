@@ -85,6 +85,17 @@ interface PayoutSnapshot {
   accountNumber: string;
 }
 
+// Personal-profile fields maintained by HR on the employee-detail page
+// (employees are view-only here). DOB lives in this table, not the legacy
+// employees table.
+export interface PersonalProfileData {
+  address: string;
+  dateOfBirth: string;
+  emergencyContact: string;
+  personalEmail: string;
+  anniversaryDate: string;
+}
+
 export interface PayoutHistoryEntry {
   id: string;
   version: number;
@@ -267,6 +278,23 @@ export const organizationService = {
     const { data } = await api.get<PayoutHistoryEntry[]>(`/employees/${employeeId}/payout/history`, {
       params: { limit },
     });
+    return data;
+  },
+
+  // ---- Personal Profile (HR-maintained: address, DOB, contacts) ----
+
+  async getPersonalProfile(employeeId: string): Promise<PersonalProfileData> {
+    const { data } = await api.get<PersonalProfileData | null>(`/employees/${employeeId}/personal-profile`);
+    return (
+      data || { address: '', dateOfBirth: '', emergencyContact: '', personalEmail: '', anniversaryDate: '' }
+    );
+  },
+
+  async updatePersonalProfile(
+    employeeId: string,
+    payload: Partial<PersonalProfileData>,
+  ): Promise<PersonalProfileData> {
+    const { data } = await api.put<PersonalProfileData>(`/employees/${employeeId}/personal-profile`, payload);
     return data;
   },
 

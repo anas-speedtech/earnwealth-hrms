@@ -4,6 +4,7 @@ const { authenticate, authorize } = require('../middleware/auth');
 const { validateBody } = require('../middleware/validate');
 const { EmployeeService } = require('../services/employee.service');
 const { PayoutService } = require('../services/payout.service');
+const { PersonalProfileService } = require('../services/personal-profile.service');
 const { Role } = require('../types/index');
 
 const router = express.Router();
@@ -70,6 +71,22 @@ const updateSchema = z.object({
   reportingManagerId: z.coerce.number().int().positive().optional(),
   // Replace the employee's leave-type set on every update.
   leaveTypes: z.array(z.string()).optional().default([]),
+});
+
+// ---- Personal profile (address, DOB, emergency contact, ...) ----
+//
+// Employees no longer self-edit these (the /me PUT is HR-gated), so HR
+// maintains them on the employee-detail page. DOB lives here too — the
+// legacy `employees` table has no date-of-birth column.
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const optionalDay = z.union([z.literal(''), z.string().regex(DAY_RE)]).optional().nullable();
+const personalProfileSchema = z.object({
+  address: z.string().max(500).optional().nullable(),
+  dateOfBirth: optionalDay,
+  emergencyContact: z.string().max(100).optional().nullable(),
+  personalEmail: z.union([z.literal(''), z.string().email().max(255)]).optional().nullable(),
+  anniversaryDate: optionalDay,
 });
 
 // ---- Payout Details (earnings/deduction structure + bank, change-tracked) ----
@@ -200,6 +217,40 @@ router.get(
     try {
       const result = await PayoutService.history(req.user, req.params.id);
       res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ---- Personal profile (HR-maintained; employees are view-only) ----
+
+// Read one employee's personal profile (address, DOB, emergency contact,
+// personal email, anniversary). Includes DOB so the detail page can show it.
+router.get(
+  '/employees/:id/personal-profile',
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  async (req, res, next) => {
+    try {
+      const profile = await PersonalProfileService.getForEmployeeId(req.params.id);
+      res.json(profile);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Upsert one employee's personal profile. Because the employee's own /me PUT
+// is now HR-gated, this is the surface where HR Admin / Super Admin write
+// those fields (and DOB) for the employee.
+router.put(
+  '/employees/:id/personal-profile',
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  validateBody(personalProfileSchema),
+  async (req, res, next) => {
+    try {
+      const profile = await PersonalProfileService.upsertForEmployeeId(req.params.id, req.body);
+      res.json(profile);
     } catch (err) {
       next(err);
     }
