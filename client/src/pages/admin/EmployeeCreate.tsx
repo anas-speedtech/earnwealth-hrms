@@ -113,7 +113,6 @@ export default function EmployeeCreatePage() {
     else if (form.employeeCode.trim().length < 3) errors.employeeCode = 'Employee code must be at least 3 digits.';
     if (!form.firstName.trim()) errors.firstName = 'First name is required.';
     if (!form.lastName.trim()) errors.lastName = 'Last name is required.';
-    if (!form.reportingManagerId) errors.reportingManagerId = 'A reporting manager is required. Every employee must map to a higher person.';
     if (!form.designation.trim()) errors.designation = 'Designation is required.';
     // Optional legacy biometric-device slot — the employee code is the
     // identifier everywhere else, so leave it blank unless a device is paired.
@@ -182,7 +181,9 @@ export default function EmployeeCreatePage() {
           joiningDate: form.joiningDate,
           status: form.status,
           // Mandatory: every employee must map to a higher person.
-          reportingManagerId: Number(form.reportingManagerId),
+          // A top-level / founder employee may have no manager — leave it
+          // undefined in that case instead of sending 0 / NaN.
+          reportingManagerId: form.reportingManagerId ? Number(form.reportingManagerId) : undefined,
           // Optional login credentials — creates the linked user account.
           email: form.email || undefined,
           password: form.password || undefined,
@@ -283,15 +284,16 @@ export default function EmployeeCreatePage() {
             {/* Row 3: reporting manager — long list, gives it a roomier half
                 alongside a compact status note on wide screens. */}
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <Field label="Reporting Manager *" error={fieldErrors.reportingManagerId}>
+              <Field label="Reporting Manager" helper="Optional — the founder / top-level employee has nobody above them. Leave blank for the first employee.">
                 <select value={form.reportingManagerId} onChange={(e) => update('reportingManagerId', e.target.value)} disabled={isSubmitting} className={inputClass}>
-                  <option value="">Select a manager…</option>
+                  <option value="">None (top-level / founder)…</option>
                   {employees.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.employeeCode})</option>)}
                 </select>
               </Field>
               {!provisioningAdmin && (
                 <div className="flex items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/40 px-3.5 py-2 text-[12px] text-slate-400">
-                  Every employee maps to a higher person, so the chain always resolves to an owner.
+                  Give every employee a manager where one exists. The very first / top-level employee
+                  (founder, CEO) stays unassigned — approvals and notifications for that person fall back to HR.
                 </div>
               )}
             </div>

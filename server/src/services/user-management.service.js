@@ -148,14 +148,9 @@ class UserManagementService {
       }
     }
 
-    // An Employee must map to a higher person.
-    if (role === 'EMPLOYEE' && !reportingManagerId) {
-      throw new AppError(
-        AppErrorCodes.VALIDATION_ERROR,
-        'Every Employee must map to a higher person. Select a reporting manager.',
-        400
-      );
-    }
+    // The manager is optional: a founder / top-level employee has nobody
+    // above them. Approvals and notifications fall back to HR Admins, and
+    // the field stays settable later through the update flow.
 
     const existing = await prismaClient.$queryRaw`
       SELECT id FROM users WHERE email = ${email} LIMIT 1

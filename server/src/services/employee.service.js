@@ -261,19 +261,13 @@ class EmployeeService {
     if (!data.joiningDate) {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Joining date is required.', 400);
     }
-    // A reporting manager is mandatory on every employee: the chain must
-    // resolve to a higher person so approvals, leaves and corrections always
-    // have a clear owner. A SUPER_ADMIN may create a root employee without
-    // a manager to bootstrap the org chart; every other creator still must
-    // supply one.
-    if (!data.reportingManagerId && reqUser.role !== Role.SUPER_ADMIN) {
-      throw new AppError(
-        AppErrorCodes.VALIDATION_ERROR,
-        'A reporting manager is required. Every employee must map to a higher person.',
-        400
-      );
-    }
-
+    // A reporting manager is OPTIONAL at creation: the very first employee
+    // (a founder / CEO) has nobody above them, so the top of the tree is
+    // created without a manager. Everyone else SHOULD map to a higher person
+    // (approvals and notifications fall back to HR Admins when a manager is
+    // absent). Once set on an existing record the manager may not be cleared
+    // through the update flow, which keeps the chain resolvable for the
+    // people who do have a boss.
     const dateValue = new Date(data.joiningDate);
     if (Number.isNaN(dateValue.getTime())) {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Invalid joining date.', 400);

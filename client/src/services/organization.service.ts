@@ -162,7 +162,8 @@ export const organizationService = {
     departmentId?: string;
     joiningDate: string;
     status: string;
-    reportingManagerId: number;
+    // Optional: a top-level / founder employee has nobody to report to.
+    reportingManagerId?: number;
     // Optional login credentials — when both are given the new employee gets
     // a linked user account so they can sign in.
     email?: string;

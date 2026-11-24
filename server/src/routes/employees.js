@@ -46,7 +46,12 @@ const createSchema = z.object({
   // Leave types this employee is entitled to (IDs from the leave-types list).
   // When omitted the employee starts with no configured leave balances.
   leaveTypes: z.array(z.string()).optional().default([]),
-  reportingManagerId: z.coerce.number().int().positive(),
+  // Optional: top-level / founder employees have nobody above them, so the
+  // manager may be left off. When supplied it must be a valid employee id.
+  reportingManagerId: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined || Number(v) === 0 ? null : v),
+    z.coerce.number().int().positive().nullable(),
+  ).optional(),
   // Leave types this employee is configured for (leave-type ids or names).
   // Seeds a leave_balances row per type so the employee immediately sees
   // (and can apply) only their types. Mirrors the /admin-users flow.

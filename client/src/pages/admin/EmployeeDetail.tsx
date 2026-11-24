@@ -133,9 +133,11 @@ export default function EmployeeDetailPage() {
       payload.departmentId = employee.department?.id;
       payload.status = employee.status;
       if (employee.joiningDate) payload.joiningDate = new Date(employee.joiningDate).toISOString().split('T')[0];
-      // Reporting manager is mandatory and cannot be cleared.
+      // Reporting manager: forward it when the employee has one. Top-level /
+      // founder employees have no manager, so omitting it here is valid —
+      // the update flow only refuses to *clear* a manager that exists, not to
+      // save one that doesn't.
       if (employee.manager?.id) payload.reportingManagerId = Number(employee.manager.id);
-      else return setError('A reporting manager is required. Select one before saving.');
 
       if (selectedLeaveTypes.length > 0) payload.leaveTypes = selectedLeaveTypes;
 
