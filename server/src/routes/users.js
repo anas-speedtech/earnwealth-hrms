@@ -120,6 +120,22 @@ router.post(
   }
 );
 
+// Delete an account and its linked employee record. This is the fix for
+// "stale entries": orphaned logins that appear in Accounts but have no
+// reachable employee record (or vice-versa), with no way to clean them up.
+router.delete(
+  '/admin-users/:id',
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  async (req, res, next) => {
+    try {
+      const result = await UserManagementService.remove(req.user, req.params.id);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ---- Personal information (employee reads/updates their own record) ----
 
 // Get the calling user's personal profile (address, DOB, emergency contact,

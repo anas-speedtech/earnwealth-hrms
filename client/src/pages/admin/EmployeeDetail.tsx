@@ -90,14 +90,14 @@ export default function EmployeeDetailPage() {
         grade?: string | null;
         departmentId?: string;
         joiningDate?: string;
-        basicSalary?: string;
-        allowances?: string;
-        deductions?: string;
         status?: string;
         reportingManagerId?: number | null;
         leaveTypes?: string[];
       } = {};
 
+      // Salary/allowances/deductions no longer live on the employee record —
+      // they are maintained in Payout Details (Annual CTC / Deductions) below
+      // this form, so they are deliberately not sent here.
       if (employee.firstName) payload.firstName = employee.firstName;
       if (employee.lastName) payload.lastName = employee.lastName;
       if (employee.employeeCode) payload.employeeCode = employee.employeeCode;
@@ -106,9 +106,6 @@ export default function EmployeeDetailPage() {
       payload.departmentId = employee.department?.id;
       payload.status = employee.status;
       if (employee.joiningDate) payload.joiningDate = new Date(employee.joiningDate).toISOString().split('T')[0];
-      if (employee.basicSalary !== undefined) payload.basicSalary = String(employee.basicSalary);
-      if (employee.allowances !== undefined) payload.allowances = String(employee.allowances);
-      if (employee.deductions !== undefined) payload.deductions = String(employee.deductions);
       // Reporting manager is mandatory and cannot be cleared.
       if (employee.manager?.id) payload.reportingManagerId = Number(employee.manager.id);
       else return setError('A reporting manager is required. Select one before saving.');
@@ -223,9 +220,6 @@ export default function EmployeeDetailPage() {
               <EditableField label="Last Name" value={employee.lastName} onChange={(v) => setEmployee((p) => (p ? { ...p, lastName: v } : p))} />
               <EditableField label="Designation" value={employee.designation?.name || ''} onChange={(v) => setEmployee((p) => (p ? { ...p, designation: v ? { id: '', name: v } : null } : p))} />
               <EditableField label="Grade" value={employee.grade || ''} onChange={(v) => setEmployee((p) => (p ? { ...p, grade: v } : p))} />
-              <EditableField label="Basic Salary" value={String(employee.basicSalary ?? '')} onChange={(v) => setEmployee((p) => (p ? { ...p, basicSalary: v } : p))} />
-              <EditableField label="Allowances" value={String(employee.allowances ?? '')} onChange={(v) => setEmployee((p) => (p ? { ...p, allowances: v } : p))} />
-              <EditableField label="Deductions" value={String(employee.deductions ?? '')} onChange={(v) => setEmployee((p) => (p ? { ...p, deductions: v } : p))} />
               <EditableDate label="Joining Date" value={employee.joiningDate ? new Date(employee.joiningDate).toISOString().split('T')[0] : ''} onChange={(v) => setEmployee((p) => (p ? { ...p, joiningDate: v } : p))} />
               <EditableSelect
                 label="Department"
@@ -293,9 +287,6 @@ export default function EmployeeDetailPage() {
               <ReadField label="Designation" value={employee.designation?.name || '—'} />
               <ReadField label="Grade" value={employee.grade || '—'} />
               <ReadField label="Reporting Manager" value={employee.manager?.name || '—'} />
-              <ReadField label="Basic Salary" value={String(employee.basicSalary ?? '—')} />
-              <ReadField label="Allowances" value={String(employee.allowances ?? '—')} />
-              <ReadField label="Deductions" value={String(employee.deductions ?? '—')} />
               <ReadField label="Joining Date" value={new Date(employee.joiningDate).toLocaleDateString()} />
               <ReadField label="Status">
                 <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusColor(employee.status)}`}>{employee.status}</span>
