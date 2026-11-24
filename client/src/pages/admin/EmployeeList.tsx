@@ -33,6 +33,10 @@ export default function EmployeeListPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  // Server-side column sort: whitelisted on the backend, so only known keys
+  // reach SQL. Clicking a header toggles direction for the active column.
+  const [sortBy, setSortBy] = useState('');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const canCreate = ROLES_THAT_CAN_CREATE.includes(user?.role || '');
 
@@ -46,6 +50,8 @@ export default function EmployeeListPage() {
         departmentId: departmentFilter,
         designationId: designationFilter,
         status: statusFilter,
+        sortBy,
+        sortDir,
       });
       setEmployees(result.data);
       setTotalPages(result.pagination.pages);
@@ -54,7 +60,18 @@ export default function EmployeeListPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [page, search, departmentFilter, designationFilter, statusFilter]);
+  }, [page, search, departmentFilter, designationFilter, statusFilter, sortBy, sortDir]);
+
+  const toggleSort = (column: string) => {
+    if (sortBy === column) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(column);
+      // Status sorts on isActive, so desc = Active-first (the natural start).
+      setSortDir(column === 'status' ? 'desc' : 'asc');
+    }
+    setPage(1);
+  };
 
   const fetchFilters = useCallback(async () => {
     try {
@@ -189,12 +206,12 @@ export default function EmployeeListPage() {
                 <table className="w-full">
                   <thead className="bg-slate-50/60">
                     <tr>
-                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Employee</th>
-                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Code</th>
-                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Department</th>
-                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Designation</th>
+                      <SortableTh label="ID" column="employeeCode" active={sortBy} dir={sortDir} onSort={toggleSort} />
+                      <SortableTh label="Employee" column="name" active={sortBy} dir={sortDir} onSort={toggleSort} />
+                      <SortableTh label="Department" column="department" active={sortBy} dir={sortDir} onSort={toggleSort} />
+                      <SortableTh label="Designation" column="designation" active={sortBy} dir={sortDir} onSort={toggleSort} />
                       <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Grade</th>
-                      <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Status</th>
+                      <SortableTh label="Status" column="status" active={sortBy} dir={sortDir} onSort={toggleSort} />
                       <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">Actions</th>
                     </tr>
                   </thead>
@@ -202,12 +219,14 @@ export default function EmployeeListPage() {
                     {employees.map((emp) => (
                       <tr key={emp.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/60">
                         <td className="px-4 py-3">
+                          <p className="text-[13px] font-semibold text-slate-900">{emp.employeeCode}</p>
+                        </td>
+                        <td className="px-4 py-3">
                           <div>
                             <p className="text-[13px] font-semibold text-slate-900">{emp.firstName} {emp.lastName}</p>
                             <p className="text-xs text-slate-400">{emp.email}</p>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-[13px] text-slate-600">{emp.employeeCode}</td>
                         <td className="px-4 py-3 text-[13px] text-slate-600">{emp.department?.name || '—'}</td>
                         <td className="px-4 py-3 text-[13px] text-slate-600">{emp.designation?.name || '—'}</td>
                         <td className="px-4 py-3 text-[13px] text-slate-600">{emp.grade || '—'}</td>
@@ -254,4 +273,37 @@ function getStatusColor(status: string): string {
     case 'ON_LEAVE': return 'bg-amber-50 text-amber-700 ring-amber-200';
     default: return 'bg-slate-100 text-slate-600 ring-slate-200';
   }
+}
+
+// A clickable table header that toggles the server-side column sort.
+function SortableTh({
+  label,
+  column,
+  active,
+  dir,
+  onSort,
+}: {
+  label: string;
+  column: string;
+  active: string;
+  dir: 'asc' | 'desc';
+  onSort: (column: string) => void;
+}) {
+  const isActive = active === column;
+  return (
+    <th className="border-b border-slate-100 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={`inline-flex items-center gap-1 uppercase tracking-wide transition-colors ${
+          isActive ? 'text-cyan-600' : 'hover:text-slate-600'
+        }`}
+      >
+        {label}
+        <span className="text-[9px] leading-none text-slate-400">
+          {isActive ? (dir === 'asc' ? '▲' : '▼') : '↕'}
+        </span>
+      </button>
+    </th>
+  );
 }

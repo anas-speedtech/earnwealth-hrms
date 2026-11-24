@@ -31,7 +31,10 @@ export interface SalaryComponentItem {
 
 export interface SalaryStructureItem {
   id: string;
+  /** employees.id — the picker key (the profile id is no longer exposed). */
   employeeId: string;
+  employeeCode?: string;
+  employeeName?: string;
   monthlyCTC: string;
   currency: string;
   isActive: boolean;

@@ -89,7 +89,23 @@ class EmployeeService {
     return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role);
   }
 
-  static async list(reqUser, { page = 1, search = '', departmentId = '', designationId = '', status = '' }) {
+  /**
+   * Column whitelist for list sorting. Keys map to SQL expressions on the
+   * list query; anything else falls back to the default (newest first).
+   */
+  static SORT_COLUMNS = {
+    employeeCode: ['e.employeeCode', 'e.id'],
+    name: ['CONCAT(e.name, e.employeeCode)', 'e.id'],
+    department: ['d.name', 'e.id'],
+    designation: ['e.designation', 'e.id'],
+    joiningDate: ['e.joiningDate', 'e.id'],
+    // Status sorts on isActive; the client picks a sensible default
+    // direction per column (see toggleSort) so "Active first" is the
+    // natural starting order.
+    status: ['e.isActive', 'e.id'],
+  };
+
+  static async list(reqUser, { page = 1, search = '', departmentId = '', designationId = '', status = '', sortBy = '', sortDir = 'asc' }) {
     if (!this.canAccessAll(reqUser)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view employees.', 403);
     }
@@ -99,6 +115,14 @@ class EmployeeService {
     const safePage = Number.isInteger(Number(page)) && Number(page) > 0 ? Number(page) : 1;
     const limit = PAGE_SIZE;
     const offset = (safePage - 1) * PAGE_SIZE;
+
+    // Sorting: only whitelisted columns reach SQL, so the value can never be
+    // injected. Ties break on id for a stable order.
+    const sortDirSql = String(sortDir).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    const [sortColumn, tieBreaker] = EmployeeService.SORT_COLUMNS[String(sortBy)] || ['e.id', 'e.id'];
+    const orderBy = sortColumn === 'e.id'
+      ? 'e.id DESC'
+      : `${sortColumn} ${sortDirSql}, ${tieBreaker} ASC`;
 
     const whereParts = ['1 = 1'];
     const countParams = [];
@@ -143,7 +167,7 @@ class EmployeeService {
        LEFT JOIN users u ON u.id = e.userId
        LEFT JOIN employees m ON m.id = e.reportingManagerId
        WHERE ${whereClause}
-       ORDER BY e.id DESC
+       ORDER BY ${orderBy}
        LIMIT ? OFFSET ?`,
       ...params,
       limit,
