@@ -1,13 +1,23 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { UserRound } from 'lucide-react';
 import Header from '../../components/layout/Header';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Button from '../../components/ui/Button';
 import Spinner from '../../components/ui/Spinner';
 import { organizationService } from '../../services/organization.service';
 import { useAuth } from '../../contexts/AuthContext';
-import type { EmployeeDetail, Department } from '../../services/organization.service';
+import type { EmployeeDetail, Department, PersonalProfileData } from '../../services/organization.service';
 import PayoutDetailsCard from '../../components/payout/PayoutDetailsCard';
+import toast from 'react-hot-toast';
+
+const PERSONAL_PROFILE_EMPTY: PersonalProfileData = {
+  address: '',
+  dateOfBirth: '',
+  emergencyContact: '',
+  personalEmail: '',
+  anniversaryDate: '',
+};
 
 const ROLES_THAT_CAN_EDIT = ['SUPER_ADMIN', 'HR_ADMIN'];
 const ROLES_THAT_CAN_TOGGLE_STATUS = ['SUPER_ADMIN', 'HR_ADMIN'];
@@ -26,6 +36,15 @@ export default function EmployeeDetailPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Personal profile (address, DOB, emergency contact, personal email,
+  // anniversary). Employees are view-only here; HR Admin / Super Admin edit
+  // it through this section because the employee's own self-service edit is
+  // locked. DOB is shown in the read view below.
+  const [personal, setPersonal] = useState<PersonalProfileData | null>(null);
+  const [editingPersonal, setEditingPersonal] = useState(false);
+  const [savingPersonal, setSavingPersonal] = useState(false);
+  const [personalDraft, setPersonalDraft] = useState<PersonalProfileData>(PERSONAL_PROFILE_EMPTY);
 
   const userRole = user?.role || '';
   const canEdit = ROLES_THAT_CAN_EDIT.includes(userRole);
@@ -52,6 +71,14 @@ export default function EmployeeDetailPage() {
         const depts = await organizationService.getDepartments();
         setEmployee(emp);
         setDepartments(depts.filter((d) => d.isActive));
+        // Load the HR-maintained personal profile (DOB + contacts). Non-critical:
+        // a missing record just renders the empty shape.
+        try {
+          const profile = await organizationService.getPersonalProfile(id);
+          setPersonal(profile);
+        } catch {
+          setPersonal(PERSONAL_PROFILE_EMPTY);
+        }
         // Load leave types for the edit picker.
         let ltItems: { id: string; name: string }[] = [];
         try {
@@ -142,6 +169,35 @@ export default function EmployeeDetailPage() {
       setIsSaving(false);
     }
   };
+
+  // ---- Personal profile (HR-maintained) ----
+
+  const startEditingPersonal = () => {
+    setPersonalDraft(personal || PERSONAL_PROFILE_EMPTY);
+    setEditingPersonal(true);
+  };
+
+  const cancelEditingPersonal = () => {
+    setEditingPersonal(false);
+  };
+
+  const handleSavePersonal = async () => {
+    if (!id) return;
+    setSavingPersonal(true);
+    try {
+      const saved = await organizationService.updatePersonalProfile(id, personalDraft);
+      setPersonal(saved);
+      setEditingPersonal(false);
+      toast.success('Personal profile saved.');
+    } catch {
+      toast.error('Could not save the personal profile.');
+    } finally {
+      setSavingPersonal(false);
+    }
+  };
+
+  const updatePersonalField = (field: keyof PersonalProfileData, value: string) =>
+    setPersonalDraft((prev) => ({ ...(prev || PERSONAL_PROFILE_EMPTY), [field]: value }));
 
   if (isLoading) {
     return (
@@ -286,6 +342,7 @@ export default function EmployeeDetailPage() {
               <ReadField label="Department" value={employee.department?.name || '—'} />
               <ReadField label="Designation" value={employee.designation?.name || '—'} />
               <ReadField label="Grade" value={employee.grade || '—'} />
+              <ReadField label="Date of Birth" value={personal?.dateOfBirth ? new Date(personal.dateOfBirth).toLocaleDateString() : '—'} />
               <ReadField label="Reporting Manager" value={employee.manager?.name || '—'} />
               <ReadField label="Joining Date" value={new Date(employee.joiningDate).toLocaleDateString()} />
               <ReadField label="Status">
@@ -304,6 +361,68 @@ export default function EmployeeDetailPage() {
           employeeName={`${employee.firstName} ${employee.lastName}`.trim()}
           canEdit={canEdit}
         />
+
+        {/* Personal profile — address, DOB, contacts. The employee's own
+            self-service edit is locked, so HR Admin / Super Admin maintain
+            these fields here. */}
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div>
+              <h3 className="flex items-center gap-2 text-[15px] font-bold tracking-tight text-slate-900">
+                <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100 text-slate-500">
+                  <UserRound size={15} />
+                </span>
+                Personal Profile
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-400">
+                Address, date of birth &amp; contacts — maintained by HR (employee is view-only).
+              </p>
+            </div>
+            {canEdit && !editingPersonal && (
+              <Button size="sm" onClick={startEditingPersonal}>
+                Edit
+              </Button>
+            )}
+          </div>
+
+          {editingPersonal ? (
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Address</label>
+                  <textarea
+                    value={personalDraft.address}
+                    onChange={(e) => updatePersonalField('address', e.target.value)}
+                    rows={2}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10"
+                  />
+                </div>
+                <EditableDate label="Date of Birth" value={personalDraft.dateOfBirth} onChange={(v) => updatePersonalField('dateOfBirth', v)} />
+                <EditableDate label="Anniversary Date" value={personalDraft.anniversaryDate} onChange={(v) => updatePersonalField('anniversaryDate', v)} />
+                <EditableField label="Emergency Contact" value={personalDraft.emergencyContact} onChange={(v) => updatePersonalField('emergencyContact', v)} />
+                <EditableField label="Personal Email" value={personalDraft.personalEmail} onChange={(v) => updatePersonalField('personalEmail', v)} />
+              </div>
+              <div className="flex items-center gap-3 border-t border-slate-100 pt-4">
+                <Button onClick={handleSavePersonal} isLoading={savingPersonal}>
+                  {savingPersonal ? 'Saving…' : 'Save Personal Profile'}
+                </Button>
+                <Button variant="secondary" onClick={cancelEditingPersonal}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <ReadField label="Address" value={personal?.address || '—'} />
+              </div>
+              <ReadField label="Date of Birth" value={personal?.dateOfBirth ? new Date(personal.dateOfBirth).toLocaleDateString() : '—'} />
+              <ReadField label="Anniversary Date" value={personal?.anniversaryDate ? new Date(personal.anniversaryDate).toLocaleDateString() : '—'} />
+              <ReadField label="Emergency Contact" value={personal?.emergencyContact || '—'} />
+              <ReadField label="Personal Email" value={personal?.personalEmail || '—'} />
+            </div>
+          )}
+        </div>
         </div>
       </div>
     </DashboardShell>

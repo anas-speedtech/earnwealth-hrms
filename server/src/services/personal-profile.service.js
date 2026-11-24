@@ -77,7 +77,29 @@ class PersonalProfileService {
     };
   }
 
-  /** Upserts the caller's personal profile. Dates are `YYYY-MM-DD` strings. */
+  /** Reads the personal profile for a given employee code (or the empty shape). */
+  static async getForEmployeeCode(employeeCode) {
+    const prismaClient = getPrisma();
+    await this.ensureTable(prismaClient);
+    const rows = await prismaClient.$queryRawUnsafe(
+      `SELECT address, dateOfBirth, emergencyContact, personalEmail, anniversaryDate
+       FROM employee_personal_profiles WHERE employeeCode = ? LIMIT 1`,
+      employeeCode
+    );
+    if (!rows || !rows.length) return this.emptyProfile();
+
+    const r = rows[0];
+    const day = (v) => (v ? new Date(v).toISOString().slice(0, 10) : '');
+    return {
+      address: r.address || '',
+      dateOfBirth: day(r.dateOfBirth),
+      emergencyContact: r.emergencyContact || '',
+      personalEmail: r.personalEmail || '',
+      anniversaryDate: day(r.anniversaryDate),
+    };
+  }
+
+  /** Upserts the calling user's personal profile. Dates are `YYYY-MM-DD` strings. */
   static async upsertForUser(userId, data) {
     const prismaClient = getPrisma();
     await this.ensureTable(prismaClient);
@@ -85,6 +107,18 @@ class PersonalProfileService {
     if (!code) {
       throw new Error('No employee record is linked to this account.');
     }
+    return this.upsertForEmployeeCode(code, data);
+  }
+
+  /**
+   * Upserts the personal profile for a given employee code. This is the
+   * HR-maintained path: because employees no longer self-edit (the /me PUT is
+   * HR-gated), HR Admin / Super Admin write these fields on the employee's
+   * behalf, keyed by their employee code.
+   */
+  static async upsertForEmployeeCode(employeeCode, data) {
+    const prismaClient = getPrisma();
+    await this.ensureTable(prismaClient);
 
     const clean = (v) => (v && String(v).trim() ? String(v).trim() : null);
     const dayOnly = (v) =>
@@ -107,7 +141,7 @@ class PersonalProfileService {
          personalEmail = VALUES(personalEmail),
          anniversaryDate = VALUES(anniversaryDate),
          updatedAt = NOW(3)`,
-      code,
+      employeeCode,
       address,
       dateOfBirth,
       emergencyContact,
@@ -115,8 +149,43 @@ class PersonalProfileService {
       anniversaryDate
     );
 
-    logger.info('Personal profile updated', { employeeCode: code });
-    return this.getForUser(userId);
+    logger.info('Personal profile updated by HR', { employeeCode });
+    return this.getForEmployeeCode(employeeCode);
+  }
+
+  /**
+   * HR-facing access by employee record id. The `employees.id` is what the
+   * employee-detail page works with; the personal profile is keyed by code,
+   * so these resolve the id → code and delegate. Route-level `authorize`
+   * limits these to HR Admin / Super Admin.
+   */
+  static async resolveCodeForEmployee(prismaClient, employeeId) {
+    const rows = await prismaClient.$queryRawUnsafe(
+      'SELECT employeeCode FROM employees WHERE id = ? LIMIT 1',
+      Number(employeeId)
+    );
+    if (!rows || !rows.length) return null;
+    return rows[0].employeeCode;
+  }
+
+  /** Read the personal profile for one employee record (HR view). null = no record. */
+  static async getForEmployeeId(employeeId) {
+    const prismaClient = getPrisma();
+    await this.ensureTable(prismaClient);
+    const code = await this.resolveCodeForEmployee(prismaClient, employeeId);
+    if (!code) return null;
+    return this.getForEmployeeCode(code);
+  }
+
+  /** Write the personal profile for one employee record (HR edit). */
+  static async upsertForEmployeeId(employeeId, data) {
+    const prismaClient = getPrisma();
+    await this.ensureTable(prismaClient);
+    const code = await this.resolveCodeForEmployee(prismaClient, employeeId);
+    if (!code) {
+      throw new Error('Employee record not found for this employee id.');
+    }
+    return this.upsertForEmployeeCode(code, data);
   }
 }
 
