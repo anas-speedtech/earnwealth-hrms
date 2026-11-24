@@ -10,8 +10,14 @@ const router = express.Router();
 
 // ---- Schemas ----
 
+// This deployment keys employees / departments / payroll rows by INT
+// auto-increment ids (not uuids), so id-like fields coerce a numeric string
+// to a positive int. A non-numeric value still fails (invalid type), which
+// is what we want — just not a "not a UUID" failure.
+const intId = z.coerce.number().int('Must be a valid numeric id').positive();
+
 const salaryStructureSchema = z.object({
-  employeeId: z.string().uuid(),
+  employeeId: intId,
   monthlyCTC: z.number().positive('CTC must be greater than zero'),
   currency: z.string().length(3).default('INR'),
   isActive: z.boolean().optional().default(true),
@@ -39,15 +45,15 @@ const updateSalaryStructureSchema = z.object({
 });
 
 const createPayrollSchema = z.object({
-  employeeId: z.string().uuid(),
+  employeeId: intId,
   month: z.number().int().min(1).max(12),
   year: z.number().int().min(2000).max(2100),
   applyAttendanceProration: z.boolean().optional().default(false),
 });
 
 const bulkPayrollSchema = z.object({
-  departmentId: z.string().uuid().optional(),
-  employeeIds: z.array(z.string().uuid()).min(1),
+  departmentId: intId.optional(),
+  employeeIds: z.array(intId).min(1),
   month: z.number().int().min(1).max(12),
   year: z.number().int().min(2000).max(2100),
   applyAttendanceProration: z.boolean().optional().default(false),
@@ -55,11 +61,11 @@ const bulkPayrollSchema = z.object({
 
 const payrollFilterSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  employeeId: z.string().uuid().optional(),
+  employeeId: intId.optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
   year: z.coerce.number().int().min(2000).max(2100).optional(),
   status: z.enum(['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED']).optional(),
-  departmentId: z.string().uuid().optional(),
+  departmentId: intId.optional(),
   search: z.string().optional(),
 });
 
@@ -68,7 +74,7 @@ const payrollActionSchema = z.object({
 });
 
 const componentOverrideSchema = z.object({
-  id: z.string().uuid(),
+  id: intId,
   amount: z.number(),
 });
 

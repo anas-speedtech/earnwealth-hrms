@@ -1140,7 +1140,9 @@ export default function HRPayrollPage() {
                     <tbody className="divide-y divide-slate-200">
                       {structures.map((s) => (
                         <tr key={s.id} className="hover:bg-slate-50">
-                          <td className="px-6 py-4 text-[13px] text-slate-900">Employee: {s.employeeId}</td>
+                          <td className="px-6 py-4 text-[13px] text-slate-900">
+                            Employee: {s.employeeName ? `${s.employeeName}${s.employeeCode ? ` (${s.employeeCode})` : ''}` : s.employeeId}
+                          </td>
                           <td className="px-6 py-4 text-[13px] text-slate-600">{formatCurrency(s.monthlyCTC)}</td>
                           <td className="px-6 py-4">
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -1154,7 +1156,16 @@ export default function HRPayrollPage() {
                           <td className="px-6 py-4 text-right">
                             <button
                               onClick={() => {
-                                setSelectedEmployee({ id: s.employeeId } as Employee);
+                                // employeeId is now an employees.id (picker key);
+                                // carry the display fields so the form header reads
+                                // correctly without a second fetch.
+                                const [first, ...rest] = String(s.employeeName || '').split(' ');
+                                setSelectedEmployee({
+                                  id: s.employeeId,
+                                  firstName: first || s.employeeId,
+                                  lastName: rest.join(' '),
+                                  employeeCode: s.employeeCode || '',
+                                } as Employee);
                                 setSelectedStructure(s);
                               }}
                               className="text-[13px] text-cyan-600 hover:text-cyan-700 font-medium"

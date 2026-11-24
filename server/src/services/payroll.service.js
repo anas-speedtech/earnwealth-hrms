@@ -279,6 +279,58 @@ class PayrollService {
     return profile;
   }
 
+  /**
+   * The client's /employees API hands the UI `employees.id`, but the whole
+   * payroll family (salary_structures, payroll_records, ...) is keyed by
+   * `employee_profiles.id` — two separate auto-increment sequences that
+   * diverged early (profiles only exist for employees with a login). Feeding
+   * one id into the other table either 404s or, worse, attaches payroll to
+   * the wrong person. This resolver walks the userId link and accepts either
+   * key, so existing callers that already pass a profile id keep working:
+   *
+   *   employees.id  → users.id (employees.userId) → employee_profiles.id
+   *   profile.id    → verified against employee_profiles, passed through
+   *
+   * Returns the profile id, or null when the employee has no login-linked
+   * profile (payroll needs one, so callers should 404 in that case).
+   */
+  static async resolveProfileId(prismaClient, employeeId) {
+    const idNum = Number(employeeId);
+    if (!Number.isFinite(idNum) || idNum <= 0) return null;
+
+    const empRows = await prismaClient.$queryRawUnsafe(
+      'SELECT userId FROM employees WHERE id = ? LIMIT 1',
+      idNum
+    );
+
+    // If the id EXISTS in the employees table it is an employees.id — follow
+    // the userId link and be done: return the profile id, or null when the
+    // employee has no login-linked profile. It must NOT fall through to the
+    // profile check: employees.id N can equal employee_profiles.id N for a
+    // completely different person, and re-interpreting it would attach the
+    // structure/payroll to the wrong employee.
+    if (empRows && empRows.length) {
+      const userId = empRows[0].userId;
+      if (!userId) return null;
+      const profRows = await prismaClient.$queryRawUnsafe(
+        'SELECT id FROM employee_profiles WHERE userId = ? LIMIT 1',
+        Number(userId)
+      );
+      return profRows && profRows.length ? Number(profRows[0].id) : null;
+    }
+
+    // Not an employees.id: the caller likely already passed a profile id
+    // (e.g. restoring a selection from the structures list) — accept it only
+    // when it actually exists.
+    const profCheck = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM employee_profiles WHERE id = ? LIMIT 1',
+      idNum
+    );
+    if (profCheck && profCheck.length) return idNum;
+
+    return null;
+  }
+
   // ---- Salary Structure ----
 
   static async createSalaryStructure(reqUser, data) {
@@ -288,22 +340,26 @@ class PayrollService {
 
     const { employeeId, monthlyCTC, currency, isActive, effectiveFrom, effectiveTo, components } = data;
 
-        // employeeId is the employee profile's INT id (the payroll-side key), not
-    // a uuid — validate the profile exists before touching its structure.
-    const employee = await getPrisma().employeeProfile.findUnique({
-      where: { id: Number(employeeId) },
-    });
+    const prismaClient = getPrisma();
+
+    // The client sends employees.id; the payroll family is keyed by
+    // employee_profiles.id. Resolve across the userId link so both work.
+    const profileId = await this.resolveProfileId(prismaClient, employeeId);
+    const employee = profileId
+      ? await prismaClient.employeeProfile.findUnique({ where: { id: profileId } })
+      : null;
 
     if (!employee) {
-      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
+      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found. Payroll requires a login-linked employee profile.', 404);
     }
 
-    const prismaClient = getPrisma();
+    // All downstream writes use the profile id as the canonical key.
+    const ownerProfileId = profileId;
 
     // salary_structures now keeps an effective-dated revision chain per
     // employee (the hard employeeId unique key was dropped), so "already
     // exists" means an open structure (active, no end date) is in place.
-    const openStructure = await this.findOpenSalaryStructure(prismaClient, employeeId);
+    const openStructure = await this.findOpenSalaryStructure(prismaClient, ownerProfileId);
 
     if (openStructure) {
       throw new AppError(PayrollErrorCodes.SALARY_STRUCTURE_EXISTS, 'An active salary structure already exists for this employee.', 409);
@@ -335,7 +391,7 @@ class PayrollService {
 
     const structure = await prismaClient.salaryStructure.create({
       data: {
-        employeeId,
+        employeeId: ownerProfileId,
         monthlyCTC,
         currency: currency || 'INR',
         isActive: isActive !== undefined ? isActive : true,
@@ -500,18 +556,49 @@ class PayrollService {
 
     const pages = Math.ceil(total / PAGE_SIZE) || 1;
 
+    // The structure's employeeId is an employee_profiles.id, but the UI's
+    // employee picker is keyed by employees.id. Resolve both plus a display
+    // name so the list is readable and "View" restores the right employee.
+    const profileIds = structures.map((s) => Number(s.employeeId));
+    let ownerRows = [];
+    if (profileIds.length) {
+      const placeholders = profileIds.map(() => '?').join(', ');
+      ownerRows = await prismaClient.$queryRawUnsafe(
+        `SELECT ep.id AS profileId, ep.employeeCode, ep.firstName, ep.lastName, e.id AS employeesId
+         FROM employee_profiles ep
+         LEFT JOIN employees e ON e.userId = ep.userId
+         WHERE ep.id IN (${placeholders})`,
+        ...profileIds
+      );
+    }
+    const ownerById = new Map(
+      (ownerRows || []).map((r) => [
+        Number(r.profileId),
+        {
+          employeesId: r.employeesId != null ? String(r.employeesId) : String(r.profileId),
+          employeeCode: r.employeeCode || '',
+          employeeName: [r.firstName, r.lastName].filter(Boolean).join(' ') || '',
+        },
+      ])
+    );
+
     return {
-      structures: structures.map((s) => ({
-        id: s.id,
-        employeeId: s.employeeId,
-        monthlyCTC: s.monthlyCTC,
-        currency: s.currency,
-        isActive: s.isActive,
-        effectiveFrom: s.effectiveFrom,
-        effectiveTo: s.effectiveTo,
-        createdAt: s.createdAt,
-        components: s.components,
-      })),
+      structures: structures.map((s) => {
+        const owner = ownerById.get(Number(s.employeeId));
+        return {
+          id: s.id,
+          employeeId: owner ? owner.employeesId : String(s.employeeId),
+          employeeCode: owner ? owner.employeeCode : '',
+          employeeName: owner ? owner.employeeName : '',
+          monthlyCTC: s.monthlyCTC,
+          currency: s.currency,
+          isActive: s.isActive,
+          effectiveFrom: s.effectiveFrom,
+          effectiveTo: s.effectiveTo,
+          createdAt: s.createdAt,
+          components: s.components,
+        };
+      }),
       pagination: { page, pages, total },
     };
   }
@@ -531,6 +618,13 @@ class PayrollService {
 
     const prismaClient = getPrisma();
 
+    // The UI hands us employees.id; payroll records are keyed by
+    // employee_profiles.id. Resolve once and use the profile id throughout.
+    const profileId = await this.resolveProfileId(prismaClient, employeeId);
+    if (!profileId) {
+      throw new AppError(PayrollErrorCodes.SALARY_STRUCTURE_NOT_FOUND, 'No payroll-linked employee profile found for this employee.', 404);
+    }
+
     const period = await prismaClient.payrollPeriod.findFirst({
       where: { month, year, payrollGroup: null },
     });
@@ -538,7 +632,7 @@ class PayrollService {
       throw new AppError(PayrollErrorCodes.PAYROLL_LOCKED, 'This payroll period is locked and cannot be recalculated.', 409);
     }
 
-    const salaryStructure = await this.findOpenSalaryStructure(prismaClient, employeeId, {
+    const salaryStructure = await this.findOpenSalaryStructure(prismaClient, profileId, {
       include: { components: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } },
     });
 
@@ -550,14 +644,14 @@ class PayrollService {
       throw new AppError(PayrollErrorCodes.SALARY_STRUCTURE_INACTIVE, 'Salary structure is inactive.', 400);
     }
 
-    const payrollProfile = await prismaClient.employeePayrollProfile.findUnique({ where: { employeeId: Number(employeeId) } });
+    const payrollProfile = await prismaClient.employeePayrollProfile.findUnique({ where: { employeeId: profileId } });
     if (payrollProfile?.salaryOnHold) {
       throw new AppError(PayrollErrorCodes.PAYROLL_LOCKED, payrollProfile.holdReason || 'Salary is on hold for this employee.', 409);
     }
 
     const existing = await prismaClient.payrollRecord.findFirst({
       where: {
-        employeeId,
+        employeeId: profileId,
         month,
         year,
       },
@@ -569,11 +663,12 @@ class PayrollService {
 
     const unproratedComponents = await this.computeComponents(prismaClient, salaryStructure, month, year);
     const attendanceInputs = applyAttendanceProration
-      ? await this.getAttendancePayrollInputs(reqUser, employeeId, month, year, period?.id)
+      ? await this.getAttendancePayrollInputs(reqUser, String(profileId), month, year, period?.id)
       : null;
     const baseComponents = attendanceInputs ? this.prorateEarnings(unproratedComponents, attendanceInputs) : unproratedComponents;
     const statutory = await this.applyStatutoryComponents(prismaClient, payrollProfile, baseComponents, month, year);
-    const adjustments = await this.applyPayrollAdjustments(prismaClient, Number(employeeId), statutory.components, month, year);
+    // Loans / reimbursements / one-time adjustments are keyed by the profile id.
+    const adjustments = await this.applyPayrollAdjustments(prismaClient, profileId, statutory.components, month, year);
     const components = adjustments.components;
 
     const grossEarnings = components
@@ -625,7 +720,7 @@ class PayrollService {
 
     const payroll = await prismaClient.payrollRecord.create({
       data: {
-        employeeId,
+        employeeId: profileId,
         salaryStructureId: salaryStructure.id,
         periodId: period ? period.id : null,
         month,
@@ -1722,7 +1817,20 @@ class PayrollService {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'A valid employee and payroll period are required.', 400);
     }
     const prismaClient = getPrisma();
-    const profile = await prismaClient.employeeProfile.findUnique({ where: { id: Number(employeeProfileId) }, select: { userId: true } });
+    // Internal callers (createPayroll) already pass a profile id, so check
+    // the profiles table FIRST — otherwise a profile id that numerically
+    // collides with a different employee's employees.id would resolve to
+    // the wrong person. A bare employees.id falls back to the userId link.
+    const numKey = Number(employeeProfileId);
+    const directProfile = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM employee_profiles WHERE id = ? LIMIT 1',
+      numKey
+    );
+    const profileKey = directProfile && directProfile.length
+      ? numKey
+      : await this.resolveProfileId(prismaClient, employeeProfileId);
+    if (!profileKey) throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
+    const profile = await prismaClient.employeeProfile.findUnique({ where: { id: profileKey }, select: { userId: true } });
     if (!profile) throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
     const legacyEmployee = await prismaClient.employee.findUnique({ where: { userId: profile.userId }, select: { id: true } });
     if (!legacyEmployee) {

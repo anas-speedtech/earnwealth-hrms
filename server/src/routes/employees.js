@@ -124,6 +124,9 @@ router.get('/employees', authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req,
       departmentId: req.query.departmentId || '',
       designationId: req.query.designationId || '',
       status: req.query.status || '',
+      // Column sort — the service whitelists these, so only known keys reach SQL.
+      sortBy: req.query.sortBy || '',
+      sortDir: req.query.sortDir || 'asc',
     };
     const result = await EmployeeService.list(req.user, query);
     res.json(result);

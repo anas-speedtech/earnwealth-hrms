@@ -134,6 +134,8 @@ export const organizationService = {
     departmentId?: string;
     designationId?: string;
     status?: string;
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
   } = {}): Promise<PaginatedResponse<Employee>> {
     const { data } = await api.get('/employees', { params });
     return data;
