@@ -344,9 +344,9 @@ export default function EmployeeDetailPage() {
               <ReadField label="Department" value={employee.department?.name || '—'} />
               <ReadField label="Designation" value={employee.designation?.name || '—'} />
               <ReadField label="Grade" value={employee.grade || '—'} />
-              <ReadField label="Date of Birth" value={personal?.dateOfBirth ? new Date(personal.dateOfBirth).toLocaleDateString() : '—'} />
+              <ReadField label="Date of Birth" value={personal?.dateOfBirth ? formatDate(personal.dateOfBirth) : '—'} />
               <ReadField label="Reporting Manager" value={employee.manager?.name || '—'} />
-              <ReadField label="Joining Date" value={new Date(employee.joiningDate).toLocaleDateString()} />
+              <ReadField label="Joining Date" value={formatDate(employee.joiningDate)} />
               <ReadField label="Status">
                 <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusColor(employee.status)}`}>{employee.status}</span>
               </ReadField>
@@ -418,8 +418,8 @@ export default function EmployeeDetailPage() {
               <div className="md:col-span-2">
                 <ReadField label="Address" value={personal?.address || '—'} />
               </div>
-              <ReadField label="Date of Birth" value={personal?.dateOfBirth ? new Date(personal.dateOfBirth).toLocaleDateString() : '—'} />
-              <ReadField label="Anniversary Date" value={personal?.anniversaryDate ? new Date(personal.anniversaryDate).toLocaleDateString() : '—'} />
+              <ReadField label="Date of Birth" value={personal?.dateOfBirth ? formatDate(personal.dateOfBirth) : '—'} />
+              <ReadField label="Anniversary Date" value={personal?.anniversaryDate ? formatDate(personal.anniversaryDate) : '—'} />
               <ReadField label="Emergency Contact" value={personal?.emergencyContact || '—'} />
               <ReadField label="Personal Email" value={personal?.personalEmail || '—'} />
             </div>
@@ -429,6 +429,23 @@ export default function EmployeeDetailPage() {
       </div>
     </DashboardShell>
   );
+}
+
+// Deterministic date display (DD/MM/YYYY). The previous toLocaleDateString()
+// rendered each visitor's locale format — en-US laptops showed 8/24/1999 while
+// en-IN showed 24/08/1999 for the same record. Parsing the date components as
+// a string (never through `new Date()`) also avoids timezone/AM-PM drift.
+function formatDate(raw: string | null | undefined): string {
+  if (!raw) return '—';
+  const m = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return String(raw);
+  // Fall back to UTC parts so the fallback is also locale-independent.
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const da = String(d.getUTCDate()).padStart(2, '0');
+  return `${da}/${mo}/${y}`;
 }
 
 const fieldInputClass =
