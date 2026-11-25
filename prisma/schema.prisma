@@ -65,6 +65,10 @@ model Employee {
   updatedAt      DateTime @updatedAt @db.DateTime(3)
   departmentId   Int?
   departmentText String?  @db.VarChar(100)
+  // Contractually required to work on Saturdays. When set, the attendance
+  // engine treats Saturday as an ordinary working day for this employee:
+  // no punch = LWP, and Saturday punches earn no comp-off credit.
+  worksSaturday  Boolean  @default(false)
   reportingManagerId Int?
 
   user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)

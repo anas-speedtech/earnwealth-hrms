@@ -64,6 +64,10 @@ const updateSchema = z.object({
   lastName: z.string().min(1).optional(),
   designation: z.string().min(1).optional(),
   grade: z.string().trim().max(50).optional().nullable(),
+  // Contractually required to work Saturdays: Saturday stops being a weekly
+  // off for this employee (no punch = LWP) and Saturday work earns no
+  // comp-off credit.
+  worksSaturday: z.boolean().optional().nullable(),
   departmentId: z.coerce.string().optional(),
   joiningDate: z.string().optional(),
   basicSalary: z.coerce.number().min(0).optional(),

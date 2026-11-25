@@ -115,6 +115,7 @@ export default function EmployeeDetailPage() {
         lastName?: string;
         designation?: string;
         grade?: string | null;
+        worksSaturday?: boolean;
         departmentId?: string;
         joiningDate?: string;
         status?: string;
@@ -130,6 +131,7 @@ export default function EmployeeDetailPage() {
       if (employee.employeeCode) payload.employeeCode = employee.employeeCode;
       if (employee.designation?.name) payload.designation = employee.designation.name;
       payload.grade = employee.grade?.trim() ? employee.grade : null;
+      payload.worksSaturday = Boolean(employee.worksSaturday);
       payload.departmentId = employee.department?.id;
       payload.status = employee.status;
       if (employee.joiningDate) payload.joiningDate = new Date(employee.joiningDate).toISOString().split('T')[0];
@@ -278,6 +280,24 @@ export default function EmployeeDetailPage() {
               <EditableField label="Last Name" value={employee.lastName} onChange={(v) => setEmployee((p) => (p ? { ...p, lastName: v } : p))} />
               <EditableField label="Designation" value={employee.designation?.name || ''} onChange={(v) => setEmployee((p) => (p ? { ...p, designation: v ? { id: '', name: v } : null } : p))} />
               <EditableField label="Grade" value={employee.grade || ''} onChange={(v) => setEmployee((p) => (p ? { ...p, grade: v } : p))} />
+              {/* Saturday-working flag: for this employee Saturday is a normal
+                  working day, so a missing punch counts as LWP and Saturday
+                  work earns no comp-off credit. */}
+              <div>
+                <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Works on Saturday</label>
+                <label className="flex items-center gap-2 text-[13px] text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(employee.worksSaturday)}
+                    onChange={(e) => setEmployee((p) => (p ? { ...p, worksSaturday: e.target.checked } : p))}
+                    className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                  />
+                  <span>Saturday is a working day (not weekly off)</span>
+                </label>
+                <p className="mt-1.5 text-xs text-slate-400">
+                  When set, missed Saturday punches count as LWP and Saturday work does not earn comp-off.
+                </p>
+              </div>
               <EditableDate label="Joining Date" value={employee.joiningDate ? new Date(employee.joiningDate).toISOString().split('T')[0] : ''} onChange={(v) => setEmployee((p) => (p ? { ...p, joiningDate: v } : p))} />
               <EditableSelect
                 label="Department"
@@ -344,9 +364,10 @@ export default function EmployeeDetailPage() {
               <ReadField label="Department" value={employee.department?.name || '—'} />
               <ReadField label="Designation" value={employee.designation?.name || '—'} />
               <ReadField label="Grade" value={employee.grade || '—'} />
-              <ReadField label="Date of Birth" value={personal?.dateOfBirth ? new Date(personal.dateOfBirth).toLocaleDateString() : '—'} />
+              <ReadField label="Works on Saturday" value={employee.worksSaturday ? 'Yes — Saturday is a working day' : 'No — Saturday is weekly off'} />
+              <ReadField label="Date of Birth" value={personal?.dateOfBirth ? formatDate(personal.dateOfBirth) : '—'} />
               <ReadField label="Reporting Manager" value={employee.manager?.name || '—'} />
-              <ReadField label="Joining Date" value={new Date(employee.joiningDate).toLocaleDateString()} />
+              <ReadField label="Joining Date" value={formatDate(employee.joiningDate)} />
               <ReadField label="Status">
                 <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${getStatusColor(employee.status)}`}>{employee.status}</span>
               </ReadField>
@@ -418,8 +439,8 @@ export default function EmployeeDetailPage() {
               <div className="md:col-span-2">
                 <ReadField label="Address" value={personal?.address || '—'} />
               </div>
-              <ReadField label="Date of Birth" value={personal?.dateOfBirth ? new Date(personal.dateOfBirth).toLocaleDateString() : '—'} />
-              <ReadField label="Anniversary Date" value={personal?.anniversaryDate ? new Date(personal.anniversaryDate).toLocaleDateString() : '—'} />
+              <ReadField label="Date of Birth" value={personal?.dateOfBirth ? formatDate(personal.dateOfBirth) : '—'} />
+              <ReadField label="Anniversary Date" value={personal?.anniversaryDate ? formatDate(personal.anniversaryDate) : '—'} />
               <ReadField label="Emergency Contact" value={personal?.emergencyContact || '—'} />
               <ReadField label="Personal Email" value={personal?.personalEmail || '—'} />
             </div>
@@ -429,6 +450,23 @@ export default function EmployeeDetailPage() {
       </div>
     </DashboardShell>
   );
+}
+
+// Deterministic date display (DD/MM/YYYY). The previous toLocaleDateString()
+// rendered each visitor's locale format — en-US laptops showed 8/24/1999 while
+// en-IN showed 24/08/1999 for the same record. Parsing the date components as
+// a string (never through `new Date()`) also avoids timezone/AM-PM drift.
+function formatDate(raw: string | null | undefined): string {
+  if (!raw) return '—';
+  const m = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return String(raw);
+  // Fall back to UTC parts so the fallback is also locale-independent.
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const da = String(d.getUTCDate()).padStart(2, '0');
+  return `${da}/${mo}/${y}`;
 }
 
 const fieldInputClass =
