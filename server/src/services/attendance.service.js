@@ -83,8 +83,11 @@ class AttendanceService {
     const logFilter = employeeId != null ? ' AND employeeId = ?' : '';
     const leafFilter = employeeId != null ? ' AND employeeId = ?' : '';
 
+    // worksSaturday: for these employees Saturday is an ordinary working
+    // day (no punch = LWP, no comp-off), so Saturdays are classified
+    // per-employee instead of globally.
     const employees = await prisma.$queryRawUnsafe(
-      `SELECT e.id, e.employeeCode, e.name FROM employees e
+      `SELECT e.id, e.employeeCode, e.name, e.worksSaturday FROM employees e
        WHERE e.isActive = 1 ${empFilter} ORDER BY e.employeeCode ASC`,
       ...(employeeId != null ? [employeeId] : [])
     );
@@ -218,13 +221,29 @@ class AttendanceService {
     // credit (valid 3 months, per the comp-off policy).
     // The calendar day is the IST wall-clock day, which is what we compute
     // directly in UTC (no offset — that would shift the weekday).
-    const offDays = new Set();
+    const globalOffDays = new Set();
+    const sundayDays = new Set();
     for (let d = 1; d <= daysInMonth; d++) {
       const istDate = new Date(Date.UTC(yearNum, monthNum - 1, d));
       const weekday = istDate.getUTCDay(); // 0=Sun, 6=Sat
       const dateKey = `${yearNum}-${String(monthNum).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      if (weekday === 0 || weekday === 6 || holidaySet.has(dateKey)) offDays.add(d);
+      if (weekday === 0 || weekday === 6 || holidaySet.has(dateKey)) globalOffDays.add(d);
+      if (weekday === 0) sundayDays.add(d);
     }
+
+    const dateKeyFor = (d) => `${yearNum}-${String(monthNum).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    // worksSaturday: for these employees Saturday is an ordinary working day —
+    // a missing punch classifies as LWP like any other weekday, and a
+    // Saturday punch earns no comp-off. Sundays and listed holidays (including
+    // a holiday that falls on a Saturday) remain off days for everyone.
+    const offDaysFor = (emp) => {
+      if (!emp.worksSaturday) return globalOffDays;
+      const set = new Set(sundayDays);
+      for (let d = 1; d <= daysInMonth; d++) {
+        if (holidaySet.has(dateKeyFor(d))) set.add(d);
+      }
+      return set;
+    };
 
     const rows = employees.map((emp) => {
       const dayMap = byEmpDay.get(String(emp.id));
@@ -241,7 +260,7 @@ class AttendanceService {
         const onLeave = empLeaveDays?.has(d);
         const onWfh = empWfhDays?.has(d);
         const onCompOff = empCompOffDays?.has(d);
-        const isOffDay = offDays.has(d);
+        const isOffDay = offDaysFor(emp).has(d);
         const hrLock = lockedDays.get(`${emp.id}:${d}`);
 
         // Classification follows the standard 09:30–18:30 window:
@@ -335,7 +354,7 @@ class AttendanceService {
     const prisma = this.getPrisma();
     const profileId = await this.resolveTargetEmployee(reqUser, reqUser.id);
     const profile = await prisma.$queryRawUnsafe(
-      'SELECT id, employeeCode, name FROM employees WHERE id = ? LIMIT 1',
+      'SELECT id, employeeCode, name, worksSaturday FROM employees WHERE id = ? LIMIT 1',
       profileId
     );
     if (!profile || !profile.length) {
@@ -356,6 +375,7 @@ class AttendanceService {
       monthNum,
       daysInMonth,
       profileId,
+      worksSaturday: Boolean(emp.worksSaturday),
     });
 
     return {
@@ -428,7 +448,15 @@ class AttendanceService {
 
     const punchDate = new Date(`${date}T00:00:00Z`);
     const weekday = punchDate.getUTCDay();
-    const isWeeklyOff = weekday === 0 || weekday === 6;
+    // worksSaturday: Saturday is an ordinary working day, so it is not a
+    // self-punch-eligible off day for that employee (Sundays and holidays
+    // still are).
+    const worksSatRow = await prisma.$queryRawUnsafe(
+      'SELECT worksSaturday FROM employees WHERE id = ? LIMIT 1',
+      profileId
+    );
+    const worksSaturday = Boolean(worksSatRow && worksSatRow[0] && worksSatRow[0].worksSaturday);
+    const isWeeklyOff = weekday === 0 || (weekday === 6 && !worksSaturday);
     const holidayRows = await prisma.$queryRawUnsafe(
       'SELECT id FROM holidays WHERE date = ? LIMIT 1',
       date
@@ -503,7 +531,7 @@ class AttendanceService {
    * so the HR multi-employee view stays cheap; returns an array aligned to
    * row.days (index 0 = day 1 of the month).
    */
-  static async buildDayMeta(reqUser, { yearNum, monthNum, daysInMonth, profileId }) {
+  static async buildDayMeta(reqUser, { yearNum, monthNum, daysInMonth, profileId, worksSaturday = false }) {
     const prisma = this.getPrisma();
 
     const monthStart = new Date(Date.UTC(yearNum, monthNum - 1, 1));
@@ -554,7 +582,10 @@ class AttendanceService {
     for (let d = 1; d <= daysInMonth; d++) {
       const offDate = new Date(Date.UTC(yearNum, monthNum - 1, d));
       const weekday = offDate.getUTCDay(); // 0=Sun, 6=Sat
-      const isWeeklyOff = weekday === 0 || weekday === 6;
+      // worksSaturday: Saturday is an ordinary working day, so it only counts
+      // as a weekly off for employees who do NOT work Saturdays. Sundays and
+      // holidays still apply to everyone.
+      const isWeeklyOff = weekday === 0 || (weekday === 6 && !worksSaturday);
       const holidayName = holidayByDay.get(d) || null;
       const isOffDay = isWeeklyOff || !!holidayName;
       const hasDevice = deviceDays.has(d);
@@ -566,7 +597,9 @@ class AttendanceService {
         locked: hasDevice,
         wfh,
         // Self-punch on an approved WFH day, a weekly off, or a holiday —
-        // never on a day that already carries device attendance.
+        // never on a day that already carries device attendance. For a
+        // Saturday-working employee the day is a working day, not an off
+        // day, so it is not offered for self-punch.
         canSelfPunch: (wfh || isOffDay) && !hasDevice,
       });
     }

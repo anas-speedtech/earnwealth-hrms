@@ -160,11 +160,19 @@ class CompOffService {
     );
     const holidays = await holidayDateSet(prismaClient, monthStart, nextMonth);
 
-    // An off day (Sat/Sun or a listed holiday) with a punch earns comp-off.
-    // Mirror the sweep exactly so "eligible" here == "will be credited".
+    // Mirror the sweep exactly so "eligible" here == "will be credited": a
+    // Saturday-working employee's Saturday punches are not eligible (unless
+    // the Saturday is a listed holiday).
+    const saturdayWork = await CompOffService.saturdayWorkIds(prismaClient);
+    const skip = saturdayWork.has(Number(empId));
+
     return rows
       .map((r) => ({ date: String(r.workedDate).slice(0, 10) }))
-      .filter((d) => CompOffService.isOffDayISO(d.date, holidays))
+      .filter((d) => {
+        if (!CompOffService.isOffDayISO(d.date, holidays)) return false;
+        if (skip && CompOffService.isSaturdayISO(d.date) && !holidays.has(d.date)) return false;
+        return true;
+      })
       .map((d) => ({ date: d.date, eligible: true }));
   }
 
@@ -180,6 +188,26 @@ class CompOffService {
     if (Number.isNaN(d.getTime())) return false;
     const weekday = d.getUTCDay(); // 0=Sun, 6=Sat
     return weekday === 0 || weekday === 6 || (holidays && holidays.has(dayISO));
+  }
+
+  /** True when the ISO day is a Saturday (UTC weekday of the IST wall-clock). */
+  static isSaturdayISO(dayISO) {
+    const d = new Date(String(dayISO).slice(0, 10) + 'T00:00:00Z');
+    return !Number.isNaN(d.getTime()) && d.getUTCDay() === 6;
+  }
+
+  /**
+   * Set of employee ids flagged `worksSaturday` — for them a Saturday is an
+   * ordinary working day, so Saturday punches must never earn comp-off
+   * (LWP logic applies instead). The column is added by migration
+   * 20261126000000; the catch degrades to an empty set on databases where
+   * it is missing so the sweep keeps working.
+   */
+  static async saturdayWorkIds(prismaClient) {
+    const rows = await prismaClient.$queryRawUnsafe(
+      'SELECT id FROM employees WHERE worksSaturday = 1',
+    ).catch(() => []);
+    return new Set((rows || []).map((r) => Number(r.id)));
   }
 
   /**
@@ -202,6 +230,10 @@ class CompOffService {
     const rangeEnd = endDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
     const holidays = await holidayDateSet(prismaClient, rangeStart, rangeEnd);
+    // Saturday-working employees: their Saturdays are working days, not
+    // comp-off days. A Saturday that is ALSO a listed holiday still earns a
+    // credit (it is a holiday, not a weekly off).
+    const saturdayWork = await CompOffService.saturdayWorkIds(prismaClient);
 
     // Distinct off-day punch events across active employees in the window.
     const candidates = await prismaClient.$queryRawUnsafe(
@@ -221,6 +253,12 @@ class CompOffService {
       const day = String(c.day).slice(0, 10);
       if (!CompOffService.isOffDayISO(day, holidays)) continue;
       const empId = Number(c.employeeId);
+
+      // A Saturday-working employee's Saturday is a working day, not a
+      // weekly off — no comp-off unless the Saturday is a listed holiday.
+      if (saturdayWork.has(empId) && CompOffService.isSaturdayISO(day) && !holidays.has(day)) {
+        continue;
+      }
 
       // Already credited for this exact day? (unique key is the backstop.)
       const exists = await prismaClient.$queryRawUnsafe(
@@ -375,6 +413,31 @@ class CompOffService {
     const prismaClient = getPrisma();
     const empId = await resolveEmployeeId(prismaClient, reqUser, null);
     const { sourceDate, earnedDays = 1, reason } = payload;
+
+    // A Saturday-working employee cannot claim comp-off for a Saturday (it is
+    // a working day for them) — the same rule the auto sweep enforces.
+    // A listed-holiday Saturday still counts.
+    const saturdayWork = await CompOffService.saturdayWorkIds(prismaClient);
+    if (
+      saturdayWork.has(Number(empId)) &&
+      CompOffService.isSaturdayISO(sourceDate)
+    ) {
+      const dayISO = String(sourceDate).slice(0, 10);
+      const nextDay = new Date(dayISO + 'T00:00:00Z');
+      nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+      const holidays = await holidayDateSet(
+        prismaClient,
+        dayISO,
+        nextDay.toISOString().slice(0, 10)
+      );
+      if (!holidays.has(dayISO)) {
+        throw new AppError(
+          AppErrorCodes.VALIDATION_ERROR,
+          'Saturdays are working days for your role and are not eligible for comp-off.',
+          400
+        );
+      }
+    }
 
     const dup = await prismaClient.$queryRawUnsafe(
       'SELECT id FROM comp_off_credits WHERE employeeId = ? AND sourceDate = ? LIMIT 1',

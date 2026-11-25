@@ -213,6 +213,7 @@ class EmployeeService {
     const rows = await prismaClient.$queryRawUnsafe(
       `SELECT e.id, e.userId, e.employeeCode, e.name, e.designation, e.grade, e.joiningDate,
               e.departmentText, e.basicSalary, e.allowances, e.deductions, e.isActive,
+              e.worksSaturday,
               e.reportingManagerId, m.name AS reportingManagerName,
               d.id AS departmentId, d.name AS departmentName, u.email
        FROM employees e
@@ -245,6 +246,8 @@ class EmployeeService {
       firstName,
       lastName,
       grade: profile.grade || '',
+      // Saturday-working flag: drives attendance LWP/comp-off classification.
+      worksSaturday: Boolean(profile.worksSaturday),
       dateOfBirth: null,
       gender: null,
       phoneNumber: null,
@@ -488,7 +491,7 @@ class EmployeeService {
     const prismaClient = getPrisma();
 
     const existingRows = await prismaClient.$queryRawUnsafe(
-      'SELECT id, name, designation, grade, departmentId, departmentText, isActive, joiningDate, employeeCode, basicSalary, allowances, deductions, reportingManagerId FROM employees WHERE id = ? LIMIT 1',
+      'SELECT id, name, designation, grade, departmentId, departmentText, isActive, joiningDate, employeeCode, basicSalary, allowances, deductions, reportingManagerId, worksSaturday FROM employees WHERE id = ? LIMIT 1',
       employeeProfileId
     );
 
@@ -558,6 +561,15 @@ class EmployeeService {
     if (data.grade !== undefined) {
       updates.push('grade = ?');
       values.push(String(data.grade || '').trim() || null);
+    }
+
+    // worksSaturday: HR marks an employee as contractually required to work
+    // Saturdays. Drives the attendance classification (Saturday no longer a
+    // weekly off -> LWP when unpunched) and the comp-off engine (Saturday
+    // punches earn no credit).
+    if (data.worksSaturday !== undefined) {
+      updates.push('worksSaturday = ?');
+      values.push(data.worksSaturday ? 1 : 0);
     }
 
     // Reporting manager is mandatory: it may be changed to a different valid
@@ -662,7 +674,7 @@ class EmployeeService {
     }
 
     const updatedRows = await prismaClient.$queryRawUnsafe(
-      'SELECT e.id, e.employeeCode, e.name, e.designation, e.grade, e.userId, e.departmentId, e.reportingManagerId, e.isActive FROM employees e LEFT JOIN employees m ON m.id = e.reportingManagerId WHERE e.id = ? LIMIT 1',
+      'SELECT e.id, e.employeeCode, e.name, e.designation, e.grade, e.worksSaturday, e.userId, e.departmentId, e.reportingManagerId, e.isActive FROM employees e LEFT JOIN employees m ON m.id = e.reportingManagerId WHERE e.id = ? LIMIT 1',
       employeeProfileId
     );
     const updated = updatedRows && updatedRows[0];
@@ -704,6 +716,7 @@ class EmployeeService {
       lastName: String(updated.name || '').trim().split(/\s+/).slice(1).join(' '),
       designation: updated.designation ? { id: '', name: updated.designation } : null,
       grade: updated.grade || '',
+      worksSaturday: Boolean(updated.worksSaturday),
       manager: updated.reportingManagerName ? { id: String(updated.reportingManagerId), name: updated.reportingManagerName } : null,
       department: updated.departmentId ? { id: String(updated.departmentId), name: updated.departmentText || '' } : null,
       joiningDate: updated.joiningDate,

@@ -8,6 +8,9 @@ export interface Employee {
   lastName: string;
   email: string;
   grade?: string;
+  // Contractually required to work Saturdays: Saturday is not a weekly off
+  // for this employee (no punch = LWP) and Saturday work earns no comp-off.
+  worksSaturday?: boolean;
   phoneNumber?: string;
   personalEmail?: string;
   address?: string;
@@ -228,6 +231,7 @@ export const organizationService = {
     lastName?: string;
     designation?: string;
     grade?: string | null;
+    worksSaturday?: boolean;
     departmentId?: string;
     joiningDate?: string;
     basicSalary?: string;
