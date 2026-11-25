@@ -67,6 +67,16 @@ const LEAVES_SUBMENU = [
   { label: 'Leave Policy', href: '/super-admin/leave-config' },
 ];
 
+// The "Configuration" section (renamed from Controls): the Role Control grant
+// table, the salary-component catalog and the salary calculation settings
+// (component formulas + standard split). The Holiday Calendar is a separate
+// top-level item, added here for HR Admin and Super Admin.
+const CONFIGURATION_SUBMENU = [
+  { label: 'Role Control', href: '/super-admin/configuration?tab=role-control' },
+  { label: 'Salary Components', href: '/super-admin/configuration?tab=salary-components' },
+  { label: 'Calculation', href: '/super-admin/configuration' },
+];
+
 // The "Team" section: the Accounts screen manages login accounts, and
 // "Employee Details" opens the searchable employee directory where records
 // can be viewed and edited (HR Admin and Super Admin both have edit rights).
@@ -94,9 +104,12 @@ const roleNavigation: Record<string, NavItem[]> = {
       icon: 'calendar',
       submenu: LEAVES_SUBMENU,
     },
+<<<<<<< Updated upstream
     { label: 'Controls', href: '/super-admin/controls', icon: 'controls' },
-    { label: 'Payroll', href: '/super-admin/payroll-approval', icon: 'payroll' },
-    { label: 'Reports', href: '/super-admin/reports', icon: 'reports' },
+    { label: 'Add Employee', href: '/admin/employees/new', icon: 'users', quickAction: true },
+    { label: 'Manage Departments', href: '/admin/departments', icon: 'controls', quickAction: true },
+    { label: 'Review Payroll', href: '/super-admin/payroll-approval', icon: 'calendar', quickAction: true },
+    { label: 'Holiday Calendar', href: '/super-admin/holidays', icon: 'calendar', quickAction: true },
   ],
   HR_ADMIN: [
     { label: 'Dashboard', href: '/hr/dashboard', icon: 'dashboard' },
@@ -114,9 +127,14 @@ const roleNavigation: Record<string, NavItem[]> = {
       icon: 'calendar',
       submenu: LEAVES_SUBMENU,
     },
+<<<<<<< Updated upstream
     { label: 'Controls', href: '/super-admin/controls', icon: 'controls' },
-    { label: 'Payroll', href: '/hr/payroll', icon: 'payroll' },
-    { label: 'Reports', href: '/hr/reports', icon: 'reports' },
+    // An HR Admin is also an employee, so they can view their own details.
+    { label: 'My Profile', href: '/employee/profile', icon: 'profile' },
+    { label: 'Approve Leaves', href: '/hr/leaves', icon: 'leave', quickAction: true },
+    { label: 'Review WFH', href: '/hr/wfh', icon: 'wfh', quickAction: true },
+    { label: 'Manage Payroll', href: '/hr/payroll', icon: 'calendar', quickAction: true },
+    { label: 'View Reports', href: '/hr/reports', icon: 'controls', quickAction: true },
   ],
   EMPLOYEE: [
     { label: 'Dashboard', href: '/employee/dashboard', icon: 'dashboard' },

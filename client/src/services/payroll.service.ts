@@ -143,6 +143,8 @@ export interface SalaryPayhead {
   name: string;
   type: 'EARNING' | 'DEDUCTION';
   description: string;
+  /** Calculation formula (e.g. "CTC*50%") — blank means a fixed-amount line. */
+  formula: string;
   isFixedByDefault: boolean;
   sortOrder: number;
   isActive: boolean;
@@ -257,9 +259,54 @@ export interface StatutorySetting {
 }
 
 export interface EmployeePayrollProfile {
-  id: number; employeeId: number; pan: string | null; uan: string | null; bankName: string | null;
+  id: number; employeeId: number; pan: string | null; uan: string | null; esicNumber: string | null;
+  bankName: string | null;
   bankAccountMasked: string | null; bankIfsc: string | null; taxRegime: 'OLD' | 'NEW';
   pfApplicable: boolean; esiApplicable: boolean; voluntaryPfRate: string | null; salaryOnHold: boolean; holdReason: string | null;
+}
+
+// ---- Salary tab "Calculate" result ----
+
+export interface SalaryCalculateComponent {
+  code: string;
+  name: string;
+  type: 'EARNING' | 'DEDUCTION';
+  formula: string | null;
+  monthly: number;
+  annual: number;
+  displayOnPayslip: boolean;
+}
+
+export interface SalaryCalculateResult {
+  monthlyCTC: number;
+  annualCTC: number;
+  components: SalaryCalculateComponent[];
+  totals: {
+    grossMonthly: number; grossAnnual: number;
+    deductionsMonthly: number; deductionsAnnual: number;
+    netMonthly: number; netAnnual: number;
+  };
+  persisted: { structureId: number } | null;
+}
+
+// ---- Employee documents (optional uploads per slot) ----
+
+export type EmployeeDocKind = 'AADHAAR' | 'PAN' | 'ADDRESS_PROOF' | 'BANK_DETAILS' | 'OTHER_1' | 'OTHER_2';
+
+export interface EmployeeDocumentMeta {
+  kind: string;
+  fileName: string;
+  mimeType: string;
+  uploadedAt: string;
+  hasFile: boolean;
+}
+
+export interface EmployeeDocumentFile {
+  kind: string;
+  fileName: string;
+  mimeType: string;
+  /** base64 data URL of the stored file. */
+  dataUrl: string;
 }
 
 export interface AttendancePayrollInputs {
@@ -301,6 +348,61 @@ export const payrollService = {
   async saveEmployeePayrollProfile(employeeId: string, payload: Partial<EmployeePayrollProfile>): Promise<EmployeePayrollProfile> {
     const session = getSession();
     const { data } = await axios.put<{ data: EmployeePayrollProfile }>(`${API_BASE_URL}/payroll/employees/${employeeId}/profile`, payload, { headers: { Authorization: `Bearer ${session?.accessToken}` } });
+    return data.data;
+  },
+
+  /**
+   * Salary-tab "Calculate": builds the component set from the configured
+   * payhead formulas, evaluates against the entered CTC. With persist, the
+   * result becomes the employee's open salary structure.
+   */
+  async calculateSalary(
+    employeeId: string,
+    monthlyCTC: number,
+    options: { persist?: boolean; overrides?: { code: string; amount?: number | null; formula?: string | null; included?: boolean }[] } = {},
+  ): Promise<SalaryCalculateResult> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: SalaryCalculateResult }>(
+      `${API_BASE_URL}/payroll/salary-calculate`,
+      { employeeId: Number(employeeId), monthlyCTC, persist: options.persist || false, overrides: options.overrides || [] },
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } },
+    );
+    return data.data;
+  },
+
+  // ---- Employee documents ----
+
+  async listEmployeeDocuments(employeeId: string): Promise<EmployeeDocumentMeta[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: EmployeeDocumentMeta[] }>(`${API_BASE_URL}/payroll/employees/${employeeId}/documents`, { headers: { Authorization: `Bearer ${session?.accessToken}` } });
+    return data.data;
+  },
+
+  async uploadEmployeeDocument(employeeId: string, kind: string, dataUrl: string, fileName: string): Promise<EmployeeDocumentMeta> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: EmployeeDocumentMeta }>(
+      `${API_BASE_URL}/payroll/employees/${employeeId}/documents`,
+      { kind, file: dataUrl, fileName },
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } },
+    );
+    return data.data;
+  },
+
+  async getEmployeeDocument(employeeId: string, kind: string): Promise<EmployeeDocumentFile | null> {
+    const session = getSession();
+    try {
+      const { data } = await axios.get<{ data: EmployeeDocumentFile | null }>(`${API_BASE_URL}/payroll/employees/${employeeId}/documents/${kind}`, { headers: { Authorization: `Bearer ${session?.accessToken}` } });
+      return data.data;
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 404) return null;
+      throw err;
+    }
+  },
+
+  async removeEmployeeDocument(employeeId: string, kind: string): Promise<{ removed: boolean }> {
+    const session = getSession();
+    const { data } = await axios.delete<{ data: { removed: boolean } }>(`${API_BASE_URL}/payroll/employees/${employeeId}/documents/${kind}`, { headers: { Authorization: `Bearer ${session?.accessToken}` } });
     return data.data;
   },
 
@@ -795,6 +897,8 @@ export const payrollService = {
     name: string;
     type: 'EARNING' | 'DEDUCTION';
     description?: string | null;
+    /** Calculation formula, e.g. "CTC*50%" — blank = fixed-amount line. */
+    formula?: string | null;
     isFixedByDefault?: boolean;
     sortOrder?: number;
   }): Promise<SalaryPayhead> {
@@ -811,6 +915,7 @@ export const payrollService = {
     name?: string;
     type?: 'EARNING' | 'DEDUCTION';
     description?: string | null;
+    formula?: string | null;
     isFixedByDefault?: boolean;
     sortOrder?: number;
     isActive?: boolean;

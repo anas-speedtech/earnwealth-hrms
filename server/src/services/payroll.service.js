@@ -145,6 +145,9 @@ class PayrollService {
       name: r.name,
       type: r.type,
       description: r.description || '',
+      // The Calculation config formula (e.g. "CTC*50%") — empty means this
+      // payhead is a fixed-amount line.
+      formula: r.formula || '',
       isFixedByDefault: Boolean(r.isFixedByDefault),
       sortOrder: Number(r.sortOrder) || 0,
       isActive: Boolean(r.isActive),
@@ -168,18 +171,45 @@ class PayrollService {
     if (dup) {
       throw new AppError(AppErrorCodes.CONFLICT, `Payhead code "${code}" already exists.`, 409);
     }
+    const formulaText = data.formula ? String(data.formula).trim() : null;
+    if (formulaText) {
+      // Syntax check only: a payhead formula may reference sibling
+      // components (BASIC, HRA, ...) that exist in context at calculate
+      // time, so evaluate with a permissive context that answers 1 for any
+      // identifier. Real reference/rounding validation happens in
+      // calculateSalaryStructure.
+      let syntaxOk = true;
+      let syntaxError = '';
+      try {
+        PayrollFormulaEngine.evaluate(formulaText, new Proxy({}, {
+          get: (_t, prop) => (typeof prop === 'string' ? 1 : undefined),
+        }));
+      } catch (err) {
+        // "Unknown component reference" cannot happen with the permissive
+        // context; anything else (bad syntax, division by zero) is a real
+        // error to reject at save time.
+        syntaxOk = false;
+        syntaxError = err.message;
+      }
+      if (!syntaxOk) {
+        throw new AppError(AppErrorCodes.VALIDATION_ERROR, `Invalid payhead formula: ${syntaxError}`, 400);
+      }
+    }
     const created = await prismaClient.payrollPayhead.create({
       data: {
         code,
         name,
         type: data.type,
         description: data.description || null,
+        // Calculation formula, validated above so a broken formula cannot be
+        // saved into the salary calculation pipeline.
+        formula: formulaText,
         isFixedByDefault: Boolean(data.isFixedByDefault),
         sortOrder: Number(data.sortOrder) || 0,
       },
     });
     logger.info('Salary payhead created', { code, by: reqUser.email });
-    return { id: String(created.id), code, name, type: data.type, description: data.description || '' };
+    return { id: String(created.id), code, name, type: data.type, description: data.description || '', formula: created.formula || '' };
   }
 
   static async updatePayhead(reqUser, id, data) {
@@ -194,6 +224,27 @@ class PayrollService {
     const update = {};
     if (data.name !== undefined) update.name = String(data.name).trim();
     if (data.description !== undefined) update.description = data.description || null;
+    if (data.formula !== undefined) {
+      const formulaText = data.formula ? String(data.formula).trim() : null;
+      if (formulaText) {
+        // Same permissive syntax check as create — a payhead formula may
+        // reference sibling components that only resolve at calculate time.
+        let syntaxOk = true;
+        let syntaxError = '';
+        try {
+          PayrollFormulaEngine.evaluate(formulaText, new Proxy({}, {
+            get: (_t, prop) => (typeof prop === 'string' ? 1 : undefined),
+          }));
+        } catch (err) {
+          syntaxOk = false;
+          syntaxError = err.message;
+        }
+        if (!syntaxOk) {
+          throw new AppError(AppErrorCodes.VALIDATION_ERROR, `Invalid payhead formula: ${syntaxError}`, 400);
+        }
+      }
+      update.formula = formulaText;
+    }
     if (data.isFixedByDefault !== undefined) update.isFixedByDefault = Boolean(data.isFixedByDefault);
     if (data.sortOrder !== undefined) update.sortOrder = Number(data.sortOrder) || 0;
     // Type cannot change once in use: employee structures already reference
@@ -428,6 +479,196 @@ class PayrollService {
       effectiveTo: structure.effectiveTo,
       createdAt: structure.createdAt,
       components: structure.components,
+    };
+  }
+
+  /**
+   * The Salary-tab "Calculate" engine. Builds the component set from the
+   * organisation's payhead catalog (active payheads), evaluates each payhead's
+   * formula (configured in the Calculation section) against the entered CTC,
+   * and returns monthly + annual figures for every component. With
+   * `persist` it writes the result as the employee's open salary structure.
+   *
+   * Component mapping (payhead → structure component):
+   *   - payhead has a formula   -> calculationType FORMULA (the formula)
+   *   - payhead has no formula  -> calculationType FIXED, amount 0
+   * The "tick to consider on payslip" choice is the payhead's isActive flag;
+   * HR can also pass explicit per-component overrides (amount / included)
+   * from the Salary tab before persisting.
+   */
+  static async calculateSalaryStructure(reqUser, { employeeId, monthlyCTC, persist = false, overrides = [] }) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to calculate salary.', 403);
+    }
+    const ctc = Number(monthlyCTC);
+    if (!Number.isFinite(ctc) || ctc <= 0) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'CTC must be a positive number.', 400);
+    }
+    const prismaClient = getPrisma();
+    const profileId = await this.resolveProfileId(prismaClient, employeeId);
+    if (!profileId) {
+      throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found. Payroll requires a login-linked employee profile.', 404);
+    }
+
+    const payheads = await prismaClient.payrollPayhead.findMany({
+      where: { isActive: true },
+      orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
+    });
+    if (!payheads.length) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'No salary components (payheads) are configured. Add them under Configuration → Calculation first.', 400);
+    }
+
+    // Build the component set: one entry per active payhead. Overrides from
+    // the Salary tab win over the payhead defaults (per-component amount /
+    // formula / inclusion toggle).
+    const overrideByCode = new Map(
+      (overrides || []).filter((o) => o && o.code).map((o) => [String(o.code).toUpperCase(), o])
+    );
+    const structureComponents = payheads.map((p) => {
+      const ov = overrideByCode.get(p.code.toUpperCase()) || {};
+      const formula = ov.formula !== undefined ? ov.formula : p.formula;
+      const included = ov.included !== undefined ? Boolean(ov.included) : true;
+      return {
+        payheadCode: p.code,
+        name: p.name,
+        type: p.type,
+        displayOnPayslip: p.displayOnPayslip !== false,
+        included,
+        calculationType: formula && String(formula).trim() ? 'FORMULA' : 'FIXED',
+        formula: formula && String(formula).trim() ? String(formula).trim() : null,
+        amount: ov.amount !== undefined && ov.amount !== null && ov.amount !== '' ? Number(ov.amount) : 0,
+      };
+    });
+
+    const included = structureComponents.filter((c) => c.included);
+
+    // Evaluate monthly amounts with dependency order (same resolution as the
+    // payroll calculator), then annual = monthly * 12.
+    const values = {
+      CTC: ctc,
+      MONTHLY_CTC: ctc,
+      ANNUAL_CTC: ctc * 12,
+    };
+    const round = (n) => Math.round(n * 100) / 100;
+    const pending = new Map(included.map((c) => [c.name, c]));
+    const computed = [];
+    for (;;) {
+      let progressed = false;
+      for (const sc of [...pending.values()]) {
+        const key = PayrollFormulaEngine.identifierFor(sc.name);
+        let amount;
+        if (sc.calculationType === 'FORMULA') {
+          const missing = PayrollFormulaEngine.dependencies(sc.formula).filter(
+            (dep) => !(dep in values)
+          );
+          if (missing.length) continue;
+          amount = PayrollFormulaEngine.evaluate(sc.formula, values);
+        } else {
+          amount = Number(sc.amount) || 0;
+        }
+        amount = round(amount);
+        if (amount < 0) {
+          throw new AppError(AppErrorCodes.VALIDATION_ERROR, `Component "${sc.name}" computed a negative amount.`, 400);
+        }
+        values[key] = amount;
+        computed.push({
+          code: sc.payheadCode,
+          name: sc.name,
+          type: sc.type,
+          formula: sc.formula,
+          monthly: amount,
+          annual: round(amount * 12),
+          displayOnPayslip: sc.displayOnPayslip,
+        });
+        pending.delete(sc.name);
+        progressed = true;
+      }
+      if (pending.size === 0) break;
+      if (!progressed) {
+        throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Unable to resolve salary component dependencies. Check the formulas under Calculation.', 400);
+      }
+    }
+
+    let persisted = null;
+    if (persist) {
+      const structureComponentsForWrite = structureComponents.map((c, i) => ({
+        name: c.name,
+        description: c.payheadCode,
+        type: c.type,
+        calculationType: c.calculationType,
+        amount: c.calculationType === 'FIXED' ? (c.amount || 0) : null,
+        percentage: null,
+        formula: c.formula,
+        payheadCode: c.payheadCode,
+        sortOrder: i,
+        isActive: c.included,
+      }));
+      this.validateStructureComponents(structureComponentsForWrite);
+      const owner = await prismaClient.employeeProfile.findUnique({ where: { id: profileId } });
+      const openStructure = await this.findOpenSalaryStructure(prismaClient, profileId);
+      if (openStructure) {
+        await prismaClient.salaryStructure.update({
+          where: { id: openStructure.id },
+          data: {
+            monthlyCTC: ctc,
+            effectiveFrom: new Date(),
+            components: {
+              deleteMany: {},
+              create: structureComponentsForWrite.map((c) => ({
+                ...c,
+                description: c.description || null,
+              })),
+            },
+          },
+        });
+        persisted = { structureId: openStructure.id };
+      } else {
+        const created = await prismaClient.salaryStructure.create({
+          data: {
+            employeeId: profileId,
+            monthlyCTC: ctc,
+            currency: 'INR',
+            isActive: true,
+            effectiveFrom: new Date(),
+            effectiveTo: null,
+            components: {
+              create: structureComponentsForWrite.map((c) => ({
+                name: c.name,
+                description: c.description || null,
+                type: c.type,
+                calculationType: c.calculationType,
+                amount: c.amount,
+                percentage: c.percentage,
+                formula: c.formula,
+                sortOrder: c.sortOrder,
+                isActive: c.isActive,
+              })),
+            },
+          },
+        });
+        persisted = { structureId: created.id };
+      }
+      void owner;
+    }
+
+    const grossMonthly = round(computed.filter((c) => c.type === 'EARNING').reduce((s, c) => s + c.monthly, 0));
+    const grossAnnual = round(computed.filter((c) => c.type === 'EARNING').reduce((s, c) => s + c.annual, 0));
+    const deductionsMonthly = round(computed.filter((c) => c.type === 'DEDUCTION').reduce((s, c) => s + c.monthly, 0));
+    const deductionsAnnual = round(computed.filter((c) => c.type === 'DEDUCTION').reduce((s, c) => s + c.annual, 0));
+
+    return {
+      monthlyCTC: ctc,
+      annualCTC: round(ctc * 12),
+      components: computed,
+      totals: {
+        grossMonthly,
+        grossAnnual,
+        deductionsMonthly,
+        deductionsAnnual,
+        netMonthly: round(grossMonthly - deductionsMonthly),
+        netAnnual: round(grossAnnual - deductionsAnnual),
+      },
+      persisted,
     };
   }
 
@@ -1771,9 +2012,11 @@ class PayrollService {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view payroll profiles.', 403);
     }
     const prismaClient = getPrisma();
-    const employee = await prismaClient.employeeProfile.findUnique({ where: { id: Number(employeeId) }, select: { id: true } });
-    if (!employee) throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
-    return prismaClient.employeePayrollProfile.findUnique({ where: { employeeId: employee.id } });
+    // The UI may pass either an employees.id or a profile id — resolve so
+    // both work (the raw id check below would 404 / hit the wrong person).
+    const profileKey = await this.resolveProfileId(prismaClient, employeeId);
+    if (!profileKey) throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
+    return prismaClient.employeePayrollProfile.findUnique({ where: { employeeId: profileKey } });
   }
 
   static async upsertEmployeePayrollProfile(reqUser, employeeId, data) {
@@ -1781,11 +2024,12 @@ class PayrollService {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to manage payroll profiles.', 403);
     }
     const prismaClient = getPrisma();
-    const id = Number(employeeId);
-    const employee = await prismaClient.employeeProfile.findUnique({ where: { id }, select: { id: true } });
-    if (!employee) throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
+    // Resolve so either an employees.id or a profile id works; a null
+    // result means the employee has no login-linked profile.
+    const id = await this.resolveProfileId(prismaClient, employeeId);
+    if (!id) throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
     const profileData = {};
-    for (const key of ['pan', 'uan', 'bankName', 'bankAccountMasked', 'bankIfsc', 'taxRegime', 'pfApplicable', 'esiApplicable', 'voluntaryPfRate', 'salaryOnHold', 'holdReason', 'stateCode']) {
+    for (const key of ['pan', 'uan', 'esicNumber', 'bankName', 'bankAccountMasked', 'bankIfsc', 'taxRegime', 'pfApplicable', 'esiApplicable', 'voluntaryPfRate', 'salaryOnHold', 'holdReason', 'stateCode']) {
       if (data[key] !== undefined) profileData[key] = data[key] === '' ? null : data[key];
     }
     // Exiter context: date/number fields validated and normalized explicitly.

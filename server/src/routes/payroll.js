@@ -3,6 +3,7 @@ const { z } = require('zod');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validateBody, validateQuery } = require('../middleware/validate');
 const { PayrollService } = require('../services/payroll.service');
+const { EmployeeDocumentsService } = require('../services/employee-documents.service');
 const { Role } = require('../types/index');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 
@@ -83,6 +84,9 @@ const payheadSchema = z.object({
   name: z.string().min(1).max(100),
   type: z.enum(['EARNING', 'DEDUCTION']),
   description: z.string().max(255).optional().nullable(),
+  // Calculation formula (e.g. "CTC*50%") — the Calculate action on the
+  // Salary tab evaluates it against the entered CTC. Blank = fixed amount.
+  formula: z.string().max(500).optional().nullable(),
   isFixedByDefault: z.boolean().optional().default(false),
   sortOrder: z.number().int().optional().default(0),
 });
@@ -91,6 +95,7 @@ const updatePayheadSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   type: z.enum(['EARNING', 'DEDUCTION']).optional(),
   description: z.string().max(255).optional().nullable(),
+  formula: z.string().max(500).optional().nullable(),
   isFixedByDefault: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   isActive: z.boolean().optional(),
@@ -151,6 +156,7 @@ const statutorySettingUpdateSchema = statutorySettingSchema.partial().omit({ sta
 
 const employeePayrollProfileSchema = z.object({
   pan: z.string().max(20).optional().nullable(), uan: z.string().max(30).optional().nullable(),
+  esicNumber: z.string().max(30).optional().nullable(),
   bankName: z.string().max(120).optional().nullable(), bankAccountMasked: z.string().max(40).optional().nullable(),
   bankIfsc: z.string().max(20).optional().nullable(), taxRegime: z.enum(['OLD', 'NEW']).optional(),
   pfApplicable: z.boolean().optional(), esiApplicable: z.boolean().optional(), voluntaryPfRate: z.number().min(0).max(100).optional().nullable(),
@@ -340,6 +346,53 @@ router.post('/payroll/statutory-settings', authenticate, authorize(Role.SUPER_AD
 });
 router.put('/payroll/statutory-settings/:id', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(statutorySettingUpdateSchema), async (req, res, next) => {
   try { res.json({ data: await PayrollService.updateStatutorySetting(req.user, req.params.id, req.body) }); } catch (err) { next(err); }
+});
+
+// The Salary-tab "Calculate" action: builds the component set from the
+// payhead catalog + their configured formulas, evaluates against the entered
+// CTC, and (with persist) writes the employee's open salary structure.
+const salaryCalculateSchema = z.object({
+  employeeId: intId,
+  monthlyCTC: z.number().positive(),
+  persist: z.boolean().optional().default(false),
+  overrides: z.array(z.object({
+    code: z.string().max(40),
+    amount: z.number().min(0).optional().nullable(),
+    formula: z.string().max(500).optional().nullable(),
+    included: z.boolean().optional(),
+  })).optional().default([]),
+});
+router.post('/payroll/salary-calculate', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(salaryCalculateSchema), async (req, res, next) => {
+  try { res.json({ data: await PayrollService.calculateSalaryStructure(req.user, req.body) }); } catch (err) { next(err); }
+});
+
+// Employee document slots (Aadhar, PAN, Address Proof, Bank Details, Other 1/2).
+// The bytes are stored in the DB — same pattern as avatars, so a deployment
+// needs no upload directory or nginx static block.
+const docUploadSchema = z.object({
+  kind: z.string().max(30),
+  // base64 data URL of a file under 1 MB (the app's JSON body limit).
+  file: z.string().max(1_600_000),
+  fileName: z.string().max(255).optional().nullable(),
+});
+router.get('/payroll/employees/:employeeId/documents', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try { res.json({ data: await EmployeeDocumentsService.listForEmployee(req.user, req.params.employeeId) }); } catch (err) { next(err); }
+});
+router.post('/payroll/employees/:employeeId/documents', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(docUploadSchema), async (req, res, next) => {
+  try {
+    const { kind, file, fileName } = req.body;
+    res.status(201).json({ data: await EmployeeDocumentsService.upload(req.user, req.params.employeeId, kind, file, fileName) });
+  } catch (err) { next(err); }
+});
+router.get('/payroll/employees/:employeeId/documents/:kind', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const doc = await EmployeeDocumentsService.get(req.user, req.params.employeeId, req.params.kind);
+    if (!doc) return res.status(404).json({ error: { message: 'Document not found.' } });
+    res.json({ data: doc });
+  } catch (err) { next(err); }
+});
+router.delete('/payroll/employees/:employeeId/documents/:kind', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try { res.json({ data: await EmployeeDocumentsService.remove(req.user, req.params.employeeId, req.params.kind) }); } catch (err) { next(err); }
 });
 
 router.get('/payroll/employees/:employeeId/profile', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
