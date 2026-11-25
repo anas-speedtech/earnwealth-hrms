@@ -576,6 +576,11 @@ model PayrollPayhead {
   name              String   @db.VarChar(100)
   type              String   @default("EARNING") @db.VarChar(30)
   description       String?  @db.VarChar(255)
+  // Calculation formula for the "Calculate" action on an employee's Salary
+  // tab: e.g. "CTC*50%" — evaluated by the safe formula engine with CTC,
+  // MONTHLY_CTC / ANNUAL_CTC and sibling component identifiers in context.
+  // Empty means a fixed-amount component (default 0).
+  formula           String?
   isFixedByDefault  Boolean  @default(false)
   calculationMethod String   @default("FIXED") @db.VarChar(30)
   calculationBasis  String?  @db.VarChar(30)
@@ -722,6 +727,8 @@ model EmployeePayrollProfile {
   stateCode          String?  @db.VarChar(10)
   pan                String?  @db.VarChar(20)
   uan                String?  @db.VarChar(30)
+  // ESIC number (ESIN) — shown/entered when ESI eligibility is enabled.
+  esicNumber         String?  @db.VarChar(30)
   bankName           String?  @db.VarChar(120)
   bankAccountMasked  String?  @db.VarChar(40)
   bankIfsc           String?  @db.VarChar(20)
@@ -741,6 +748,26 @@ model EmployeePayrollProfile {
 
   @@index([pan])
   @@map("employee_payroll_profiles")
+}
+
+// One optional document per (employee, kind): Aadhar, PAN, Address Proof,
+// Bank Details (cancelled cheque), and two free-form slots. The file bytes
+// live in the DB (same pattern as user_avatars) so deployments need no
+// upload directory; the kind key is what the UI renders one row for each.
+model EmployeeDocument {
+  id            Int      @id @default(autoincrement())
+  employeeId    Int
+  kind          String   @db.VarChar(30)
+  fileName      String?  @db.VarChar(255)
+  mimeType      String?  @db.VarChar(40)
+  data          Bytes
+  uploadedBy    Int?
+  createdAt     DateTime @default(now()) @db.DateTime(3)
+  updatedAt     DateTime @updatedAt @db.DateTime(3)
+
+  @@unique([employeeId, kind])
+  @@index([employeeId])
+  @@map("employee_documents")
 }
 
 model PayrollPeriod {

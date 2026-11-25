@@ -63,6 +63,16 @@ const LEAVES_SUBMENU = [
   { label: 'Leave Policy', href: '/super-admin/leave-config' },
 ];
 
+// The "Configuration" section (renamed from Controls): the Role Control grant
+// table, the salary-component catalog and the salary calculation settings
+// (component formulas + standard split). The Holiday Calendar is a separate
+// top-level item, added here for HR Admin and Super Admin.
+const CONFIGURATION_SUBMENU = [
+  { label: 'Role Control', href: '/super-admin/configuration?tab=role-control' },
+  { label: 'Salary Components', href: '/super-admin/configuration?tab=salary-components' },
+  { label: 'Calculation', href: '/super-admin/configuration' },
+];
+
 // The "Team" section: the Accounts screen manages login accounts, and
 // "Employee Details" opens the searchable employee directory where records
 // can be viewed and edited (HR Admin and Super Admin both have edit rights).
@@ -90,11 +100,23 @@ const roleNavigation: Record<string, NavItem[]> = {
       icon: 'calendar',
       submenu: LEAVES_SUBMENU,
     },
+<<<<<<< Updated upstream
     { label: 'Controls', href: '/super-admin/controls', icon: 'controls' },
     { label: 'Add Employee', href: '/admin/employees/new', icon: 'users', quickAction: true },
     { label: 'Manage Departments', href: '/admin/departments', icon: 'controls', quickAction: true },
     { label: 'Review Payroll', href: '/super-admin/payroll-approval', icon: 'calendar', quickAction: true },
     { label: 'Holiday Calendar', href: '/super-admin/holidays', icon: 'calendar', quickAction: true },
+=======
+    {
+      label: 'Configuration',
+      href: '/super-admin/configuration',
+      icon: 'controls',
+      submenu: CONFIGURATION_SUBMENU,
+    },
+    { label: 'Holidays', href: '/super-admin/holidays', icon: 'calendar' },
+    { label: 'Payroll', href: '/super-admin/payroll-approval', icon: 'payroll' },
+    { label: 'Reports', href: '/super-admin/reports', icon: 'reports' },
+>>>>>>> Stashed changes
   ],
   HR_ADMIN: [
     { label: 'Dashboard', href: '/hr/dashboard', icon: 'dashboard' },
@@ -112,6 +134,7 @@ const roleNavigation: Record<string, NavItem[]> = {
       icon: 'calendar',
       submenu: LEAVES_SUBMENU,
     },
+<<<<<<< Updated upstream
     { label: 'Controls', href: '/super-admin/controls', icon: 'controls' },
     // An HR Admin is also an employee, so they can view their own details.
     { label: 'My Profile', href: '/employee/profile', icon: 'profile' },
@@ -119,6 +142,17 @@ const roleNavigation: Record<string, NavItem[]> = {
     { label: 'Review WFH', href: '/hr/wfh', icon: 'wfh', quickAction: true },
     { label: 'Manage Payroll', href: '/hr/payroll', icon: 'calendar', quickAction: true },
     { label: 'View Reports', href: '/hr/reports', icon: 'controls', quickAction: true },
+=======
+    {
+      label: 'Configuration',
+      href: '/super-admin/configuration',
+      icon: 'controls',
+      submenu: CONFIGURATION_SUBMENU,
+    },
+    { label: 'Holidays', href: '/super-admin/holidays', icon: 'calendar' },
+    { label: 'Payroll', href: '/hr/payroll', icon: 'payroll' },
+    { label: 'Reports', href: '/hr/reports', icon: 'reports' },
+>>>>>>> Stashed changes
   ],
   EMPLOYEE: [
     { label: 'Dashboard', href: '/employee/dashboard', icon: 'dashboard' },

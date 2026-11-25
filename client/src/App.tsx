@@ -36,7 +36,7 @@ import SuperAdminReports from './pages/super-admin/Reports';
 import SuperAdminAttendance from './pages/super-admin/Attendance';
 import SuperAdminLeaves from './pages/super-admin/Leaves';
 import RoleDesignation from './pages/super-admin/RoleDesignation';
-import Controls from './pages/super-admin/Controls';
+import Configuration from './pages/super-admin/Configuration';
 import LeaveConfig from './pages/super-admin/LeaveConfig';
 
 // Admin pages
@@ -212,11 +212,22 @@ function App() {
               }
             />
             <Route
+              path="/super-admin/configuration"
+              element={
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
+                  <ProtectedRoute>
+                    <Configuration />
+                  </ProtectedRoute>
+                </RoleRoute>
+              }
+            />
+            {/* Back-compat: the old Controls URL now redirects to Configuration. */}
+            <Route
               path="/super-admin/controls"
               element={
                 <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
-                    <Controls />
+                    <Navigate to="/super-admin/configuration" replace />
                   </ProtectedRoute>
                 </RoleRoute>
               }
