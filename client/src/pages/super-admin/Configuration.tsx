@@ -8,6 +8,7 @@ import Spinner from '../../components/ui/Spinner';
 import RoleControlPanel from '../../components/RoleControlPanel';
 import { useAuth } from '../../contexts/AuthContext';
 import { payrollService, SalaryPayhead, SalaryRules } from '../../services/payroll.service';
+import { wfhService, WFHAllocation } from '../../services/wfh.service';
 import { previewSalarySplitLocal } from '../../utils/salary';
 import { formatCurrency } from '../../utils/formatters';
 import toast from 'react-hot-toast';
@@ -17,12 +18,13 @@ const CARD =
 const inputCls =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[13px] text-slate-900 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20';
 
-type TabKey = 'role-control' | 'salary-components' | 'calculation';
+type TabKey = 'role-control' | 'salary-components' | 'calculation' | 'wfh-allocation';
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'role-control', label: 'Role Control' },
   { key: 'salary-components', label: 'Salary Components' },
   { key: 'calculation', label: 'Calculation' },
+  { key: 'wfh-allocation', label: 'WFH Allocation' },
 ];
 
 export default function ConfigurationPage() {
@@ -40,7 +42,7 @@ export default function ConfigurationPage() {
   // items in the sidebar deep-link correctly.
   useEffect(() => {
     const fromUrl = searchParams.get('tab');
-    const known: TabKey[] = ['role-control', 'salary-components', 'calculation'];
+    const known: TabKey[] = ['role-control', 'salary-components', 'calculation', 'wfh-allocation'];
     setTab(fromUrl && (known as string[]).includes(fromUrl) ? (fromUrl as TabKey) : 'calculation');
   }, [searchParams]);
 
@@ -96,8 +98,118 @@ export default function ConfigurationPage() {
         {tab === 'calculation' && (
           <CalculationPanel payheads={payheads} onFormulaSaved={() => payrollService.listPayheads({ activeOnly: false }).then(setPayheads).catch(() => {})} />
         )}
+
+        {tab === 'wfh-allocation' && <WfhAllocationPanel />}
       </div>
     </DashboardShell>
+  );
+}
+
+/* ---------------- WFH Allocation (standing device-exempt self-punch) ---------------- */
+
+function WfhAllocationPanel() {
+  const [allocations, setAllocations] = useState<WFHAllocation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [code, setCode] = useState('');
+  const [allocating, setAllocating] = useState(false);
+
+  const load = () => {
+    wfhService.listAllocations()
+      .then(setAllocations)
+      .catch(() => setAllocations([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleAllocate = async () => {
+    if (!code.trim()) { toast.error('Enter the employee code to allocate.'); return; }
+    setAllocating(true);
+    try {
+      await wfhService.allocate(code.trim());
+      toast.success(`WFH allocated for ${code.trim().toUpperCase()}. They now self-punch their day.`);
+      setCode('');
+      load();
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message || 'Could not allocate WFH.';
+      toast.error(message);
+    } finally {
+      setAllocating(false);
+    }
+  };
+
+  const handleRevoke = async (allocation: WFHAllocation) => {
+    if (!confirm(`Revoke WFH allocation for ${allocation.employeeName || allocation.employeeCode}? Device attendance applies again.`)) return;
+    try {
+      await wfhService.revoke(allocation.employeeCode);
+      toast.success(`WFH allocation revoked for ${allocation.employeeCode}.`);
+      load();
+    } catch {
+      toast.error('Could not revoke the allocation.');
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className={CARD}>
+        <h3 className="mb-1 text-[15px] font-semibold text-slate-900">Allocate WFH</h3>
+        <p className="mb-4 text-[12px] text-slate-500">
+          Enter an employee code to exempt them from device attendance. They self-punch their day —
+          only <b>today</b> is editable (previous and future days stay locked), a punch-in cannot be in
+          the future and a punch-out cannot be in the past.
+        </p>
+        <div className="flex gap-3">
+          <input
+            placeholder="Employee code (e.g. E001)"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleAllocate(); }}
+            className={`${inputCls} flex-1 font-mono uppercase`}
+          />
+          <Button onClick={() => void handleAllocate()} disabled={allocating}>
+            <Plus size={13} className="mr-1.5" /> {allocating ? 'Allocating…' : 'Allocate'}
+          </Button>
+        </div>
+      </div>
+
+      <div className={CARD}>
+        <h3 className="mb-3 text-[15px] font-semibold text-slate-900">WFH Allocations ({allocations.length})</h3>
+        {loading ? (
+          <div className="flex items-center justify-center py-10"><Spinner size="sm" /></div>
+        ) : allocations.length === 0 ? (
+          <p className="py-8 text-center text-[13px] text-slate-400">No employees are currently WFH-allocated.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50/60 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                <tr>
+                  <th className="px-4 py-2.5">Code</th>
+                  <th className="px-4 py-2.5">Name</th>
+                  <th className="px-4 py-2.5">Email</th>
+                  <th className="px-4 py-2.5">Allocated</th>
+                  <th className="px-4 py-2.5 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {allocations.map((a) => (
+                  <tr key={a.employeeId} className="hover:bg-slate-50/60">
+                    <td className="px-4 py-3 font-mono text-[13px] text-slate-700">{a.employeeCode}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-900">{a.employeeName || '—'}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-500">{a.employeeEmail || '—'}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-500">{a.allocatedAt || '—'}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button onClick={() => void handleRevoke(a)} className="inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700">
+                        <Trash2 size={12} /> Revoke
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

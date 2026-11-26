@@ -380,6 +380,25 @@ model WFHRequest {
   @@map("wfh_requests")
 }
 
+// Standing WFH allocation granted by HR (Configuration → WFH Allocation).
+// Unlike a per-day WFH request, an allocation is ongoing: the employee is
+// exempt from device attendance and self-punches their day — but only TODAY
+// is editable (previous/future days stay locked), with punch-in not in the
+// future and punch-out not in the past. Keyed by the legacy employees.id
+// (the attendance engine's key space, same as wfh_requests in this deployment).
+// `revokedAt` null = active.
+model WFHAllocation {
+  id          Int      @id @default(autoincrement())
+  employeeId  Int
+  allocatedBy Int?
+  allocatedAt DateTime @default(now()) @db.DateTime(3)
+  revokedAt   DateTime? @db.DateTime(3)
+
+  @@unique([employeeId])
+  @@index([employeeId])
+  @@map("wfh_allocations")
+}
+
 // ------------------------------------------- attendance correction requests
 
 model AttendanceCorrection {

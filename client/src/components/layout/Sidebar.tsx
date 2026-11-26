@@ -75,6 +75,7 @@ const CONFIGURATION_SUBMENU = [
   { label: 'Role Control', href: '/super-admin/configuration?tab=role-control' },
   { label: 'Salary Components', href: '/super-admin/configuration?tab=salary-components' },
   { label: 'Calculation', href: '/super-admin/configuration' },
+  { label: 'WFH Allocation', href: '/super-admin/configuration?tab=wfh-allocation' },
 ];
 
 // The "Team" section: a single, searchable directory of every team member
@@ -149,7 +150,8 @@ const roleNavigation: Record<string, NavItem[]> = {
   ],
   EMPLOYEE: [
     { label: 'Dashboard', href: '/employee/dashboard', icon: 'dashboard' },
-    { label: 'Calendar', href: '/super-admin/holidays', icon: 'calendar' },
+    { label: 'Attendance', href: '/employee/attendance', icon: 'attendance' },
+    { label: 'Holidays', href: '/super-admin/holidays', icon: 'calendar' },
     { label: 'Apply Leave', href: '/employee/leaves/apply', icon: 'leave' },
     { label: 'Comp-Off', href: '/employee/comp-offs', icon: 'compoff' },
     { label: 'WFH', href: '/employee/wfh', icon: 'wfh' },

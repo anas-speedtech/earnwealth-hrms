@@ -26,6 +26,17 @@ export interface PendingWFHRequest extends WFHRequest {
   employeeEmail: string;
 }
 
+// A standing WFH allocation (Configuration → WFH Allocation): the employee
+// is exempt from device attendance and self-punches their day (today only).
+export interface WFHAllocation {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  employeeEmail: string;
+  allocatedBy: number | null;
+  allocatedAt: string;
+}
+
 export const wfhService = {
   async create(requestDate: string, reason: string) {
     const { data } = await api.post('/wfh/requests', { requestDate, reason });
@@ -63,6 +74,23 @@ export const wfhService = {
 
   async reject(requestId: string, reviewComment?: string) {
     const { data } = await api.post(`/wfh/requests/${requestId}/reject`, { reviewComment });
+    return data;
+  },
+
+  // ---- Standing WFH allocation (HR-only, keyed by employee code) ----
+
+  async listAllocations(): Promise<WFHAllocation[]> {
+    const { data } = await api.get<{ allocations: WFHAllocation[] }>('/wfh/allocations');
+    return data.allocations;
+  },
+
+  async allocate(employeeCode: string) {
+    const { data } = await api.post('/wfh/allocations', { employeeCode });
+    return data;
+  },
+
+  async revoke(employeeCode: string) {
+    const { data } = await api.delete(`/wfh/allocations/${encodeURIComponent(employeeCode)}`);
     return data;
   },
 };

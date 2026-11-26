@@ -121,10 +121,14 @@ export interface MyMatrixDay extends MatrixDay {
   isOffDay: boolean;
   isWeeklyOff: boolean;
   holidayName: string | null;
-  /** A device (.dat) punch exists for the day — read-only. */
+  /** A device (.dat) punch exists for the day (or a WFH-allocated day that
+   *  is not today) — read-only. */
   locked: boolean;
   /** An approved WFH request covers this day. */
   wfh: boolean;
+  /** The employee holds a standing WFH allocation (device-exempt): only
+   *  today is editable, punch-in not back-dated, punch-out not pre-dated. */
+  wfhAllocated?: boolean;
   /** The only case where the employee may enter a manual punch. */
   canSelfPunch: boolean;
 }
