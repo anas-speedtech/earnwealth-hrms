@@ -75,6 +75,7 @@ const CONFIGURATION_SUBMENU = [
   { label: 'Role Control', href: '/super-admin/configuration?tab=role-control' },
   { label: 'Salary Components', href: '/super-admin/configuration?tab=salary-components' },
   { label: 'Calculation', href: '/super-admin/configuration' },
+  { label: 'WFH Allocation', href: '/super-admin/configuration?tab=wfh-allocation' },
 ];
 
 // The "Team" section: a single, searchable directory of every team member

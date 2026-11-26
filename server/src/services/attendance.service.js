@@ -420,6 +420,7 @@ class AttendanceService {
    */
   static async applyPunch(reqUser, { date, punchIn, punchOut }) {
     const prisma = this.getPrisma();
+    const { WFHAllocationService } = require('./wfh-allocation.service');
     const profileId = await this.resolveTargetEmployee(reqUser, reqUser.id);
 
     // ---- validate the day -----------------------------------------------
@@ -436,58 +437,7 @@ class AttendanceService {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'HR has locked this attendance day.', 403);
     }
 
-    // A punch is allowed on a WFH day, and also on a weekly off / holiday,
-    // where it earns a comp-off credit instead of marking the day LWP.
-    // wfh_requests covers a single day (requestDate) — the live table has no
-    // endDate column, so only an exact date match counts as approved WFH.
-    const wfh = await prisma.$queryRawUnsafe(
-      "SELECT id FROM wfh_requests WHERE employeeId = ? AND status = 'APPROVED' AND requestDate = ? LIMIT 1",
-      profileId,
-      date
-    );
-
-    const punchDate = new Date(`${date}T00:00:00Z`);
-    const weekday = punchDate.getUTCDay();
-    // worksSaturday: Saturday is an ordinary working day, so it is not a
-    // self-punch-eligible off day for that employee (Sundays and holidays
-    // still are).
-    const worksSatRow = await prisma.$queryRawUnsafe(
-      'SELECT worksSaturday FROM employees WHERE id = ? LIMIT 1',
-      profileId
-    );
-    const worksSaturday = Boolean(worksSatRow && worksSatRow[0] && worksSatRow[0].worksSaturday);
-    const isWeeklyOff = weekday === 0 || (weekday === 6 && !worksSaturday);
-    const holidayRows = await prisma.$queryRawUnsafe(
-      'SELECT id FROM holidays WHERE date = ? LIMIT 1',
-      date
-    );
-    const isHoliday = (holidayRows || []).length > 0;
-    const hasWfh = (wfh || []).length > 0;
-
-    if (!hasWfh && !isWeeklyOff && !isHoliday) {
-      throw new AppError(
-        AppErrorCodes.INVALID_INPUT,
-        'Self-punch is only allowed on an approved WFH day, a weekly off, or a holiday.',
-        400
-      );
-    }
-
-    const deviceRows = await prisma.$queryRawUnsafe(
-      'SELECT COUNT(*) AS c FROM attendance_logs WHERE employeeId = ? AND source = ? AND punchTime >= ? AND punchTime <= ?',
-      profileId,
-      'DAT',
-      dayStart,
-      dayEnd
-    );
-    if (deviceRows && Number(deviceRows[0].c) > 0) {
-      throw new AppError(
-        AppErrorCodes.INVALID_INPUT,
-        'This day already has device attendance, so it is locked and cannot be edited.',
-        409
-      );
-    }
-
-    // ---- validate the times ---------------------------------------------
+    // ---- time validation (shared) -----------------------------------------
     if (!punchIn || !/^\d{2}:\d{2}$/.test(punchIn)) {
       throw new AppError(AppErrorCodes.INVALID_INPUT, 'Punch-in time is required (HH:MM).', 400);
     }
@@ -496,6 +446,99 @@ class AttendanceService {
     }
     if (punchOut && punchOut < punchIn) {
       throw new AppError(AppErrorCodes.INVALID_INPUT, 'Punch-out must be after punch-in.', 400);
+    }
+
+    // ---- WFH allocation path ---------------------------------------------
+    // A standing allocation exempts the employee from device attendance: they
+    // self-punch their day. Only TODAY is editable — previous and future
+    // days stay locked — and a punch-in may not be in the future while a
+    // punch-out may not be in the past.
+    const wfhAllocated = await WFHAllocationService.isActiveFor(prisma, profileId);
+    if (wfhAllocated) {
+      const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+      const todayKey = istNow.toISOString().slice(0, 10);
+      if (date !== todayKey) {
+        throw new AppError(
+          AppErrorCodes.INVALID_INPUT,
+          'You can enter a punch for today only — previous and future days are locked.',
+          400
+        );
+      }
+      // Punch-in cannot be back-dated and punch-out cannot be pre-dated — the
+      // times are entered in real time as the day is lived. On a re-apply the
+      // morning punch-in is already recorded, so its recorded time (not
+      // "now") becomes the floor: the employee may keep/correct it, but not
+      // backdate further. Punch-out stays floored at "now" — no pre-entering.
+      const nowHhmm = `${String(istNow.getUTCHours()).padStart(2, '0')}:${String(istNow.getUTCMinutes()).padStart(2, '0')}`;
+      const existingIn = await prisma.$queryRawUnsafe(
+        `SELECT MIN(SUBSTRING(punchTime, 12, 5)) AS t FROM attendance_logs
+         WHERE employeeId = ? AND source = 'MANUAL' AND status = 'IN' AND punchTime >= ? AND punchTime <= ?`,
+        profileId,
+        dayStart,
+        dayEnd
+      );
+      const recordedIn = existingIn && existingIn[0] && existingIn[0].t;
+      const inFloor = recordedIn && recordedIn < nowHhmm ? recordedIn : nowHhmm;
+      if (punchIn < inFloor) {
+        throw new AppError(AppErrorCodes.INVALID_INPUT, 'Punch-in time cannot be in the past.', 400);
+      }
+      if (punchOut && punchOut > nowHhmm) {
+        throw new AppError(AppErrorCodes.INVALID_INPUT, 'Punch-out time cannot be in the future.', 400);
+      }
+      // Allocated employees are device-exempt: existing .dat punches do not
+      // block the manual entry (that is the point of the allocation).
+    } else {
+      // ---- standard path ---------------------------------------------------
+      // A punch is allowed on a WFH day, and also on a weekly off / holiday,
+      // where it earns a comp-off credit instead of marking the day LWP.
+      // wfh_requests covers a single day (requestDate) — the live table has no
+      // endDate column, so only an exact date match counts as approved WFH.
+      const wfh = await prisma.$queryRawUnsafe(
+        "SELECT id FROM wfh_requests WHERE employeeId = ? AND status = 'APPROVED' AND requestDate = ? LIMIT 1",
+        profileId,
+        date
+      );
+
+      const punchDate = new Date(`${date}T00:00:00Z`);
+      const weekday = punchDate.getUTCDay();
+      // worksSaturday: Saturday is an ordinary working day, so it is not a
+      // self-punch-eligible off day for that employee (Sundays and holidays
+      // still are).
+      const worksSatRow = await prisma.$queryRawUnsafe(
+        'SELECT worksSaturday FROM employees WHERE id = ? LIMIT 1',
+        profileId
+      );
+      const worksSaturday = Boolean(worksSatRow && worksSatRow[0] && worksSatRow[0].worksSaturday);
+      const isWeeklyOff = weekday === 0 || (weekday === 6 && !worksSaturday);
+      const holidayRows = await prisma.$queryRawUnsafe(
+        'SELECT id FROM holidays WHERE date = ? LIMIT 1',
+        date
+      );
+      const isHoliday = (holidayRows || []).length > 0;
+      const hasWfh = (wfh || []).length > 0;
+
+      if (!hasWfh && !isWeeklyOff && !isHoliday) {
+        throw new AppError(
+          AppErrorCodes.INVALID_INPUT,
+          'Self-punch is only allowed on an approved WFH day, a weekly off, or a holiday.',
+          400
+        );
+      }
+
+      const deviceRows = await prisma.$queryRawUnsafe(
+        'SELECT COUNT(*) AS c FROM attendance_logs WHERE employeeId = ? AND source = ? AND punchTime >= ? AND punchTime <= ?',
+        profileId,
+        'DAT',
+        dayStart,
+        dayEnd
+      );
+      if (deviceRows && Number(deviceRows[0].c) > 0) {
+        throw new AppError(
+          AppErrorCodes.INVALID_INPUT,
+          'This day already has device attendance, so it is locked and cannot be edited.',
+          409
+        );
+      }
     }
 
     // ---- write the manual events (idempotent per day) --------------------
@@ -533,6 +576,16 @@ class AttendanceService {
    */
   static async buildDayMeta(reqUser, { yearNum, monthNum, daysInMonth, profileId, worksSaturday = false }) {
     const prisma = this.getPrisma();
+    const { WFHAllocationService } = require('./wfh-allocation.service');
+
+    // Standing WFH allocation: the employee is exempt from device attendance
+    // and self-punches — but ONLY today's day is editable (previous/future
+    // days stay locked). Device punches no longer lock the day (the whole
+    // point of the exemption is that the device data is ignored).
+    const wfhAllocated = await WFHAllocationService.isActiveFor(prisma, profileId);
+    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const todayKey = istNow.toISOString().slice(0, 10); // IST calendar day
+    const todayDay = todayKey === `${yearNum}-${String(monthNum).padStart(2, '0')}` ? Number(todayKey.slice(8, 10)) : null;
 
     const monthStart = new Date(Date.UTC(yearNum, monthNum - 1, 1));
     const monthEnd = new Date(Date.UTC(yearNum, monthNum, 1) - 1);
@@ -590,18 +643,35 @@ class AttendanceService {
       const isOffDay = isWeeklyOff || !!holidayName;
       const hasDevice = deviceDays.has(d);
       const wfh = wfhDays.has(d);
-      days.push({
-        isOffDay,
-        isWeeklyOff,
-        holidayName,
-        locked: hasDevice,
-        wfh,
-        // Self-punch on an approved WFH day, a weekly off, or a holiday —
-        // never on a day that already carries device attendance. For a
-        // Saturday-working employee the day is a working day, not an off
-        // day, so it is not offered for self-punch.
-        canSelfPunch: (wfh || isOffDay) && !hasDevice,
-      });
+
+      if (wfhAllocated) {
+        // Allocated employee: device data is ignored (not a lock), and only
+        // today is editable — previous days are read-only (locked state) and
+        // future days are not yet editable.
+        days.push({
+          isOffDay,
+          isWeeklyOff,
+          holidayName,
+          locked: d !== todayDay,
+          wfh: true,
+          wfhAllocated: true,
+          canSelfPunch: d === todayDay,
+        });
+      } else {
+        days.push({
+          isOffDay,
+          isWeeklyOff,
+          holidayName,
+          locked: hasDevice,
+          wfh,
+          wfhAllocated: false,
+          // Self-punch on an approved WFH day, a weekly off, or a holiday —
+          // never on a day that already carries device attendance. For a
+          // Saturday-working employee the day is a working day, not an off
+          // day, so it is not offered for self-punch.
+          canSelfPunch: (wfh || isOffDay) && !hasDevice,
+        });
+      }
     }
     return days;
   }

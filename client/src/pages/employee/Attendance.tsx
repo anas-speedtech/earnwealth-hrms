@@ -92,6 +92,8 @@ export default function EmployeeAttendancePage() {
     ? `${user.profile.firstName} ${user.profile.lastName}`
     : user?.email || 'Employee';
 
+  const isWfhAllocated = Boolean(matrix?.days?.[0]?.wfhAllocated);
+
   const SELECT =
     'h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-700 shadow-sm outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10';
 
@@ -141,6 +143,11 @@ export default function EmployeeAttendancePage() {
               </span>
               Locked (device data)
             </span>
+            {isWfhAllocated && (
+              <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-700 ring-1 ring-inset ring-cyan-200">
+                WFH-allocated — today only is editable
+              </span>
+            )}
           </div>
         </div>
 
@@ -202,10 +209,16 @@ export default function EmployeeAttendancePage() {
 
         {!matrixLoading && matrix && matrix.days.length > 0 && (
           <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
-            Click a day to view or apply punches. Days with device attendance are locked — they come from your
-            biometric import and cannot be edited here. You can apply a punch-in / punch-out only on days with an
-            approved WFH request that have no device data. Punching on a weekly off (Sat/Sun) or a holiday earns a
-            comp-off credit.
+            {isWfhAllocated ? (
+              <>You are WFH-allocated: device attendance does not apply to you. Enter today's punch-in / punch-out
+              (today only — previous and future days stay locked). Punch-in cannot be back-dated and punch-out
+              cannot be pre-dated. Punching on a weekly off or a holiday earns a comp-off credit.</>
+            ) : (
+              <>Click a day to view or apply punches. Days with device attendance are locked — they come from your
+              biometric import and cannot be edited here. You can apply a punch-in / punch-out only on days with an
+              approved WFH request that have no device data. Punching on a weekly off (Sat/Sun) or a holiday earns a
+              comp-off credit.</>
+            )}
           </p>
         )}
 
@@ -236,6 +249,17 @@ export default function EmployeeAttendancePage() {
         >
           {selectedDay && (
             <div className="space-y-4">
+              {selectedDay.wfhAllocated && selectedDay.canSelfPunch && (
+                <p className="rounded-lg bg-cyan-50 px-3 py-2 text-[12px] text-cyan-800 ring-1 ring-inset ring-cyan-100">
+                  You are WFH-allocated — exempt from device attendance. Enter today's punch-in / punch-out
+                  below. Punch-in cannot be back-dated and punch-out cannot be pre-dated.
+                </p>
+              )}
+              {selectedDay.wfhAllocated && !selectedDay.canSelfPunch && (
+                <p className="rounded-lg bg-slate-50 px-3 py-2 text-[12px] text-slate-600 ring-1 ring-inset ring-slate-200">
+                  This day is locked — as a WFH-allocated employee you can only enter a punch for today.
+                </p>
+              )}
               {selectedDay.holidayName && (
                 <p className="rounded-lg bg-red-50 px-3 py-2 text-[12px] text-red-700 ring-1 ring-inset ring-red-100">
                   {selectedDay.holidayName} — holiday. A punch this day earns a comp-off credit.
@@ -312,35 +336,7 @@ function renderDayCell(cell: MyMatrixDay, onOpen: () => void) {
   const base =
     'group relative flex h-11 w-full flex-col items-center justify-center rounded-md border text-center transition';
 
-  // Read-only states with a device punch → show times + status colour.
-  if (cell.hasPunch && cell.locked) {
-    const tone =
-      cell.status === 'P'
-        ? 'border-emerald-200 bg-emerald-50'
-        : cell.status === 'FHDL'
-          ? 'border-orange-200 bg-orange-50'
-          : cell.status === 'SHDL'
-            ? 'border-amber-200 bg-amber-50'
-            : cell.status === 'LWP'
-              ? 'border-rose-200 bg-rose-50'
-          : 'border-slate-200 bg-slate-50';
-    return (
-      <button
-        type="button"
-        onClick={onOpen}
-        title="Locked — device attendance. Click to view."
-        className={`${base} ${tone} hover:ring-2 hover:ring-cyan-400/30`}
-      >
-        <span className="flex items-center gap-0.5 text-[10px] font-semibold text-slate-700">
-          <Lock size={9} className="text-slate-400" />
-          {cell.in}
-        </span>
-        <span className="text-[10px] text-slate-500">{cell.out || '—'}</span>
-      </button>
-    );
-  }
-
-  // Employee can apply a punch here (approved WFH, no device data).
+  // Today's day for a WFH-allocated employee — the one editable cell.
   if (cell.canSelfPunch) {
     const hasTimes = !!cell.in;
     return (
@@ -365,6 +361,34 @@ function renderDayCell(cell: MyMatrixDay, onOpen: () => void) {
             <span className="text-[9px] font-medium">Apply</span>
           </span>
         )}
+      </button>
+    );
+  }
+
+  // Read-only days: device-locked (non-allocated) or a WFH-allocated day that
+  // is not today (previous / future stay locked) — show stored times muted.
+  if (cell.hasPunch && (cell.locked || cell.wfhAllocated)) {
+    const allocatedReadOnly = Boolean(cell.wfhAllocated);
+    const tone =
+      !allocatedReadOnly && cell.status === 'P'
+        ? 'border-emerald-200 bg-emerald-50'
+        : !allocatedReadOnly && (cell.status === 'FHDL' || cell.status === 'SHDL')
+          ? 'border-orange-200 bg-orange-50'
+          : allocatedReadOnly
+            ? 'border-slate-200 bg-slate-50'
+            : 'border-slate-200 bg-slate-50';
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        title={cell.locked && !allocatedReadOnly ? 'Locked — device attendance. Click to view.' : allocatedReadOnly ? 'Locked — only today can be edited. Click to view.' : 'Click to view.'}
+        className={`${base} ${tone} hover:ring-2 hover:ring-cyan-400/30`}
+      >
+        <span className={`flex items-center gap-0.5 text-[10px] font-semibold ${allocatedReadOnly ? 'text-slate-500' : 'text-slate-700'}`}>
+          {cell.locked && <Lock size={9} className="text-slate-400" />}
+          {cell.in}
+        </span>
+        <span className="text-[10px] text-slate-500">{cell.out || '—'}</span>
       </button>
     );
   }

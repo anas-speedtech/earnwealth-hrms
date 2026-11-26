@@ -3,6 +3,7 @@ const { z } = require('zod');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validateBody, validateQuery } = require('../middleware/validate');
 const { WFHService } = require('../services/wfh.service');
+const { WFHAllocationService } = require('../services/wfh-allocation.service');
 const { Role } = require('../types/index');
 
 const router = express.Router();
@@ -94,6 +95,43 @@ router.post('/wfh/requests/:id/approve', authenticate, authorize(Role.SUPER_ADMI
 router.post('/wfh/requests/:id/reject', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(reviewSchema), async (req, res, next) => {
   try {
     const result = await WFHService.reject(req.user, req.params.id, req.body.reviewComment);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---- Standing WFH allocation (Configuration → WFH Allocation) ----
+// HR exempts an employee (by code) from device attendance; the employee
+// self-punches their day (today only — past/future stay locked).
+const allocateWfhSchema = z.object({
+  employeeCode: z.string().min(1).max(50),
+});
+
+// List active allocations
+router.get('/wfh/allocations', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const allocations = await WFHAllocationService.list(req.user);
+    res.json({ allocations });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Allocate by employee code
+router.post('/wfh/allocations', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(allocateWfhSchema), async (req, res, next) => {
+  try {
+    const result = await WFHAllocationService.allocate(req.user, req.body.employeeCode);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Revoke by employee code
+router.delete('/wfh/allocations/:employeeCode', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try {
+    const result = await WFHAllocationService.revoke(req.user, req.params.employeeCode);
     res.json(result);
   } catch (err) {
     next(err);
