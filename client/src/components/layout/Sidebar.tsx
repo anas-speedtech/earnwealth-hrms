@@ -1,9 +1,11 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
+  BarChart3,
   CalendarCheck,
   CalendarDays,
   ChevronDown,
   ChevronRight,
+  CircleDollarSign,
   Clock,
   Home,
   Hourglass,
@@ -22,7 +24,7 @@ interface SidebarProps {
   userEmail: string;
 }
 
-type IconName = 'dashboard' | 'users' | 'role' | 'calendar' | 'controls' | 'profile' | 'attendance' | 'leave' | 'compoff' | 'wfh';
+type IconName = 'dashboard' | 'users' | 'role' | 'calendar' | 'controls' | 'profile' | 'attendance' | 'leave' | 'compoff' | 'wfh' | 'payroll' | 'reports';
 
 interface NavItem {
   label: string;
@@ -44,6 +46,8 @@ const navIcons: Record<IconName, React.ComponentType<React.SVGProps<SVGSVGElemen
   leave: CalendarCheck,
   compoff: Hourglass,
   wfh: Home,
+  payroll: CircleDollarSign,
+  reports: BarChart3,
 };
 
 // The "Role & Designation" section: the Role sub-menu opens the Role &
@@ -100,13 +104,6 @@ const roleNavigation: Record<string, NavItem[]> = {
       icon: 'calendar',
       submenu: LEAVES_SUBMENU,
     },
-<<<<<<< Updated upstream
-    { label: 'Controls', href: '/super-admin/controls', icon: 'controls' },
-    { label: 'Add Employee', href: '/admin/employees/new', icon: 'users', quickAction: true },
-    { label: 'Manage Departments', href: '/admin/departments', icon: 'controls', quickAction: true },
-    { label: 'Review Payroll', href: '/super-admin/payroll-approval', icon: 'calendar', quickAction: true },
-    { label: 'Holiday Calendar', href: '/super-admin/holidays', icon: 'calendar', quickAction: true },
-=======
     {
       label: 'Configuration',
       href: '/super-admin/configuration',
@@ -116,7 +113,9 @@ const roleNavigation: Record<string, NavItem[]> = {
     { label: 'Holidays', href: '/super-admin/holidays', icon: 'calendar' },
     { label: 'Payroll', href: '/super-admin/payroll-approval', icon: 'payroll' },
     { label: 'Reports', href: '/super-admin/reports', icon: 'reports' },
->>>>>>> Stashed changes
+    { label: 'Add Employee', href: '/admin/employees/new', icon: 'users', quickAction: true },
+    { label: 'Manage Departments', href: '/admin/departments', icon: 'controls', quickAction: true },
+    { label: 'Review Payroll', href: '/super-admin/payroll-approval', icon: 'calendar', quickAction: true },
   ],
   HR_ADMIN: [
     { label: 'Dashboard', href: '/hr/dashboard', icon: 'dashboard' },
@@ -134,15 +133,6 @@ const roleNavigation: Record<string, NavItem[]> = {
       icon: 'calendar',
       submenu: LEAVES_SUBMENU,
     },
-<<<<<<< Updated upstream
-    { label: 'Controls', href: '/super-admin/controls', icon: 'controls' },
-    // An HR Admin is also an employee, so they can view their own details.
-    { label: 'My Profile', href: '/employee/profile', icon: 'profile' },
-    { label: 'Approve Leaves', href: '/hr/leaves', icon: 'leave', quickAction: true },
-    { label: 'Review WFH', href: '/hr/wfh', icon: 'wfh', quickAction: true },
-    { label: 'Manage Payroll', href: '/hr/payroll', icon: 'calendar', quickAction: true },
-    { label: 'View Reports', href: '/hr/reports', icon: 'controls', quickAction: true },
-=======
     {
       label: 'Configuration',
       href: '/super-admin/configuration',
@@ -152,7 +142,12 @@ const roleNavigation: Record<string, NavItem[]> = {
     { label: 'Holidays', href: '/super-admin/holidays', icon: 'calendar' },
     { label: 'Payroll', href: '/hr/payroll', icon: 'payroll' },
     { label: 'Reports', href: '/hr/reports', icon: 'reports' },
->>>>>>> Stashed changes
+    // An HR Admin is also an employee, so they can view their own details.
+    { label: 'My Profile', href: '/employee/profile', icon: 'profile' },
+    { label: 'Approve Leaves', href: '/hr/leaves', icon: 'leave', quickAction: true },
+    { label: 'Review WFH', href: '/hr/wfh', icon: 'wfh', quickAction: true },
+    { label: 'Manage Payroll', href: '/hr/payroll', icon: 'calendar', quickAction: true },
+    { label: 'View Reports', href: '/hr/reports', icon: 'controls', quickAction: true },
   ],
   EMPLOYEE: [
     { label: 'Dashboard', href: '/employee/dashboard', icon: 'dashboard' },
