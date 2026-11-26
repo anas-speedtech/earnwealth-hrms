@@ -166,8 +166,8 @@ export const dashboardService = {
       title: 'System administration and oversight',
       stats: [
         { key: 'employees', label: 'Total Employees', value: totalEmployees, available: empResp.ok, href: '/admin/employees', tone: 'blue' },
-        { key: 'admins', label: 'Active Admins', value: activeAdmins, available: adminsResp.ok, href: '/super-admin/admins', tone: 'green' },
-        { key: 'hr', label: 'HR Staff', value: hrStaff, available: hrsResp.ok, href: '/super-admin/admins', tone: 'purple' },
+        { key: 'admins', label: 'Active Admins', value: activeAdmins, available: adminsResp.ok, href: '/admin/employees', tone: 'green' },
+        { key: 'hr', label: 'HR Staff', value: hrStaff, available: hrsResp.ok, href: '/admin/employees', tone: 'purple' },
         { key: 'pending', label: 'Pending Approvals', value: pendingCount, available: pendingLeaves.ok && pendingCredits.ok, href: '/super-admin/leaves', tone: 'yellow' },
       ],
     };

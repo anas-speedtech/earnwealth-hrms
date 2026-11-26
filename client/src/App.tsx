@@ -28,7 +28,6 @@ import EmployeeLeaves from './pages/employee/Leaves';
 import EmployeePayslipsPage from './pages/employee/Payslips';
 
 // Super Admin pages.
-import SuperAdminAdmins from './pages/super-admin/Admins';
 import SuperAdminSettings from './pages/super-admin/Settings';
 import SuperAdminPolicies from './pages/super-admin/Policies';
 import SuperAdminHolidays from './pages/super-admin/Holidays';
@@ -111,12 +110,14 @@ function App() {
                 </RoleRoute>
               }
             />
+            {/* Back-compat: the old Accounts screen merged into the Team
+                directory at /admin/employees; redirect so bookmarks work. */}
             <Route
               path="/super-admin/admins"
               element={
                 <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
-                    <SuperAdminAdmins />
+                    <Navigate to="/admin/employees" replace />
                   </ProtectedRoute>
                 </RoleRoute>
               }

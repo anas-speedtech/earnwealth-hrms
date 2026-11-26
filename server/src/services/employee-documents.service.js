@@ -30,6 +30,7 @@ class EmployeeDocumentsService {
   static async listForEmployee(reqUser, employeeId) {
     const prismaClient = getPrisma();
     const { PayrollService } = require('./payroll.service');
+    await PayrollService.ensureSchema();
     const profileKey = await PayrollService.resolveProfileId(prismaClient, employeeId);
     if (!profileKey) return [];
 

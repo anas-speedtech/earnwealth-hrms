@@ -19,6 +19,56 @@ function getPrisma() {
   return prisma;
 }
 
+// The live production database is hand-managed, so the salary-consolidation
+// objects (salary_payheads.formula, employee_payroll_profiles.esicNumber and
+// the employee_documents table) may be missing there even though the schema
+// and the Prisma client know about them — which would 500 every payhead /
+// document call ("Something went wrong."). Ensure them idempotently, the
+// same ensure-table pattern used for salary_rules, payout_details and
+// role_access. Runs at most once per process.
+let payrollSchemaReady = null;
+
+function ensurePayrollSchema() {
+  if (payrollSchemaReady) return payrollSchemaReady;
+  payrollSchemaReady = (async () => {
+    const prismaClient = getPrisma();
+    const columnExists = async (table, column) => {
+      const rows = await prismaClient.$queryRawUnsafe(
+        `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+         WHERE LOWER(TABLE_NAME) = LOWER(?) AND LOWER(COLUMN_NAME) = LOWER(?)`,
+        table, column
+      );
+      return Number(rows[0] && (rows[0].c !== undefined ? rows[0].c : rows[0]['COUNT(*)'])) > 0;
+    };
+    if (!(await columnExists('salary_payheads', 'formula'))) {
+      await prismaClient.$executeRawUnsafe('ALTER TABLE salary_payheads ADD COLUMN formula TEXT NULL');
+      logger.warn('Ensured missing salary_payheads.formula column');
+    }
+    if (!(await columnExists('employee_payroll_profiles', 'esicNumber'))) {
+      await prismaClient.$executeRawUnsafe('ALTER TABLE employee_payroll_profiles ADD COLUMN esicNumber VARCHAR(30) NULL');
+      logger.warn('Ensured missing employee_payroll_profiles.esicNumber column');
+    }
+    await prismaClient.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS employee_documents (
+        id INT(11) NOT NULL AUTO_INCREMENT,
+        employeeId INT(11) NOT NULL,
+        kind VARCHAR(30) NOT NULL,
+        fileName VARCHAR(255) DEFAULT NULL,
+        mimeType VARCHAR(40) DEFAULT NULL,
+        data LONGBLOB NOT NULL,
+        uploadedBy INT(11) DEFAULT NULL,
+        createdAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updatedAt DATETIME(3) NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_emp_doc (employeeId, kind)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  })().catch((err) => {
+    payrollSchemaReady = null; // allow a retry on the next call
+    throw err;
+  });
+  return payrollSchemaReady;
+}
+
 const PAGE_SIZE = 20;
 
 // Default standard salary split, matching the organisation's salary register:
@@ -130,12 +180,24 @@ class PayrollService {
     return [Role.SUPER_ADMIN, Role.HR_ADMIN].includes(reqUser.role);
   }
 
+  /**
+   * Idempotently create the salary-consolidation schema objects (the
+   * salary_payheads.formula column, the esicNumber column and the
+   * employee_documents table) when a hand-managed production database is
+   * missing them. Exposed so dependent services (employee documents) can
+   * self-heal before their first Prisma call.
+   */
+  static ensureSchema() {
+    return ensurePayrollSchema();
+  }
+
   // ---- Salary payheads (the configurable "salary headers") ----
 
   static async listPayheads(reqUser, { activeOnly = false } = {}) {
     if (!this.canManagePayroll(reqUser)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to manage salary payheads.', 403);
     }
+    await ensurePayrollSchema();
     const prismaClient = getPrisma();
     const where = activeOnly ? { isActive: true } : {};
     const rows = await prismaClient.payrollPayhead.findMany({ where, orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }] });
@@ -158,6 +220,7 @@ class PayrollService {
     if (!this.canManagePayroll(reqUser)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to manage salary payheads.', 403);
     }
+    await ensurePayrollSchema();
     const code = String(data.code || '').trim().toUpperCase();
     const name = String(data.name || '').trim();
     if (!code || !name) {
@@ -195,6 +258,16 @@ class PayrollService {
         throw new AppError(AppErrorCodes.VALIDATION_ERROR, `Invalid payhead formula: ${syntaxError}`, 400);
       }
     }
+    // Sort order is optional: when the caller does not supply one, append the
+    // new component after the existing list so it always shows up last.
+    let sortOrder = Number(data.sortOrder);
+    if (!Number.isFinite(sortOrder) || sortOrder === 0) {
+      const last = await prismaClient.payrollPayhead.findFirst({
+        orderBy: { sortOrder: 'desc' },
+        select: { sortOrder: true },
+      });
+      sortOrder = Number(last && last.sortOrder) || 0;
+    }
     const created = await prismaClient.payrollPayhead.create({
       data: {
         code,
@@ -205,7 +278,7 @@ class PayrollService {
         // saved into the salary calculation pipeline.
         formula: formulaText,
         isFixedByDefault: Boolean(data.isFixedByDefault),
-        sortOrder: Number(data.sortOrder) || 0,
+        sortOrder,
       },
     });
     logger.info('Salary payhead created', { code, by: reqUser.email });
@@ -216,6 +289,7 @@ class PayrollService {
     if (!this.canManagePayroll(reqUser)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to manage salary payheads.', 403);
     }
+    await ensurePayrollSchema();
     const prismaClient = getPrisma();
     const existing = await prismaClient.payrollPayhead.findUnique({ where: { id: Number(id) } });
     if (!existing) {
@@ -260,6 +334,7 @@ class PayrollService {
     if (!this.canManagePayroll(reqUser)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to manage salary payheads.', 403);
     }
+    await ensurePayrollSchema();
     const prismaClient = getPrisma();
     // Soft-delete only. Hard-removing a payhead would orphan the reference in
     // any employee structure built from it.
@@ -500,6 +575,7 @@ class PayrollService {
     if (!this.canManagePayroll(reqUser)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to calculate salary.', 403);
     }
+    await ensurePayrollSchema();
     const ctc = Number(monthlyCTC);
     if (!Number.isFinite(ctc) || ctc <= 0) {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'CTC must be a positive number.', 400);
@@ -2011,6 +2087,7 @@ class PayrollService {
     if (!this.canManagePayroll(reqUser)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view payroll profiles.', 403);
     }
+    await ensurePayrollSchema();
     const prismaClient = getPrisma();
     // The UI may pass either an employees.id or a profile id — resolve so
     // both work (the raw id check below would 404 / hit the wrong person).
@@ -2023,6 +2100,7 @@ class PayrollService {
     if (!this.canManagePayroll(reqUser)) {
       throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to manage payroll profiles.', 403);
     }
+    await ensurePayrollSchema();
     const prismaClient = getPrisma();
     // Resolve so either an employees.id or a profile id works; a null
     // result means the employee has no login-linked profile.

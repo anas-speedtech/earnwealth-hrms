@@ -104,23 +104,21 @@ export default function ConfigurationPage() {
 /* ---------------- Salary Components (payhead catalog) ---------------- */
 
 function SalaryComponentsPanel({ payheads, loading, onChanged }: { payheads: SalaryPayhead[]; loading: boolean; onChanged: () => void }) {
-  const [form, setForm] = useState({ code: '', name: '', type: 'EARNING' as 'EARNING' | 'DEDUCTION', description: '', formula: '', sortOrder: '' });
+  const [form, setForm] = useState({ code: '', name: '', type: 'EARNING' as 'EARNING' | 'DEDUCTION', formula: '' });
   const [saving, setSaving] = useState(false);
 
   const handleCreate = async () => {
-    if (!form.code.trim() || !form.name.trim()) { toast.error('Payhead code and name are required.'); return; }
+    if (!form.code.trim() || !form.name.trim()) { toast.error('Component code and name are required.'); return; }
     setSaving(true);
     try {
       await payrollService.createPayhead({
         code: form.code.trim().toUpperCase(),
         name: form.name.trim(),
         type: form.type,
-        description: form.description.trim() || undefined,
         formula: form.formula.trim() || undefined,
-        sortOrder: form.sortOrder ? Number(form.sortOrder) : 0,
       });
       toast.success('Salary component added.');
-      setForm({ code: '', name: '', type: 'EARNING', description: '', formula: '', sortOrder: '' });
+      setForm({ code: '', name: '', type: 'EARNING', formula: '' });
       onChanged();
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message || 'Could not add the component.';
@@ -146,17 +144,19 @@ function SalaryComponentsPanel({ payheads, loading, onChanged }: { payheads: Sal
       <div className={CARD}>
         <h3 className="mb-1 text-[15px] font-semibold text-slate-900">Add a Salary Component</h3>
         <p className="mb-4 text-[12px] text-slate-500">Components offered when building a salary structure. The formula feeds the Calculate action on the Salary tab.</p>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <input placeholder="Code (e.g. LTA)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className={inputCls} />
-          <div className="md:col-span-2"><input placeholder="Name (e.g. Leave Travel Allowance)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} /></div>
+          <input placeholder="Name (e.g. Leave Travel Allowance)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} />
           <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as 'EARNING' | 'DEDUCTION' })} className={inputCls}>
             <option value="EARNING">Earning</option>
             <option value="DEDUCTION">Deduction</option>
           </select>
-          <input placeholder="Sort" type="number" value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: e.target.value })} className={inputCls} />
           <button onClick={handleCreate} disabled={saving} className="flex items-center justify-center gap-1.5 rounded-lg bg-cyan-600 px-3 py-2 text-[13px] font-medium text-white transition hover:bg-cyan-700 disabled:opacity-50">
             <Plus size={14} /> {saving ? 'Adding…' : 'Add'}
           </button>
+          <div className="col-span-2 md:col-span-4">
+            <input placeholder="Formula (optional, e.g. CTC*10% — leaves it blank for a fixed-amount line)" value={form.formula} onChange={(e) => setForm({ ...form, formula: e.target.value })} className={`${inputCls} font-mono`} />
+          </div>
         </div>
       </div>
 

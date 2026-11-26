@@ -41,6 +41,21 @@ export interface PaginatedResponse<T> {
   };
 }
 
+// A login account (users table) with its linked employee facts, as returned
+// by /admin-users. `employeeCode` is null for stale/orphan accounts that have
+// no reachable employee record — those are the "standalone" team members.
+export interface TeamAccount {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  createdAt: string;
+  employeeCode: string | null;
+  reportingManager: string | null;
+  designation: string | null;
+}
+
 export interface Department {
   id: string;
   name: string;
@@ -141,6 +156,23 @@ export const organizationService = {
     sortDir?: 'asc' | 'desc';
   } = {}): Promise<PaginatedResponse<Employee>> {
     const { data } = await api.get('/employees', { params });
+    return data;
+  },
+
+  /**
+   * Every login account (HR Admins + Employees) with its linked employee
+   * facts, un-paginated. Used by the Team screen to join account actions
+   * (reset password / activate / delete) onto the employee rows, and to
+   * surface standalone accounts that have no reachable employee record.
+   */
+  async getTeamAccounts(): Promise<TeamAccount[]> {
+    const { data } = await api.get<TeamAccount[]>('/admin-users', { params: { role: 'HR_ADMIN,EMPLOYEE' } });
+    return data;
+  },
+
+  /** Activate / deactivate a login account (revokes its live sessions). */
+  async setTeamAccountStatus(id: string, isActive: boolean): Promise<{ id: string; isActive: boolean }> {
+    const { data } = await api.patch<{ id: string; isActive: boolean }>(`/admin-users/${id}/status`, { isActive });
     return data;
   },
 
