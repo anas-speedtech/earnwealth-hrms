@@ -149,7 +149,8 @@ const roleNavigation: Record<string, NavItem[]> = {
   ],
   EMPLOYEE: [
     { label: 'Dashboard', href: '/employee/dashboard', icon: 'dashboard' },
-    { label: 'Calendar', href: '/super-admin/holidays', icon: 'calendar' },
+    { label: 'Attendance', href: '/employee/attendance', icon: 'attendance' },
+    { label: 'Holidays', href: '/super-admin/holidays', icon: 'calendar' },
     { label: 'Apply Leave', href: '/employee/leaves/apply', icon: 'leave' },
     { label: 'Comp-Off', href: '/employee/comp-offs', icon: 'compoff' },
     { label: 'WFH', href: '/employee/wfh', icon: 'wfh' },
