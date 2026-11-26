@@ -77,20 +77,18 @@ const CONFIGURATION_SUBMENU = [
   { label: 'Calculation', href: '/super-admin/configuration' },
 ];
 
-// The "Team" section: the Accounts screen manages login accounts, and
-// "Employee Details" opens the searchable employee directory where records
-// can be viewed and edited (HR Admin and Super Admin both have edit rights).
-const USERS_SUBMENU = [
-  { label: 'Accounts', href: '/super-admin/admins' },
-  { label: 'Employee Details', href: '/admin/employees' },
-];
+// The "Team" section: a single, searchable directory of every team member
+// (employees + HR Admins) with one Add entry point and per-row account
+// actions (reset password / activate / delete). The old separate Accounts
+// and Employee Details screens are merged here.
+const TEAM_HREF = '/admin/employees';
 
 // Side-menu structure per role. Labels avoid the word "management" as
 // requested; the Role & Designation section carries a submenu.
 const roleNavigation: Record<string, NavItem[]> = {
   SUPER_ADMIN: [
     { label: 'Dashboard', href: '/super-admin/dashboard', icon: 'dashboard' },
-    { label: 'Team', href: '/super-admin/admins', icon: 'users', submenu: USERS_SUBMENU },
+    { label: 'Team', href: TEAM_HREF, icon: 'users' },
     {
       label: 'Roles & Designations',
       href: '/super-admin/user-roles',
@@ -119,7 +117,7 @@ const roleNavigation: Record<string, NavItem[]> = {
   ],
   HR_ADMIN: [
     { label: 'Dashboard', href: '/hr/dashboard', icon: 'dashboard' },
-    { label: 'Team', href: '/super-admin/admins', icon: 'users', submenu: USERS_SUBMENU },
+    { label: 'Team', href: TEAM_HREF, icon: 'users' },
     {
       label: 'Roles & Designations',
       href: '/super-admin/user-roles',
