@@ -491,6 +491,22 @@ function PfEsiTab({ employeeId, canEdit }: { employeeId: string; canEdit: boolea
   const [esicNumber, setEsicNumber] = useState('');
   const [pan, setPan] = useState('');
 
+  // ---- Professional Tax fields (same statutory-profile record) ----
+  const [pt, setPt] = useState({
+    stateCode: '',
+    workLocation: '',
+    gender: '' as '' | 'MALE' | 'FEMALE',
+    ptApplicable: true,
+    ptCategory: '' as '' | 'MALE' | 'FEMALE',
+    ptExempt: false,
+    ptExemptionCategory: '',
+    ptExemptionValidFrom: '',
+    ptExemptionValidUntil: '',
+    ptExemptionDocument: '',
+    ptExemptionStatus: '' as '' | 'PENDING' | 'APPROVED' | 'REJECTED',
+  });
+  const [ptSaving, setPtSaving] = useState(false);
+
   useEffect(() => {
     let mounted = true;
     payrollService.getEmployeePayrollProfile(employeeId)
@@ -503,12 +519,51 @@ function PfEsiTab({ employeeId, canEdit }: { employeeId: string; canEdit: boolea
           setUan(p.uan || '');
           setEsicNumber(p.esicNumber || '');
           setPan(p.pan || '');
+          setPt({
+            stateCode: p.stateCode || '',
+            workLocation: p.workLocation || '',
+            gender: p.gender || '',
+            ptApplicable: p.ptApplicable !== false,
+            ptCategory: p.ptCategory || '',
+            ptExempt: Boolean(p.ptExempt),
+            ptExemptionCategory: p.ptExemptionCategory || '',
+            ptExemptionValidFrom: p.ptExemptionValidFrom ? String(p.ptExemptionValidFrom).slice(0, 10) : '',
+            ptExemptionValidUntil: p.ptExemptionValidUntil ? String(p.ptExemptionValidUntil).slice(0, 10) : '',
+            ptExemptionDocument: p.ptExemptionDocument || '',
+            ptExemptionStatus: p.ptExemptionStatus || '',
+          });
         }
       })
       .catch(() => { if (mounted) setProfile(null); })
       .finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
   }, [employeeId]);
+
+  const savePT = async () => {
+    setPtSaving(true);
+    try {
+      const payload: Partial<EmployeePayrollProfile> = {
+        stateCode: pt.stateCode.trim() || null,
+        workLocation: pt.workLocation.trim() || null,
+        gender: pt.gender || null,
+        ptApplicable: pt.ptApplicable,
+        ptCategory: pt.ptCategory || null,
+        ptExempt: pt.ptExempt,
+        ptExemptionCategory: pt.ptExemptionCategory.trim() || null,
+        ptExemptionValidFrom: pt.ptExemptionValidFrom || null,
+        ptExemptionValidUntil: pt.ptExemptionValidUntil || null,
+        ptExemptionDocument: pt.ptExemptionDocument.trim() || null,
+        ptExemptionStatus: pt.ptExemptionStatus || null,
+      };
+      const saved = await payrollService.saveEmployeePayrollProfile(employeeId, payload);
+      setProfile(saved);
+      toast.success('Professional Tax details saved.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save Professional Tax details.');
+    } finally {
+      setPtSaving(false);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -531,7 +586,10 @@ function PfEsiTab({ employeeId, canEdit }: { employeeId: string; canEdit: boolea
 
   if (loading) return <div className="py-10 text-center text-[13px] text-slate-500"><Loader2 size={16} className="mr-2 inline animate-spin" />Loading PF / ESI details…</div>;
 
+  const setP = (patch: Partial<typeof pt>) => setPt((prev) => ({ ...prev, ...patch }));
+
   return (
+    <div className="space-y-5">
     <Card
       title="PF & ESI Details"
       subtitle="Statutory eligibility. Ticking PF shows the UAN field; ticking ESI shows the ESIC number."
@@ -584,6 +642,100 @@ function PfEsiTab({ employeeId, canEdit }: { employeeId: string; canEdit: boolea
         )}
       </div>
     </Card>
+
+    {/* Professional Tax — state- & category-specific slabs / exemption */}
+    <Card
+      title="Professional Tax"
+      subtitle="State-specific, slab-based deduction. Work state selects the slabs; category (male/female) is set explicitly, never inferred."
+      action={canEdit && <Button size="sm" onClick={savePT} disabled={ptSaving} isLoading={ptSaving}>{ptSaving ? 'Saving…' : 'Save PT'}</Button>}
+    >
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div>
+            <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Work State</label>
+            <input value={pt.stateCode} onChange={(e) => setP({ stateCode: e.target.value.toUpperCase().slice(0, 10) })} disabled={!canEdit}
+              placeholder="e.g. MH" className={`${fieldInputClass} font-mono`} />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Work Location</label>
+            <input value={pt.workLocation} onChange={(e) => setP({ workLocation: e.target.value })} disabled={!canEdit}
+              placeholder="City / office" className={fieldInputClass} />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Gender (drives category if not explicit)</label>
+            <select value={pt.gender} onChange={(e) => setP({ gender: e.target.value as '' | 'MALE' | 'FEMALE' })} disabled={!canEdit} className={fieldInputClass}>
+              <option value="">Not set</option>
+              <option value="MALE">Male</option>
+              <option value="FEMALE">Female</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <label className="flex items-center gap-2 text-[13px] text-slate-700">
+            <input type="checkbox" checked={pt.ptApplicable} onChange={(e) => setP({ ptApplicable: e.target.checked })} disabled={!canEdit}
+              className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+            <span className="font-medium">PT applicable</span>
+          </label>
+          <div>
+            <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Statutory category (explicit; overrides gender)</label>
+            <select value={pt.ptCategory} onChange={(e) => setP({ ptCategory: e.target.value as '' | 'MALE' | 'FEMALE' })} disabled={!canEdit} className={fieldInputClass}>
+              <option value="">Not set</option>
+              <option value="MALE">Male</option>
+              <option value="FEMALE">Female</option>
+            </select>
+          </div>
+          <p className="text-[11px] leading-relaxed text-slate-400">
+            If no work state is set, PT is skipped (0) — never assumed. If no category is set, PT is 0 with a
+            skip flag. Both must be maintained for the slabs to apply.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+          <div className="mb-3 flex items-center gap-3">
+            <label className="flex items-center gap-2 text-[13px] text-slate-700">
+              <input type="checkbox" checked={pt.ptExempt} onChange={(e) => setP({ ptExempt: e.target.checked })} disabled={!canEdit}
+                className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+              <span className="font-medium">PT exemption applicable</span>
+            </label>
+            <span className="text-[11px] text-slate-400">Only an APPROVED exemption inside its window affects payroll.</span>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Exemption category / legal provision</label>
+              <input value={pt.ptExemptionCategory} onChange={(e) => setP({ ptExemptionCategory: e.target.value })} disabled={!canEdit}
+                placeholder="e.g. GOVERNMENT_SALARY_EMPLOYEE" className={fieldInputClass} />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Valid from</label>
+              <input type="date" value={pt.ptExemptionValidFrom} onChange={(e) => setP({ ptExemptionValidFrom: e.target.value })} disabled={!canEdit}
+                className={fieldInputClass} />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Valid until</label>
+              <input type="date" value={pt.ptExemptionValidUntil} onChange={(e) => setP({ ptExemptionValidUntil: e.target.value })} disabled={!canEdit}
+                className={fieldInputClass} />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Supporting document / reference</label>
+              <input value={pt.ptExemptionDocument} onChange={(e) => setP({ ptExemptionDocument: e.target.value })} disabled={!canEdit}
+                placeholder="Challan / certificate ref" className={fieldInputClass} />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[12px] font-medium text-slate-600">Approval status</label>
+              <select value={pt.ptExemptionStatus} onChange={(e) => setP({ ptExemptionStatus: e.target.value as '' | 'PENDING' | 'APPROVED' | 'REJECTED' })} disabled={!canEdit}
+                className={fieldInputClass}>
+                <option value="">Not set</option>
+                <option value="PENDING">Pending</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+    </div>
   );
 }
 

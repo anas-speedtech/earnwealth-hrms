@@ -6,6 +6,7 @@ const { moduleLogger } = require('../utils/logger');
 const logger = moduleLogger('services.payroll.service');
 const { generatePayslipPDF, getPayslipFilename } = require('../utils/pdfPayslip');
 const { PayrollFormulaEngine } = require('./formula-engine');
+const { ProfessionalTaxService } = require('./professional-tax.service');
 const { AttendanceService } = require('./attendance.service');
 const { comparePassword } = require('../utils/password');
 const { env } = require('../config/env');
@@ -1200,6 +1201,23 @@ class PayrollService {
       components: statutory.components
         .filter((c) => c.type !== 'EARNING' || /PF|ESI|PT|GRATUITY/i.test(c.name || ''))
         .map((c) => ({ name: c.name, type: c.type, amount: c.amount })),
+      // The full PT trace (slab, basis, Feb adjustment, exemption, skip
+      // reason) frozen with the record so a later rule change can never
+      // rewrite this month's PT.
+      professionalTax: statutory.pt?.result ? {
+        stateCode: statutory.pt.stateCode,
+        category: statutory.pt.category,
+        finalPT: statutory.pt.result.finalPT,
+        normalPT: statutory.pt.result.normalPT,
+        februaryAdjustment: statutory.pt.result.februaryAdjustment,
+        exemptionAmount: statutory.pt.result.exemptionAmount,
+        isExempt: statutory.pt.result.isExempt,
+        skipped: statutory.pt.result.skipped,
+        skipReason: statutory.pt.result.skipReason,
+        taxableSalaryBasis: statutory.pt.result.taxableSalaryBasis,
+        applicableSlabId: statutory.pt.result.applicableSlabId,
+        ruleVersion: statutory.pt.result.ruleVersion,
+      } : null,
     };
     const profileSnapshot = payrollProfile ? {
       employeeId: payrollProfile.employeeId,
@@ -1258,6 +1276,32 @@ class PayrollService {
         lopDays: attendanceInputs.lopDays, halfDays: attendanceInputs.halfDays, prorationBasis: 'WORKING_DAYS',
         prorationFactor: attendanceInputs.prorationFactor, warningsJson: JSON.stringify(attendanceInputs.warnings),
       } });
+    }
+
+    // Freeze the per-record Professional Tax trace. writeTransaction is
+    // idempotent per record (re-running a live DRAFT never duplicates it) and
+    // never touches a finalized record's row.
+    if (statutory.pt?.result) {
+      const pt = statutory.pt.result;
+      await ProfessionalTaxService.writeTransaction(prismaClient, {
+        id: payroll.id,
+        employeeId: payroll.employeeId,
+        month,
+        year,
+      }, {
+        stateCode: pt.stateCode,
+        category: pt.category,
+        taxableSalaryBasis: pt.taxableSalaryBasis,
+        applicableSlabId: pt.applicableSlabId,
+        ruleVersion: pt.ruleVersion,
+        normalPT: pt.normalPT,
+        februaryAdjustment: pt.februaryAdjustment,
+        exemptionAmount: pt.exemptionAmount,
+        finalPT: pt.finalPT,
+        isExempt: pt.isExempt,
+        exemptionStatus: pt.exemptionStatus,
+        details: pt.details,
+      });
     }
 
     logger.info(`Payroll created for employee ${employeeId} ${month}/${year} by ${reqUser.email}`);
@@ -2291,7 +2335,7 @@ class PayrollService {
     const id = await this.resolveProfileId(prismaClient, employeeId);
     if (!id) throw new AppError(AppErrorCodes.NOT_FOUND, 'Employee not found.', 404);
     const profileData = {};
-    for (const key of ['pan', 'uan', 'esicNumber', 'bankName', 'bankAccountMasked', 'bankIfsc', 'taxRegime', 'pfApplicable', 'esiApplicable', 'voluntaryPfRate', 'salaryOnHold', 'holdReason', 'stateCode']) {
+    for (const key of ['pan', 'uan', 'esicNumber', 'bankName', 'bankAccountMasked', 'bankIfsc', 'taxRegime', 'pfApplicable', 'esiApplicable', 'voluntaryPfRate', 'salaryOnHold', 'holdReason', 'stateCode', 'gender', 'ptApplicable', 'workLocation', 'ptCategory', 'ptExempt', 'ptExemptionCategory', 'ptExemptionDocument', 'ptExemptionApprovedBy', 'ptExemptionStatus']) {
       if (data[key] !== undefined) profileData[key] = data[key] === '' ? null : data[key];
     }
     // Exiter context: date/number fields validated and normalized explicitly.
@@ -2303,6 +2347,18 @@ class PayrollService {
     }
     if (data.noticePeriodDays !== undefined) {
       profileData.noticePeriodDays = Math.max(0, Number(data.noticePeriodDays) || 0);
+    }
+    // PT exemption window: date-only fields, normalize or null.
+    for (const dateKey of ['ptExemptionValidFrom', 'ptExemptionValidUntil']) {
+      if (data[dateKey] !== undefined) {
+        profileData[dateKey] = data[dateKey] ? new Date(data[dateKey]) : null;
+        if (profileData[dateKey] && Number.isNaN(profileData[dateKey].getTime())) {
+          throw new AppError(AppErrorCodes.VALIDATION_ERROR, `${dateKey} is not a valid date.`, 400);
+        }
+      }
+    }
+    if (data.ptExemptionApprovedBy !== undefined) {
+      profileData.ptExemptionApprovedBy = data.ptExemptionApprovedBy == null ? null : Number(data.ptExemptionApprovedBy);
     }
     if (profileData.pan && !/^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(String(profileData.pan))) {
       throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'PAN must use the standard 10-character format.', 400);
@@ -2430,13 +2486,133 @@ class PayrollService {
       replace('ESI (Employer)', 'MEMO', gross * Number(esi.employerRate) / 100);
       appliedSettings.push({ type: 'ESI', id: esi.id, wage: gross, employeeRate: Number(esi.employeeRate), employerRate: Number(esi.employerRate) });
     }
-    const pt = settingFor('PT');
-    if (pt) {
-      const amount = pt.wageCeiling != null && gross < Number(pt.wageCeiling) ? 0 : Number(pt.employeeRate);
-      replace('Professional Tax', 'DEDUCTION', amount);
-      appliedSettings.push({ type: 'PT', id: pt.id, amount });
+    // ---- Professional Tax (slab engine, state- and category-specific) ----
+    // Replaces the old flat professionTax ceiling rule. The slab engine is
+    // state-agnostic: it reads PT slabs from payroll_statutory_settings for
+    // the employee's work state + statutory category and applies the February
+    // amount when the pay period is February. When the employee has no work
+    // state (stateCode) set, we fall back to the legacy stateless PT rule
+    // (if one is configured) rather than assuming a state — PT is never
+    // guessed. A missing category (male/female) yields 0 and a skip flag,
+    // not a silent default.
+    const legacyPtRule = settingFor('PT');
+    const pt = await this.computeProfessionalTax(prismaClient, payrollProfile, gross, month, year, legacyPtRule);
+    replace('Professional Tax', 'DEDUCTION', pt.amount);
+    appliedSettings.push({
+      type: 'PT',
+      id: pt.settingId,
+      amount: pt.amount,
+      pt: {
+        stateCode: pt.stateCode,
+        category: pt.category,
+        isFebruary: pt.isFebruary,
+        normalPT: pt.normalPT,
+        februaryAdjustment: pt.februaryAdjustment,
+        exemptionAmount: pt.exemptionAmount,
+        finalPT: pt.finalPT,
+        isExempt: pt.isExempt,
+        skipped: pt.skipped,
+        skipReason: pt.skipReason,
+        taxableSalaryBasis: pt.taxableSalaryBasis,
+        applicableSlabId: pt.applicableSlabId,
+        ruleVersion: pt.ruleVersion,
+      },
+    });
+    return {
+      components: result,
+      appliedSettings,
+      // The computed PT result is returned so the caller (createPayroll) can
+      // persist a per-record PT transaction (the trace/audit requirement).
+      pt: { stateCode: pt.stateCode, category: pt.category, result: pt },
+    };
+  }
+
+  /**
+   * Resolve + compute Professional Tax for a pay period. Returns the amounts
+   * plus the trace the PT transaction needs. Legacy fallback: when the
+   * employee has no work-state code we honour a stateless PT statutory rule
+   * if one exists (the pre-PT-module behaviour), otherwise PT is 0/skipped.
+   */
+  static async computeProfessionalTax(prismaClient, payrollProfile, gross, month, year, legacyPtRule = null) {
+    const stateCode = payrollProfile?.stateCode || null;
+    const isFebruary = Number(month) === 2;
+    const payDateISO = new Date(Date.UTC(year, month - 1, 1)).toISOString();
+
+    if (stateCode) {
+      await ProfessionalTaxService.ensureSchema(prismaClient);
+      const pt = await ProfessionalTaxService.computeForEmployee(prismaClient, {
+        employeeId: payrollProfile?.employeeId,
+        stateCode,
+        category: payrollProfile?.ptCategory,
+        gender: payrollProfile?.gender,
+        ptProfile: payrollProfile,
+        grossSalary: gross,
+        month,
+        year,
+        payDateISO,
+      });
+      return {
+        stateCode,
+        category: pt.category,
+        settingId: pt.applicableSlabId,
+        amount: pt.finalPT,
+        normalPT: pt.normalPT,
+        februaryAdjustment: pt.februaryAdjustment,
+        exemptionAmount: pt.exemptionAmount,
+        finalPT: pt.finalPT,
+        isExempt: pt.isExempt,
+        isFebruary,
+        skipped: pt.skipped,
+        skipReason: pt.skipReason,
+        taxableSalaryBasis: pt.taxableSalaryBasis,
+        applicableSlabId: pt.applicableSlabId,
+        ruleVersion: pt.ruleVersion,
+      };
     }
-    return { components: result, appliedSettings };
+
+    // No work state: keep the pre-existing stateless PT rule if configured
+    // (passed in from applyStatutoryComponents, where it is already resolved
+    // and effective-dated), so employees who pre-date state-specific PT are
+    // not unexpectedly zeroed. Deliberately conservative, not a guess at
+    // which state applies.
+    const flatRow = legacyPtRule;
+    if (!flatRow) {
+      return {
+        stateCode: null,
+        category: null,
+        settingId: null,
+        amount: 0,
+        normalPT: 0,
+        februaryAdjustment: 0,
+        exemptionAmount: 0,
+        finalPT: 0,
+        isExempt: false,
+        isFebruary,
+        skipped: true,
+        skipReason: 'NO_STATE',
+        taxableSalaryBasis: gross,
+        applicableSlabId: null,
+        ruleVersion: null,
+      };
+    }
+    const amount = flatRow.wageCeiling != null && gross < Number(flatRow.wageCeiling) ? 0 : Number(flatRow.employeeRate);
+    return {
+      stateCode: null,
+      category: null,
+      settingId: Number(flatRow.id),
+      amount,
+      normalPT: amount,
+      februaryAdjustment: 0,
+      exemptionAmount: 0,
+      finalPT: amount,
+      isExempt: false,
+      isFebruary,
+      skipped: false,
+      skipReason: null,
+      taxableSalaryBasis: gross,
+      applicableSlabId: Number(flatRow.id),
+      ruleVersion: flatRow.ruleVersion || 'LEGACY-STATELESS',
+    };
   }
 
   static async applyPayrollAdjustments(prismaClient, employeeId, components, month, year) {

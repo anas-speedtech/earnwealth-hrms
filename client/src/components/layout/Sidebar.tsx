@@ -8,6 +8,7 @@ import {
   CircleDollarSign,
   Clock,
   Home,
+  Landmark,
   Hourglass,
   IdCard,
   LayoutDashboard,
@@ -26,7 +27,7 @@ interface SidebarProps {
   onNavigate?: () => void;
 }
 
-type IconName = 'dashboard' | 'users' | 'role' | 'calendar' | 'controls' | 'profile' | 'attendance' | 'leave' | 'compoff' | 'wfh' | 'payroll' | 'reports';
+type IconName = 'dashboard' | 'users' | 'role' | 'calendar' | 'controls' | 'profile' | 'attendance' | 'leave' | 'compoff' | 'wfh' | 'payroll' | 'reports' | 'pt';
 
 interface NavItem {
   label: string;
@@ -49,6 +50,7 @@ const navIcons: Record<IconName, React.ComponentType<React.SVGProps<SVGSVGElemen
   wfh: Home,
   payroll: CircleDollarSign,
   reports: BarChart3,
+  pt: Landmark,
 };
 
 // The "Role & Designation" section: the Role sub-menu opens the Role &
@@ -114,6 +116,7 @@ const roleNavigation: Record<string, NavItem[]> = {
     { label: 'Holidays', href: '/super-admin/holidays', icon: 'calendar' },
     { label: 'Payroll', href: '/super-admin/payroll-approval', icon: 'payroll' },
     { label: 'Reports', href: '/super-admin/reports', icon: 'reports' },
+    { label: 'Professional Tax', href: '/hr/pt', icon: 'pt' },
   ],
   HR_ADMIN: [
     { label: 'Dashboard', href: '/hr/dashboard', icon: 'dashboard' },
@@ -140,6 +143,7 @@ const roleNavigation: Record<string, NavItem[]> = {
     { label: 'Holidays', href: '/super-admin/holidays', icon: 'calendar' },
     { label: 'Payroll', href: '/hr/payroll', icon: 'payroll' },
     { label: 'Reports', href: '/hr/reports', icon: 'reports' },
+    { label: 'Professional Tax', href: '/hr/pt', icon: 'pt' },
     // An HR Admin is also an employee, so they can view their own details.
     { label: 'My Profile', href: '/employee/profile', icon: 'profile' },
   ],

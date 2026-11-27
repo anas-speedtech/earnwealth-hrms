@@ -3,6 +3,8 @@ const { z } = require('zod');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validateBody, validateQuery } = require('../middleware/validate');
 const { PayrollService } = require('../services/payroll.service');
+const { ProfessionalTaxService } = require('../services/professional-tax.service');
+const { getPrisma } = require('../services/auth.service');
 const { EmployeeDocumentsService } = require('../services/employee-documents.service');
 const { Role } = require('../types/index');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
@@ -162,6 +164,18 @@ const employeePayrollProfileSchema = z.object({
   pfApplicable: z.boolean().optional(), esiApplicable: z.boolean().optional(), voluntaryPfRate: z.number().min(0).max(100).optional().nullable(),
   salaryOnHold: z.boolean().optional(), holdReason: z.string().max(500).optional().nullable(),
   stateCode: z.string().max(10).optional().nullable(), exitDate: z.string().optional().nullable(), noticePeriodDays: z.number().int().min(0).max(365).optional(),
+  // Professional Tax context (state- + category-specific slabs / exemption).
+  gender: z.enum(['MALE', 'FEMALE']).optional().nullable(),
+  ptApplicable: z.boolean().optional(),
+  workLocation: z.string().max(100).optional().nullable(),
+  ptCategory: z.enum(['MALE', 'FEMALE']).optional().nullable(),
+  ptExempt: z.boolean().optional(),
+  ptExemptionCategory: z.string().max(50).optional().nullable(),
+  ptExemptionValidFrom: z.string().optional().nullable(),
+  ptExemptionValidUntil: z.string().optional().nullable(),
+  ptExemptionDocument: z.string().max(255).optional().nullable(),
+  ptExemptionApprovedBy: z.number().int().optional().nullable(),
+  ptExemptionStatus: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional().nullable(),
 });
 const loanSchema = z.object({ loanType: z.enum(['LOAN', 'ADVANCE']).optional().default('LOAN'), principalAmount: z.number().positive(), emiAmount: z.number().positive(), startDate: z.string().min(1), endDate: z.string().optional().nullable() });
 const repaymentSchema = z.object({ amount: z.number().positive(), paidOn: z.string().optional(), payrollRecordId: z.number().int().optional().nullable() });
@@ -852,5 +866,75 @@ router.post(
     }
   }
 );
+
+
+// ============ PROFESSIONAL TAX (PT) MODULE ============
+// Slab-based, state- & category-specific Professional Tax: dashboard,
+// reports, exemption review and the employer compliance ledger. All gated to
+// SUPER_ADMIN / HR_ADMIN. Statutory PT slab configuration reuses the statutory
+// settings endpoints (payroll_statutory_settings rows of type 'PT').
+
+const ptQuerySchema = z.object({
+  stateCode: z.string().max(10).optional(),
+  month: z.coerce.number().int().min(1).max(12).optional(),
+  year: z.coerce.number().int().optional(),
+  fiscalYearStart: z.coerce.number().int().optional(),
+});
+const ptExemptionReviewSchema = z.object({
+  employeeId: intId,
+  approved: z.boolean(),
+  comment: z.string().max(500).optional().nullable(),
+});
+const ptFilingSchema = z.object({
+  stateCode: z.string().min(1).max(10),
+  financialYearStart: z.coerce.number().int().min(2000).max(2100),
+  prevYearLiability: z.coerce.number().min(0).optional().nullable(),
+});
+
+// PT dashboard (current month + employer status + breakdowns).
+router.get('/payroll/pt/dashboard', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateQuery(ptQuerySchema), async (req, res, next) => {
+  try {
+    res.json({ data: await ProfessionalTaxService.dashboard(getPrisma(), { stateCode: req.query.stateCode, month: req.query.month, year: req.query.year }) });
+  } catch (err) { next(err); }
+});
+
+// PT reports (each returns a plain array the client can CSV/Excel export).
+router.get('/payroll/pt/reports/monthly-employee', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateQuery(ptQuerySchema), async (req, res, next) => {
+  try { res.json({ data: await ProfessionalTaxService.monthlyEmployeeReport(getPrisma(), { stateCode: req.query.stateCode, month: req.query.month, year: req.query.year }) }); } catch (err) { next(err); }
+});
+router.get('/payroll/pt/reports/monthly-state', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateQuery(ptQuerySchema), async (req, res, next) => {
+  try { res.json({ data: await ProfessionalTaxService.monthlyStateReport(getPrisma(), { month: req.query.month, year: req.query.year }) }); } catch (err) { next(err); }
+});
+router.get('/payroll/pt/reports/fiscal-year-employee', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateQuery(ptQuerySchema), async (req, res, next) => {
+  try { res.json({ data: await ProfessionalTaxService.fiscalYearEmployeeReport(getPrisma(), { fiscalYearStart: req.query.fiscalYearStart, stateCode: req.query.stateCode }) }); } catch (err) { next(err); }
+});
+router.get('/payroll/pt/reports/reconciliation', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateQuery(ptQuerySchema), async (req, res, next) => {
+  try { res.json({ data: await ProfessionalTaxService.reconciliationReport(getPrisma(), { stateCode: req.query.stateCode, fiscalYearStart: req.query.fiscalYearStart }) }); } catch (err) { next(err); }
+});
+router.get('/payroll/pt/reports/exemptions', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try { res.json({ data: await ProfessionalTaxService.exemptionReport(getPrisma()) }); } catch (err) { next(err); }
+});
+router.get('/payroll/pt/reports/compliance', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try { res.json({ data: await ProfessionalTaxService.complianceReport(getPrisma()) }); } catch (err) { next(err); }
+});
+
+// Exemption list + review (approve / reject) — the only path to APPROVED.
+router.get('/payroll/pt/exemptions', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try { res.json({ data: await ProfessionalTaxService.listExemptions(getPrisma(), { status: req.query.status }) }); } catch (err) { next(err); }
+});
+router.post('/payroll/pt/exemptions/review', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(ptExemptionReviewSchema), async (req, res, next) => {
+  try { res.json({ data: await ProfessionalTaxService.reviewExemption(getPrisma(), req.user, req.body) }); } catch (err) { next(err); }
+});
+
+// Employer compliance: upsert the filing ledger (frequency auto-derived from
+// the previous FY's PT liability, Maharashtra Rule 11 + amendments).
+router.post('/payroll/pt/filings', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(ptFilingSchema), async (req, res, next) => {
+  try {
+    res.status(201).json({ data: await ProfessionalTaxService.upsertFiling(getPrisma(), req.user, { stateCode: req.body.stateCode, financialYearStart: req.body.financialYearStart, prevYearLiability: req.body.prevYearLiability }) });
+  } catch (err) { next(err); }
+});
+router.get('/payroll/pt/filings', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), async (req, res, next) => {
+  try { res.json({ data: await ProfessionalTaxService.complianceReport(getPrisma()) }); } catch (err) { next(err); }
+});
 
 module.exports = router;

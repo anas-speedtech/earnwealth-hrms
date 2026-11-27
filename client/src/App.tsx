@@ -54,6 +54,7 @@ import HrLeavesHub from './pages/hr/LeavesHub';
 import HrCalendarMatrix from './pages/hr/CalendarMatrix';
 import HrPayslips from './pages/hr/Payslips';
 import HrReports from './pages/hr/Reports';
+import PTDashboardPage from './pages/hr/PTDashboard';
 
 // Employee pages
 import EmployeeProfile from './pages/employee/Profile';
@@ -423,6 +424,16 @@ function App() {
                 <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
                   <ProtectedRoute>
                     <HrReports />
+                  </ProtectedRoute>
+                </RoleRoute>
+              }
+            />
+            <Route
+              path="/hr/pt"
+              element={
+                <RoleRoute allowedRoles={['SUPER_ADMIN', 'HR_ADMIN']}>
+                  <ProtectedRoute>
+                    <PTDashboardPage />
                   </ProtectedRoute>
                 </RoleRoute>
               }

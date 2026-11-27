@@ -539,6 +539,7 @@ model PayrollRecord {
   oneTimeAdjustments PayrollOneTimeAdjustment[]
   loanRepayments    EmployeeLoanRepayment[]
   reimbursements    EmployeeReimbursement[]
+  ptTransactions    PayrollPTTransaction[]
 
   // At most one payroll calculation per employee per pay month.
   @@unique([employeeId, year, month])
@@ -661,6 +662,19 @@ model PayrollStatutorySetting {
   wageCeiling        Decimal? @db.Decimal(14, 2)
   eligibilityJson    String?  @db.Text
   configurationJson  String?  @db.Text
+  // ---- Professional Tax slab fields -------------------------------------
+  // PT is slab-based (not a percentage, not CTC-basis). A PT row carries a
+  // statutory employee category (MALE/FEMALE — set explicitly on the
+  // employee, never inferred), a salary band [minimumSalary, maximumSalary)
+  // in monthly gross, and the fixed amount for a normal month plus the
+  // February amount. A NULL maximumSalary = unbounded (the top slab).
+  employeeCategory   String?  @db.VarChar(20)
+  minimumSalary      Decimal  @default(0) @db.Decimal(14, 2)
+  maximumSalary      Decimal? @db.Decimal(14, 2)
+  normalTaxAmount    Decimal  @default(0) @db.Decimal(14, 2)
+  februaryTaxAmount  Decimal  @default(0) @db.Decimal(14, 2)
+  legalReference     String?  @db.VarChar(255)
+  ruleVersion        String?  @db.VarChar(40)
   effectiveFrom      DateTime @db.Date
   effectiveTo        DateTime? @db.Date
   isActive           Boolean  @default(true)
@@ -671,6 +685,69 @@ model PayrollStatutorySetting {
   @@index([statutoryType, stateCode, isActive])
   @@index([effectiveFrom, effectiveTo])
   @@map("payroll_statutory_settings")
+}
+
+// Per-period Professional Tax calculation trace. One row per employee per
+// payroll record, frozen with the record so a later rule change can never
+// rewrite an already-computed month. This is the "every PT transaction is
+// traceable to the statutory rule and its basis" audit requirement.
+model PayrollPTTransaction {
+  id                    Int      @id @default(autoincrement())
+  employeeId           Int      // employee_profiles.id (the payroll key space)
+  payrollRecordId      Int?
+  salaryPeriodMonth    Int
+  salaryPeriodYear     Int
+  salaryPaidDate       DateTime? @db.Date
+  stateCode            String?  @db.VarChar(10)
+  employeeCategory     String?  @db.VarChar(20)
+  taxableSalaryBasis   Decimal  @db.Decimal(14, 2)
+  applicableSlabId     Int?
+  ruleVersion          String?  @db.VarChar(40)
+  normalPT             Decimal  @default(0) @db.Decimal(14, 2)
+  februaryAdjustment   Decimal  @default(0) @db.Decimal(14, 2)
+  exemptionAmount      Decimal  @default(0) @db.Decimal(14, 2)
+  finalPT              Decimal  @default(0) @db.Decimal(14, 2)
+  isExempt             Boolean  @default(false)
+  exemptionStatus      String?  @db.VarChar(20)
+  calculationDetails   String?  @db.Text
+  createdAt            DateTime @default(now()) @db.DateTime(3)
+
+  payrollRecord        PayrollRecord? @relation(fields: [payrollRecordId], references: [id], onDelete: SetNull)
+
+  @@unique([payrollRecordId])
+  @@index([employeeId, salaryPeriodYear, salaryPeriodMonth])
+  @@map("payroll_pt_transactions")
+}
+
+// Employer PT compliance ledger (Maharashtra Rule 11 + amendments): which
+// filing frequency applies for a financial year, the statutory deadlines,
+// the filed/paid status and the return/challan record. One row per
+// employer-year-state. Drives the configurable compliance calendar + reminders.
+model PayrollPTFiling {
+  id                    Int      @id @default(autoincrement())
+  stateCode            String   @db.VarChar(10)
+  financialYearStart    Int     // 2023 for the FY 2023-24
+  filingFrequency       String   @db.VarChar(20) // MONTHLY | ANNUAL
+  basisLiability        Decimal? @db.Decimal(14, 2) // prev-year PT liability that set the frequency
+  totalPTPayable        Decimal  @default(0) @db.Decimal(14, 2)
+  totalPTPaid          Decimal  @default(0) @db.Decimal(14, 2)
+  lastFilingDeadline    DateTime? @db.Date
+  nextFilingDeadline    DateTime? @db.Date
+  paymentDeadline       DateTime? @db.Date
+  lateFeeAmount         Decimal  @default(0) @db.Decimal(14, 2)
+  interestAmount        Decimal  @default(0) @db.Decimal(14, 2)
+  filingStatus          String   @default("PENDING") @db.VarChar(20) // PENDING | FILED | PAID | LATE
+  returnReference       String?  @db.VarChar(100)
+  challanReference      String?  @db.VarChar(100)
+  filedAt              DateTime?
+  notes                String?  @db.Text
+  createdBy            Int?
+  createdAt            DateTime @default(now()) @db.DateTime(3)
+  updatedAt            DateTime @updatedAt @db.DateTime(3)
+
+  @@unique([stateCode, financialYearStart])
+  @@index([stateCode, filingStatus])
+  @@map("payroll_pt_filings")
 }
 
 // Reusable salary templates: named, shareable component sets that HR can
@@ -762,6 +839,26 @@ model EmployeePayrollProfile {
   // contractual days to be accounted for when calculating the exit month.
   exitDate           DateTime? @db.Date
   noticePeriodDays   Int      @default(0)
+  // ---- Professional Tax context ------------------------------------------
+  // PT is state-specific and category-specific. stateCode above selects the
+  // state; the fields below select the statutory slabs and any exemption:
+  //   - gender drives the statutory category (MH has separate male/female
+  //     slabs) — the task's "add Male/Female to Personal Information" case.
+  //   - ptCategory is the EXPLICIT statutory category. It is maintained, not
+  //     inferred from name/age; when it is set it wins over gender, which is
+  //     what allows "use an explicitly maintained statutory category".
+  //   - ptApplicable false (or no stateCode) => PT skipped, never assumed.
+  gender             String?  @db.VarChar(10)
+  ptApplicable       Boolean  @default(true)
+  workLocation       String?  @db.VarChar(100)
+  ptCategory         String?  @db.VarChar(20)
+  ptExempt           Boolean  @default(false)
+  ptExemptionCategory String?  @db.VarChar(50)
+  ptExemptionValidFrom  DateTime? @db.Date
+  ptExemptionValidUntil DateTime? @db.Date
+  ptExemptionDocument   String?  @db.VarChar(255)
+  ptExemptionApprovedBy Int?
+  ptExemptionStatus     String?  @db.VarChar(20) // PENDING | APPROVED | REJECTED
   createdAt          DateTime @default(now()) @db.DateTime(3)
   updatedAt          DateTime @updatedAt @db.DateTime(3)
 

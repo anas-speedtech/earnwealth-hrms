@@ -273,6 +273,75 @@ export interface EmployeePayrollProfile {
   bankName: string | null;
   bankAccountMasked: string | null; bankIfsc: string | null; taxRegime: 'OLD' | 'NEW';
   pfApplicable: boolean; esiApplicable: boolean; voluntaryPfRate: string | null; salaryOnHold: boolean; holdReason: string | null;
+  stateCode: string | null;
+  // ---- Professional Tax context (state- + category-specific) ----
+  gender: 'MALE' | 'FEMALE' | null;
+  ptApplicable: boolean;
+  workLocation: string | null;
+  ptCategory: 'MALE' | 'FEMALE' | null;
+  ptExempt: boolean;
+  ptExemptionCategory: string | null;
+  ptExemptionValidFrom: string | null;
+  ptExemptionValidUntil: string | null;
+  ptExemptionDocument: string | null;
+  ptExemptionApprovedBy: number | null;
+  ptExemptionStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | null;
+}
+
+// ---- Professional Tax (PT) dashboard + reports + compliance ----
+
+export interface PTDashboard {
+  month: number;
+  year: number;
+  fiscalYear: string;
+  stateCode: string | null;
+  currentMonth: {
+    totalPTDeducted: number;
+    februaryAdjustment: number;
+    exemptionAmount: number;
+    employees: number;
+    exemptEmployees: number;
+  };
+  employer: {
+    totalPTPayable: number;
+    totalPTPaid: number;
+    outstanding: number;
+    filingStatus: string;
+    nextDeadline: string | null;
+    paymentDeadline: string | null;
+    frequency: string | null;
+  };
+  stateWise: { stateCode: string; finalPT: number; employeeCount: number; exempt: number }[];
+  employeeWise: { employeeCode: string; employeeName: string; stateCode: string; finalPT: number; isExempt: boolean }[];
+  upcomingDeadlines: { stateCode: string; type: string; deadline: string | null; status: string }[];
+}
+
+export interface PTMonthlyEmployeeRow {
+  employeeCode: string; employeeName: string; stateCode: string; category: string;
+  taxableBasis: number; normalPT: number; februaryAdjustment: number; exemption: number;
+  finalPT: number; isExempt: boolean;
+}
+export interface PTMonthlyStateRow {
+  stateCode: string; finalPT: number; employeeCount: number; exemptCount: number;
+}
+export interface PTFiscalEmployeeRow {
+  employeeCode: string; employeeName: string; stateCode: string; totalPT: number; totalExemption: number; months: number;
+}
+export interface PTReconciliation {
+  stateCode: string; fiscalYearStart: number; totalPayable: number; totalPaid: number;
+  outstanding: number; filingStatus: string;
+}
+export interface PTFilingRow {
+  stateCode: string; financialYear: string; frequency: string; basisLiability: number;
+  payable: number; paid: number; outstanding: number; status: string;
+  nextDeadline: string | null; paymentDeadline: string | null; lateFee: number; interest: number;
+  returnReference: string | null; challanReference: string | null;
+}
+export interface PTExemptionRow {
+  profileId: string; employeeId: string; employeeCode: string; name: string; email: string;
+  stateCode: string | null; ptExempt: boolean; status: string | null;
+  category: string | null; provision: string | null; validFrom: string | null; validUntil: string | null;
+  approvedBy: number | null;
 }
 
 // ---- Salary tab "Calculate" result ----
@@ -1003,6 +1072,97 @@ export const payrollService = {
       `${API_BASE_URL}/payroll/my-summary`,
       { headers: { Authorization: `Bearer ${session?.accessToken}` } }
     );
+    return data.data;
+  },
+
+  // ---- Professional Tax (PT): dashboard, reports, exemptions, filings ----
+
+  async getPTDashboard(params: { stateCode?: string; month?: number; year?: number }): Promise<PTDashboard> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: PTDashboard }>(`${API_BASE_URL}/payroll/pt/dashboard`, {
+      params, headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
+    return data.data;
+  },
+
+  async getPTMonthlyEmployeeReport(params: { stateCode?: string; month: number; year: number }): Promise<PTMonthlyEmployeeRow[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: PTMonthlyEmployeeRow[] }>(`${API_BASE_URL}/payroll/pt/reports/monthly-employee`, {
+      params, headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
+    return data.data;
+  },
+
+  async getPTMonthlyStateReport(params: { month: number; year: number }): Promise<PTMonthlyStateRow[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: PTMonthlyStateRow[] }>(`${API_BASE_URL}/payroll/pt/reports/monthly-state`, {
+      params, headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
+    return data.data;
+  },
+
+  async getPTFiscalYearEmployeeReport(params: { fiscalYearStart?: number; stateCode?: string }): Promise<PTFiscalEmployeeRow[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: PTFiscalEmployeeRow[] }>(`${API_BASE_URL}/payroll/pt/reports/fiscal-year-employee`, {
+      params, headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
+    return data.data;
+  },
+
+  async getPTReconciliationReport(params: { stateCode?: string; fiscalYearStart?: number }): Promise<PTReconciliation[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: PTReconciliation[] }>(`${API_BASE_URL}/payroll/pt/reports/reconciliation`, {
+      params, headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
+    return data.data;
+  },
+
+  async getPTExemptions(): Promise<PTExemptionRow[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: PTExemptionRow[] }>(`${API_BASE_URL}/payroll/pt/reports/exemptions`, {
+      headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
+    return data.data;
+  },
+
+  async getPTComplianceReport(): Promise<PTFilingRow[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: PTFilingRow[] }>(`${API_BASE_URL}/payroll/pt/reports/compliance`, {
+      headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
+    return data.data;
+  },
+
+  async listPTExemptions(status?: string): Promise<PTExemptionRow[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: PTExemptionRow[] }>(`${API_BASE_URL}/payroll/pt/exemptions`, {
+      params: status ? { status } : undefined,
+      headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
+    return data.data;
+  },
+
+  async reviewPTExemption(payload: { employeeId: string; approved: boolean; comment?: string }): Promise<unknown> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: unknown }>(`${API_BASE_URL}/payroll/pt/exemptions/review`, payload, {
+      headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
+    return data.data;
+  },
+
+  async upsertPTFiling(payload: { stateCode: string; financialYearStart: number; prevYearLiability?: number }): Promise<unknown> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: unknown }>(`${API_BASE_URL}/payroll/pt/filings`, payload, {
+      headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
+    return data.data;
+  },
+
+  async listPTFilings(): Promise<PTFilingRow[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: PTFilingRow[] }>(`${API_BASE_URL}/payroll/pt/filings`, {
+      headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
     return data.data;
   },
 };
