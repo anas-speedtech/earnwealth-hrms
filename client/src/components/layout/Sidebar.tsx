@@ -55,7 +55,7 @@ const navIcons: Record<IconName, React.ComponentType<React.SVGProps<SVGSVGElemen
 
 // The "Role & Designation" section: the Role sub-menu opens the Role &
 // Designation screen on its Role tab, the Designation sub-menu deep-links to
-// its Designation tab.
+
 const ROLE_AND_DESIGNATION_SUBMENU = [
   { label: 'Role', href: '/super-admin/user-roles' },
   { label: 'Designation', href: '/super-admin/user-roles?tab=designation' },
