@@ -283,7 +283,33 @@ class PayrollService {
       },
     });
     logger.info('Salary payhead created', { code, by: reqUser.email });
+    // Configuration-level audit: a new component only affects FUTURE
+    // calculations (already-run payrolls keep their frozen snapshots), but
+    // the change itself is recorded with who/what/when.
+    this.writeConfigAudit(prismaClient, { actorId: reqUser.id, action: 'PAYHEAD_CREATED', afterValue: created });
     return { id: String(created.id), code, name, type: data.type, description: data.description || '', formula: created.formula || '' };
+  }
+
+  /**
+   * Configuration-level audit row in `payroll_audit_logs` (the same table the
+   * payroll lifecycle uses, with a null record id): payhead / salary-rule
+   * changes are config, not a payroll record — but HR still needs the full
+   * history of who changed what, so a rule like PF 12% → 15% is traceable.
+   * Best-effort: an audit-write failure must not break the config action
+   * itself (logs a warning instead).
+   */
+  static async writeConfigAudit(prismaClient, { actorId, action, beforeValue = null, afterValue = null }) {
+    try {
+      await prismaClient.payrollAuditLog.create({ data: {
+        payrollRecordId: null,
+        actorId: actorId == null ? null : Number(actorId),
+        action,
+        beforeValue: beforeValue ? JSON.stringify(beforeValue) : null,
+        afterValue: afterValue ? JSON.stringify(afterValue) : null,
+      } });
+    } catch (err) {
+      logger.warn('Configuration audit write failed', { action, error: err.message });
+    }
   }
 
   static async updatePayhead(reqUser, id, data) {
@@ -326,8 +352,25 @@ class PayrollService {
     // the old value and payroll math would silently re-classify amounts.
     if (data.type !== undefined && ['EARNING', 'DEDUCTION'].includes(data.type)) update.type = data.type;
     if (data.isActive !== undefined) update.isActive = Boolean(data.isActive);
+    const before = {
+      code: existing.code, name: existing.name, type: existing.type, description: existing.description,
+      formula: existing.formula, isFixedByDefault: existing.isFixedByDefault, sortOrder: existing.sortOrder, isActive: existing.isActive,
+    };
     const updated = await prismaClient.payrollPayhead.update({ where: { id: existing.id }, data: update });
     logger.info('Salary payhead updated', { id, by: reqUser.email });
+    // Audit the exact diff — who changed which component to what. This is the
+    // record that proves a later rule change did not touch history: every
+    // previously-run payroll keeps the formula/amounts snapshotted at its
+    // run time, regardless of this edit.
+    this.writeConfigAudit(prismaClient, {
+      actorId: reqUser.id,
+      action: 'PAYHEAD_UPDATED',
+      beforeValue: before,
+      afterValue: {
+        code: updated.code, name: updated.name, type: updated.type, description: updated.description,
+        formula: updated.formula, isFixedByDefault: updated.isFixedByDefault, sortOrder: updated.sortOrder, isActive: updated.isActive,
+      },
+    });
     return updated;
   }
 
@@ -341,6 +384,11 @@ class PayrollService {
     // any employee structure built from it.
     await prismaClient.payrollPayhead.update({ where: { id: Number(id) }, data: { isActive: false } });
     logger.info('Salary payhead deactivated', { id, by: reqUser.email });
+    this.writeConfigAudit(prismaClient, {
+      actorId: reqUser.id,
+      action: 'PAYHEAD_DEACTIVATED',
+      afterValue: { id: String(id), isActive: false },
+    });
   }
 
   // ---- Salary rules (the configurable "salary configuration") ----
@@ -384,7 +432,17 @@ class PayrollService {
       throw new AppError(AppErrorCodes.NOT_FOUND, 'Salary rules row not found.', 404);
     }
     await prismaClient.payrollRule.update({ where: { id: current.id }, data: update });
-    logger.info('Salary rules updated', { by: reqUser.email });
+    logger.info('Salary rules updated', { by: reqUser.email, diff: Object.keys(update) });
+    // Audit the before/after rules so a "PF 12% -> 15% this month" change is
+    // fully traceable. Nothing here rewrites history: payroll records that
+    // already ran keep the statutory settings snapshotted at their run time
+    // (statutorySnapshotJson), so old months stay at the old rates.
+    this.writeConfigAudit(prismaClient, {
+      actorId: reqUser.id,
+      action: 'SALARY_RULES_UPDATED',
+      beforeValue: next,
+      afterValue: { ...next, ...update },
+    });
     return this.getSalaryRules(reqUser);
   }
 
@@ -746,6 +804,131 @@ class PayrollService {
         netAnnual: round(grossAnnual - deductionsAnnual),
       },
       persisted,
+    };
+  }
+
+  /**
+   * Configuration change history: the PAYHEAD_* / SALARY_RULES_* rows in
+   * payroll_audit_logs (before/after JSON), newest first. This is the trail
+   * that proves, e.g., PF ran at 12% in October and was changed to 15% on
+   * the 3rd — while October's record kept its 12%-based snapshot.
+   */
+  static async listConfigAudit(reqUser, limit = 50) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to view payroll audit.', 403);
+    }
+    const prismaClient = getPrisma();
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const rows = await prismaClient.payrollAuditLog.findMany({
+      where: {
+        payrollRecordId: null,
+        OR: [
+          { action: { startsWith: 'PAYHEAD_' } },
+          { action: { startsWith: 'SALARY_RULES' } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: safeLimit,
+    });
+    return rows.map((r) => ({
+      id: String(r.id),
+      action: r.action,
+      actorId: r.actorId == null ? null : String(r.actorId),
+      before: r.beforeValue ? JSON.parse(r.beforeValue) : null,
+      after: r.afterValue ? JSON.parse(r.afterValue) : null,
+      at: r.createdAt,
+    }));
+  }
+
+  /**
+   * Config-level "what will the complete calculation look like" preview for
+   * editing a salary component: runs the same formula engine over the whole
+   * active payhead catalog (with the in-progress edit applied to one payhead)
+   * against a hypothetical monthly CTC — no employee involved, nothing
+   * persisted. Shown inside the edit modal so HR sees every component's
+   * resulting amount before saving.
+   */
+  static async previewPayheadEdit(reqUser, { monthlyCTC, payheadCode, formula, included = true }) {
+    if (!this.canManagePayroll(reqUser)) {
+      throw new AppError(AppErrorCodes.FORBIDDEN, 'You do not have permission to preview salary calculations.', 403);
+    }
+    await ensurePayrollSchema();
+    const ctc = Number(monthlyCTC);
+    if (!Number.isFinite(ctc) || ctc <= 0) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'CTC must be a positive number.', 400);
+    }
+    const prismaClient = getPrisma();
+    const payheads = await prismaClient.payrollPayhead.findMany({
+      where: { isActive: true },
+      orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
+    });
+    if (!payheads.length) {
+      throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'No active salary components to preview.', 400);
+    }
+    const round = (n) => Math.round(n * 100) / 100;
+    const code = String(payheadCode || '').trim().toUpperCase();
+
+    // The full component set, with the in-progress edit applied to one row.
+    const rows = payheads.map((p) => {
+      const isTarget = p.code.toUpperCase() === code && code !== '';
+      const effFormula = isTarget
+        ? (formula && String(formula).trim() ? String(formula).trim() : null)
+        : (p.formula && String(p.formula).trim() ? String(p.formula).trim() : null);
+      return {
+        code: p.code,
+        name: p.name,
+        type: p.type,
+        formula: effFormula,
+        included: isTarget ? Boolean(included) : true,
+      };
+    });
+    const includedRows = rows.filter((r) => r.included);
+    const values = { CTC: ctc, MONTHLY_CTC: ctc, ANNUAL_CTC: ctc * 12 };
+    const pending = new Map(includedRows.map((r) => [r.name, r]));
+    const computed = [];
+    for (;;) {
+      let progressed = false;
+      for (const sc of [...pending.values()]) {
+        const key = PayrollFormulaEngine.identifierFor(sc.name);
+        let amount;
+        if (sc.formula) {
+          const missing = PayrollFormulaEngine.dependencies(sc.formula).filter((dep) => !(dep in values));
+          if (missing.length) continue;
+          amount = PayrollFormulaEngine.evaluate(sc.formula, values);
+        } else {
+          amount = 0; // fixed-amount line with no configured amount
+        }
+        amount = round(amount);
+        if (amount < 0) {
+          throw new AppError(AppErrorCodes.VALIDATION_ERROR, `Component "${sc.name}" computed a negative amount.`, 400);
+        }
+        values[key] = amount;
+        computed.push({ code: sc.code, name: sc.name, type: sc.type, formula: sc.formula || '', monthly: amount, annual: round(amount * 12) });
+        pending.delete(sc.name);
+        progressed = true;
+      }
+      if (pending.size === 0) break;
+      if (!progressed) {
+        throw new AppError(AppErrorCodes.VALIDATION_ERROR, 'Unable to resolve salary component dependencies. Check the formulas under Calculation.', 400);
+      }
+    }
+    const grossMonthly = round(computed.filter((c) => c.type === 'EARNING').reduce((s, c) => s + c.monthly, 0));
+    const deductionsMonthly = round(computed.filter((c) => c.type === 'DEDUCTION').reduce((s, c) => s + c.monthly, 0));
+    return {
+      monthlyCTC: ctc,
+      annualCTC: round(ctc * 12),
+      components: computed,
+      totals: {
+        grossMonthly,
+        grossAnnual: round(grossMonthly * 12),
+        deductionsMonthly,
+        deductionsAnnual: round(deductionsMonthly * 12),
+        netMonthly: round(grossMonthly - deductionsMonthly),
+        netAnnual: round((grossMonthly - deductionsMonthly) * 12),
+      },
+      // Only affects future runs: this preview (and any later save) never
+      // touches already-run payrolls, which keep their frozen snapshots.
+      note: 'Preview only — changes apply to future payroll runs. Previously run months keep their saved values.',
     };
   }
 

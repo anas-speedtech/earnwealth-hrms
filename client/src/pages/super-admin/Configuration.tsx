@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, Trash2, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, RefreshCw, Pencil, X } from 'lucide-react';
 import DashboardShell from '../../components/layout/DashboardShell';
 import Header from '../../components/layout/Header';
 import Button from '../../components/ui/Button';
 import Spinner from '../../components/ui/Spinner';
 import RoleControlPanel from '../../components/RoleControlPanel';
+import Modal from '../../components/ui/Modal';
 import { useAuth } from '../../contexts/AuthContext';
-import { payrollService, SalaryPayhead, SalaryRules } from '../../services/payroll.service';
+import { payrollService, SalaryPayhead, SalaryRules, SalaryCalculateResult, ConfigAuditEntry } from '../../services/payroll.service';
 import { wfhService, WFHAllocation } from '../../services/wfh.service';
 import { previewSalarySplitLocal } from '../../utils/salary';
 import { formatCurrency } from '../../utils/formatters';
@@ -219,6 +220,81 @@ function SalaryComponentsPanel({ payheads, loading, onChanged }: { payheads: Sal
   const [form, setForm] = useState({ code: '', name: '', type: 'EARNING' as 'EARNING' | 'DEDUCTION', formula: '' });
   const [saving, setSaving] = useState(false);
 
+  // ---- Configuration change history (the audit trail) ----------------------
+  const [history, setHistory] = useState<ConfigAuditEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      setHistory(await payrollService.listConfigAudit(50));
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (showHistory && history.length === 0) loadHistory(); }, [showHistory, history.length, loadHistory]);
+
+  // ---- Edit a component + complete calculation preview ---------------------
+  const [editing, setEditing] = useState<SalaryPayhead | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', description: '', formula: '', isActive: true });
+  const [editCtc, setEditCtc] = useState('60000');
+  const [editSaving, setEditSaving] = useState(false);
+  const [preview, setPreview] = useState<SalaryCalculateResult | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const openEdit = (payhead: SalaryPayhead) => {
+    setEditing(payhead);
+    setEditForm({ name: payhead.name, description: payhead.description || '', formula: payhead.formula || '', isActive: payhead.isActive });
+    setPreview(null);
+  };
+
+  const runPreview = useCallback(async () => {
+    if (!editing || !Number(editCtc)) { setPreview(null); return; }
+    setPreviewLoading(true);
+    try {
+      const result = await payrollService.previewPayheadEdit({
+        monthlyCTC: Number(editCtc),
+        payheadCode: editing.code,
+        formula: editForm.formula.trim() || null,
+        included: editForm.isActive,
+      });
+      setPreview(result);
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message || 'Preview failed — check the formula.';
+      toast.error(message);
+      setPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [editing, editCtc, editForm.formula, editForm.isActive]);
+
+  const handleSaveEdit = async () => {
+    if (!editing) return;
+    if (!editForm.name.trim()) { toast.error('Component name is required.'); return; }
+    setEditSaving(true);
+    try {
+      await payrollService.updatePayhead(editing.id, {
+        name: editForm.name.trim(),
+        description: editForm.description.trim() || null,
+        formula: editForm.formula.trim() || null,
+        isActive: editForm.isActive,
+      });
+      toast.success(`${editing.code} updated. Applies to future runs only.`);
+      setEditing(null);
+      onChanged();
+      loadHistory();
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message || 'Could not save the component.';
+      toast.error(message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const handleCreate = async () => {
     if (!form.code.trim() || !form.name.trim()) { toast.error('Component code and name are required.'); return; }
     setSaving(true);
@@ -304,6 +380,7 @@ function SalaryComponentsPanel({ payheads, loading, onChanged }: { payheads: Sal
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center gap-2 justify-end">
+                        <button onClick={() => openEdit(h)} className="inline-flex items-center gap-1 text-xs font-medium text-cyan-600 hover:text-cyan-700"><Pencil size={12} /> Edit</button>
                         <button onClick={() => handleToggle(h)} className="text-xs font-medium text-cyan-600 hover:text-cyan-700">{h.isActive ? 'Deactivate' : 'Activate'}</button>
                         <button onClick={() => handleDelete(h)} className="text-xs font-medium text-red-500 hover:text-red-700"><Trash2 size={13} className="inline" /> Remove</button>
                       </div>
@@ -314,7 +391,154 @@ function SalaryComponentsPanel({ payheads, loading, onChanged }: { payheads: Sal
             </table>
           </div>
         )}
+        <div className="mt-4 flex items-center justify-between">
+          <button onClick={() => setShowHistory((v) => !v)} className="text-[12px] font-medium text-cyan-600 hover:text-cyan-700">
+            {showHistory ? 'Hide' : 'Show'} change history
+          </button>
+          <span className="text-[11px] text-slate-400">Every edit is logged (who, before → after). Past payroll runs are unaffected.</span>
+        </div>
       </div>
+
+      {/* Configuration change history — the audit trail */}
+      {showHistory && (
+        <div className={CARD}>
+          <h3 className="mb-1 text-[15px] font-semibold text-slate-900">Change History</h3>
+          <p className="mb-4 text-[12px] text-slate-500">
+            Salary-component and rule edits, newest first. This trail proves later changes (e.g. PF 12% → 15%)
+            did not rewrite already-run months, which keep the values snapshotted at their run time.
+          </p>
+          {historyLoading ? (
+            <div className="flex items-center justify-center py-8"><Spinner size="sm" /></div>
+          ) : history.length === 0 ? (
+            <p className="py-6 text-center text-[13px] text-slate-400">No configuration changes recorded yet.</p>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {history.map((e) => (
+                <div key={e.id} className="py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">{e.action}</span>
+                    <span className="text-[11px] text-slate-400">{new Date(e.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    {e.actorId && <span className="text-[11px] text-slate-400">by user #{e.actorId}</span>}
+                  </div>
+                  {(e.before || e.after) && (
+                    <pre className="mt-2 overflow-x-auto rounded-md bg-slate-50 p-2 text-[11px] leading-relaxed text-slate-600">
+                      {e.before && <div><span className="text-slate-400">before </span>{JSON.stringify(e.before)}</div>}
+                      {e.after && <div><span className="text-slate-400">after  </span>{JSON.stringify(e.after)}</div>}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Edit component modal — with the complete calculation preview */}
+      <Modal
+        isOpen={editing !== null}
+        onClose={() => setEditing(null)}
+        title={editing ? `Edit ${editing.code}` : 'Edit component'}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditing(null)} disabled={editSaving}><X size={13} className="mr-1" /> Close</Button>
+            <Button onClick={() => void handleSaveEdit()} isLoading={editSaving}>{editSaving ? 'Saving…' : 'Save Component'}</Button>
+          </>
+        }
+      >
+        {editing && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-[12px] font-medium text-slate-600">Name</label>
+                <input value={editForm.name} onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))} className={inputCls} />
+              </div>
+              <div>
+                <label className="mb-1 block text-[12px] font-medium text-slate-600">Description</label>
+                <input value={editForm.description} onChange={(e) => setEditForm((p) => ({ ...p, description: e.target.value }))} className={inputCls} />
+              </div>
+              <div>
+                <label className="mb-1 block text-[12px] font-medium text-slate-600">Formula (blank = fixed 0)</label>
+                <input value={editForm.formula} onChange={(e) => setEditForm((p) => ({ ...p, formula: e.target.value }))} className={`${inputCls} font-mono`} placeholder="e.g. CTC*12%" />
+              </div>
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 text-[13px] text-slate-700">
+                  <input type="checkbox" checked={editForm.isActive} onChange={(e) => setEditForm((p) => ({ ...p, isActive: e.target.checked }))}
+                    className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                  <span>Active (offered on the Salary tab)</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-3">
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="mb-1 block text-[12px] font-medium text-slate-600">Complete calculation preview — monthly CTC (₹)</label>
+                  <input type="number" value={editCtc} onChange={(e) => setEditCtc(e.target.value)} className={`${inputCls} w-40`} />
+                </div>
+                <Button size="sm" variant="secondary" onClick={runPreview} disabled={previewLoading}>
+                  <RefreshCw size={12} className={previewLoading ? 'mr-1.5 animate-spin' : 'mr-1.5'} /> {previewLoading ? 'Calculating…' : 'Preview'}
+                </Button>
+                <p className="flex-1 text-[11px] text-slate-500">
+                  Shows every component's resulting amount with this edit applied — nothing is saved until you press Save.
+                </p>
+              </div>
+
+              {preview && (
+                <div className="mt-3">
+                  <table className="w-full">
+                    <thead className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      <tr>
+                        <th className="px-2 py-1.5">Component</th>
+                        <th className="px-2 py-1.5">Formula</th>
+                        <th className="px-2 py-1.5 text-right">Monthly</th>
+                        <th className="px-2 py-1.5 text-right">Annual</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-cyan-100/70">
+                      {preview.components.map((c) => (
+                        <tr key={c.code} className={c.code === editing.code ? 'bg-cyan-100/60' : ''}>
+                          <td className="px-2 py-1.5 text-[12px] font-medium text-slate-800">
+                            {c.name}
+                            {c.code === editing.code && <span className="ml-1.5 rounded bg-cyan-200/70 px-1 text-[10px] font-semibold text-cyan-800">edited</span>}
+                            <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${c.type === 'EARNING' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{c.type}</span>
+                          </td>
+                          <td className="px-2 py-1.5 font-mono text-[11px] text-slate-500">{c.formula || '0'}</td>
+                          <td className="px-2 py-1.5 text-right text-[12px] text-slate-700">{formatCurrency(c.monthly)}</td>
+                          <td className="px-2 py-1.5 text-right text-[12px] text-slate-700">{formatCurrency(c.annual)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="text-[12px]">
+                      <tr className="border-t border-cyan-200">
+                        <td className="px-2 py-1.5 font-semibold text-emerald-700">Gross</td>
+                        <td className="px-2 py-1.5" />
+                        <td className="px-2 py-1.5 text-right font-semibold text-slate-900">{formatCurrency(preview.totals.grossMonthly)}</td>
+                        <td className="px-2 py-1.5 text-right font-semibold text-slate-900">{formatCurrency(preview.totals.grossAnnual)}</td>
+                      </tr>
+                      <tr>
+                        <td className="px-2 py-1.5 font-semibold text-red-700">Deductions</td>
+                        <td className="px-2 py-1.5" />
+                        <td className="px-2 py-1.5 text-right font-semibold text-slate-900">{formatCurrency(preview.totals.deductionsMonthly)}</td>
+                        <td className="px-2 py-1.5 text-right font-semibold text-slate-900">{formatCurrency(preview.totals.deductionsAnnual)}</td>
+                      </tr>
+                      <tr className="border-t border-cyan-200">
+                        <td className="px-2 py-1.5 font-bold text-slate-900">Net</td>
+                        <td className="px-2 py-1.5" />
+                        <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{formatCurrency(preview.totals.netMonthly)}</td>
+                        <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{formatCurrency(preview.totals.netAnnual)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    This edit applies to <b>future payroll runs only</b> — months that already ran keep the values snapshotted at their run time.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

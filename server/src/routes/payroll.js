@@ -290,6 +290,21 @@ router.delete(
   }
 );
 
+// Configuration change history (payhead + salary-rule edits, newest first).
+router.get(
+  '/payroll/config-audit',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.HR_ADMIN),
+  async (req, res, next) => {
+    try {
+      const limit = parseInt(req.query.limit, 10) || 50;
+      res.json({ data: await PayrollService.listConfigAudit(req.user, limit) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // ============ SALARY RULES (configurable split: Basic/HRA/PF/ESIC/PT) ============
 
 router.get(
@@ -362,6 +377,20 @@ const salaryCalculateSchema = z.object({
     included: z.boolean().optional(),
   })).optional().default([]),
 });
+// Config-level preview: the complete calculation the way it WILL run, with
+// one component's edit applied in place (no employee, nothing persisted).
+const payheadPreviewSchema = z.object({
+  monthlyCTC: z.coerce.number().positive(),
+  payheadCode: z.string().max(40).optional().nullable(),
+  formula: z.string().max(500).optional().nullable(),
+  included: z.boolean().optional(),
+});
+router.post('/payroll/payheads/preview', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(payheadPreviewSchema), async (req, res, next) => {
+  try {
+    res.json({ data: await PayrollService.previewPayheadEdit(req.user, req.body) });
+  } catch (err) { next(err); }
+});
+
 router.post('/payroll/salary-calculate', authenticate, authorize(Role.SUPER_ADMIN, Role.HR_ADMIN), validateBody(salaryCalculateSchema), async (req, res, next) => {
   try { res.json({ data: await PayrollService.calculateSalaryStructure(req.user, req.body) }); } catch (err) { next(err); }
 });

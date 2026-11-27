@@ -150,6 +150,16 @@ export interface SalaryPayhead {
   isActive: boolean;
 }
 
+// A configuration-change history row (payhead / salary-rule edits).
+export interface ConfigAuditEntry {
+  id: string;
+  action: string;
+  actorId: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  at: string;
+}
+
 // The organisation's configurable salary split (the "Salary Configuration").
 // Stored server-side in a single row; HR edits it from the Payroll page.
 export interface SalaryRules {
@@ -911,6 +921,26 @@ export const payrollService = {
     return data.data;
   },
 
+  /**
+   * Config-level complete-calculation preview: the full component set the way
+   * it will run, with one component's in-progress edit applied (no employee,
+   * nothing persisted). Shown in the Salary Components edit modal.
+   */
+  async previewPayheadEdit(payload: {
+    monthlyCTC: number;
+    payheadCode?: string | null;
+    formula?: string | null;
+    included?: boolean;
+  }): Promise<SalaryCalculateResult> {
+    const session = getSession();
+    const { data } = await axios.post<{ data: SalaryCalculateResult }>(
+      `${API_BASE_URL}/payroll/payheads/preview`,
+      payload,
+      { headers: { Authorization: `Bearer ${session?.accessToken}` } }
+    );
+    return data.data;
+  },
+
   async updatePayhead(id: string, payload: {
     name?: string;
     type?: 'EARNING' | 'DEDUCTION';
@@ -934,6 +964,16 @@ export const payrollService = {
     await axios.delete(`${API_BASE_URL}/payroll/payheads/${id}`, {
       headers: { Authorization: `Bearer ${session?.accessToken}` },
     });
+  },
+
+  /** Configuration change history — payhead / salary-rule edits (newest first). */
+  async listConfigAudit(limit = 50): Promise<ConfigAuditEntry[]> {
+    const session = getSession();
+    const { data } = await axios.get<{ data: ConfigAuditEntry[] }>(`${API_BASE_URL}/payroll/config-audit`, {
+      params: { limit },
+      headers: { Authorization: `Bearer ${session?.accessToken}` },
+    });
+    return data.data;
   },
 
   // ---- Stats ----
