@@ -1,7 +1,8 @@
 const { PrismaClient } = require('@prisma/client');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { Role } = require('../types/index');
-const { logger } = require('../utils/logger');
+const { moduleLogger } = require('../utils/logger');
+const logger = moduleLogger('services.employee.service');
 const { hashPassword } = require('../utils/password');
 // Lazy require: leave.service reaches back into other services, so pulling it
 // in at module load could create a circular-require during startup.

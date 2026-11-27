@@ -29,6 +29,12 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
+// Per-request log context + access lines. Must run before the routes: it
+// mints the request id and enters the AsyncLocalStorage context that tags
+// every service-level log line for that request.
+const requestLogger = require('./middleware/request-logger');
+app.use(requestLogger);
+
 // Health check
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

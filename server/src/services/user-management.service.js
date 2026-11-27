@@ -1,7 +1,8 @@
 const { getPrisma } = require('./auth.service');
 const { hashPassword } = require('../utils/password');
 const { AuthService } = require('./auth.service');
-const { logger } = require('../utils/logger');
+const { moduleLogger } = require('../utils/logger');
+const logger = moduleLogger('services.user-management.service');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { sendAccountCreatedEmail } = require('./email.service');
 const { LeaveService } = require('./leave.service');

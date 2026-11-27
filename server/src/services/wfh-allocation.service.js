@@ -1,7 +1,8 @@
 const { getPrisma } = require('./auth.service');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { Role } = require('../types/index');
-const { logger } = require('../utils/logger');
+const { moduleLogger } = require('../utils/logger');
+const logger = moduleLogger('services.wfh-allocation.service');
 
 /**
  * Standing WFH allocation (Configuration → WFH Allocation).

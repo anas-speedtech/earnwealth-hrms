@@ -1,6 +1,7 @@
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { getPrisma } = require('./auth.service');
-const { logger } = require('../utils/logger');
+const { moduleLogger } = require('../utils/logger');
+const logger = moduleLogger('services.employee-documents.service');
 
 /**
  * Optional employee documents (Aadhar, PAN, Address Proof, Bank Details /

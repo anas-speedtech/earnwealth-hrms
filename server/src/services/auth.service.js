@@ -15,7 +15,8 @@ const {
   Role,
 } = require('../utils/jwt');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
-const { logger } = require('../utils/logger');
+const { moduleLogger } = require('../utils/logger');
+const logger = moduleLogger('services.auth.service');
 
 // Password reset OTP settings.
 const OTP_EXPIRY_MINUTES = 5;

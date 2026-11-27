@@ -1,4 +1,5 @@
-const { logger } = require('../utils/logger');
+const { moduleLogger } = require('../utils/logger');
+const logger = moduleLogger('services.personal-profile.service');
 const { getPrisma } = require('./auth.service');
 
 /**

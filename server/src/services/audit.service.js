@@ -1,6 +1,7 @@
 const { getPrisma } = require('./auth.service');
 const { Prisma } = require('@prisma/client');
-const { logger } = require('../utils/logger');
+const { moduleLogger } = require('../utils/logger');
+const logger = moduleLogger('services.audit.service');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 
 /**

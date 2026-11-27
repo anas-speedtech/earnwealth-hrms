@@ -1,7 +1,8 @@
 const { PrismaClient } = require('@prisma/client');
 const { getTransporter } = require('./email.service');
 const { env } = require('../config/env');
-const { logger } = require('../utils/logger');
+const { moduleLogger } = require('../utils/logger');
+const logger = moduleLogger('services.notify.service');
 
 let prisma;
 function getPrisma() {

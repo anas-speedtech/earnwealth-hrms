@@ -1,7 +1,8 @@
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { Role } = require('../types/index');
 const { verifyAccessToken } = require('../utils/jwt');
-const { logger } = require('../utils/logger');
+const { moduleLogger } = require('../utils/logger');
+const logger = moduleLogger('middleware.auth');
 
 function authenticate(req, _res, next) {
   const authHeader = req.headers.authorization;

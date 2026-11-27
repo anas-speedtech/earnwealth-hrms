@@ -1,7 +1,8 @@
 const { PrismaClient } = require('@prisma/client');
 const { AppError, AppErrorCodes } = require('../errors/AppError');
 const { Role } = require('../types/index');
-const { logger } = require('../utils/logger');
+const { moduleLogger } = require('../utils/logger');
+const logger = moduleLogger('services.avatar.service');
 
 let prisma;
 function getPrisma() {
