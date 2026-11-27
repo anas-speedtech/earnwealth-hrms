@@ -168,14 +168,19 @@ export default function EmployeeAttendancePage() {
             />
           </div>
         ) : (
-          <div className={`overflow-x-auto ${CARD}`}>
+          <>
+          {/* Desktop: the month strip with sticky label columns */}
+          <div className={`hidden overflow-x-auto md:block ${CARD}`}>
             <table className="w-full border-collapse text-xs">
               <thead>
                 <tr>
-                  <th className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  {/* The label columns are redundant on a personal calendar
+                      (it's always your own row) — hide them on phones to
+                      give the days more width; desktop keeps them sticky. */}
+                  <th className="sticky left-0 z-10 hidden border-r border-slate-100 bg-white px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:table-cell">
                     Emp Code
                   </th>
-                  <th className="sticky left-[4.75rem] z-10 border-r border-slate-100 bg-white px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  <th className="sticky left-[4.75rem] z-10 hidden border-r border-slate-100 bg-white px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:table-cell">
                     Emp Name
                   </th>
                   {dayNumbers.map((d) => {
@@ -205,6 +210,16 @@ export default function EmployeeAttendancePage() {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile: a compact 7-column week grid — the 31-day strip is too
+              wide to swipe comfortably on a phone. Same day-editor on tap. */}
+          <div className={`p-3 md:hidden ${CARD}`}>
+            <p className="mb-2 truncate text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              {matrix.employee.employeeCode} · {matrix.employee.name || user?.email}
+            </p>
+            <MobileDayGrid matrix={matrix} year={year} month={month} onOpen={openDayEditor} />
+          </div>
+          </>
         )}
 
         {!matrixLoading && matrix && matrix.days.length > 0 && (
@@ -433,4 +448,85 @@ function renderDayCell(cell: MyMatrixDay, onOpen: () => void) {
       <span className="text-[10px] text-slate-300">—</span>
     </button>
   );
+}
+
+// Compact 7-column week grid for phones: the 31-day strip is too wide to
+// swipe comfortably on a phone, so mobile gets one row per week. Tapping a
+// cell opens the same day editor; the desktop strip (md+) is unchanged.
+function MobileDayGrid({ matrix, year, month, onOpen }: {
+  matrix: MyMatrix;
+  year: number;
+  month: number;
+  onOpen: (day: MyMatrixDay) => void;
+}) {
+  const cells: (MyMatrixDay | null)[] = [
+    // Leading blanks so weeks start on Sunday, mirroring the calendar.
+    ...Array.from({ length: new Date(year, month - 1, 1).getDay() }, () => null),
+    ...matrix.days,
+  ];
+  const weeks: (MyMatrixDay | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+  return (
+    <div>
+      <div className="grid grid-cols-7 gap-1.5">
+        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+          <div key={i} className="text-center text-[10px] font-semibold uppercase text-slate-400">{d}</div>
+        ))}
+      </div>
+      <div className="mt-1.5 space-y-1.5">
+        {weeks.map((week, wi) => (
+          <div key={wi} className="grid grid-cols-7 gap-1.5">
+            {week.map((day, di) =>
+              day ? (
+                <button
+                  key={day.day}
+                  type="button"
+                  onClick={() => onOpen(day)}
+                  title={`Day ${day.day}`}
+                  className={`flex h-12 flex-col items-center justify-center rounded-md border text-center ${mobileCellTone(day)}`}
+                >
+                  <span className="text-[10px] font-semibold text-slate-700">{day.day}</span>
+                  {day.canSelfPunch && !day.in ? (
+                    <Pencil size={9} className="text-cyan-600" />
+                  ) : day.in ? (
+                    <span className="text-[8px] text-slate-500">{day.in}</span>
+                  ) : day.wfhAllocated ? (
+                    <span className="text-[8px] text-cyan-600">WFH</span>
+                  ) : day.holidayName ? (
+                    <span className="text-[8px] text-red-400">Hol</span>
+                  ) : day.isWeeklyOff ? (
+                    <span className="text-[8px] text-slate-300">Off</span>
+                  ) : (
+                    <span className="text-[8px] text-slate-300">{day.status === 'LWP' ? 'LWP' : '—'}</span>
+                  )}
+                </button>
+              ) : (
+                <div key={`empty-${wi}-${di}`} />
+              )
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function mobileCellTone(cell: MyMatrixDay): string {
+  if (cell.canSelfPunch) {
+    return cell.in ? 'border-cyan-200 bg-cyan-50' : 'border-dashed border-cyan-400 bg-cyan-50/40';
+  }
+  if (cell.in) {
+    if (cell.wfhAllocated) return 'border-slate-200 bg-slate-50';
+    switch (cell.status) {
+      case 'P': return 'border-emerald-200 bg-emerald-50';
+      case 'FHDL':
+      case 'SHDL': return 'border-amber-200 bg-amber-50';
+      case 'LWP': return 'border-rose-200 bg-rose-50';
+      default: return 'border-slate-200 bg-white';
+    }
+  }
+  if (cell.holidayName) return 'border-red-200 bg-red-50';
+  if (cell.isWeeklyOff) return 'border-slate-200 bg-slate-50';
+  return 'border-dashed border-slate-200 bg-white';
 }

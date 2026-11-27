@@ -1,7 +1,8 @@
 import { ReactNode, useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Bell, ChevronDown, LogOut, Settings, UserRound } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, Menu, Settings, UserRound } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useMobileNav } from './MobileNavContext';
 
 interface HeaderProps {
   title: string;
@@ -10,10 +11,14 @@ interface HeaderProps {
 }
 
 /**
- * Compact top bar: breadcrumb-style page title on the left, session controls
- * (notifications + profile menu) on the right.
+ * Compact top bar: hamburger (mobile only) + breadcrumb-style page title on
+ * the left, session controls (notifications + profile menu) on the right.
+ * The hamburger toggles the DashboardShell's off-canvas sidebar drawer on
+ * mobile (the drawer state is bridged through MobileNavContext, because the
+ * Header is rendered inside the page, not the shell).
  */
 export default function Header({ title, subtitle, actions }: HeaderProps) {
+  const { toggle: toggleMobileNav } = useMobileNav();
   const { user, logout, avatarUrl } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -43,7 +48,15 @@ export default function Header({ title, subtitle, actions }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center border-b border-slate-200/80 bg-white/95 px-5 backdrop-blur-md sm:px-6">
-      <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+        <button
+          type="button"
+          aria-label="Open menu"
+          onClick={toggleMobileNav}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 lg:hidden"
+        >
+          <Menu size={16} />
+        </button>
         <h1 className="truncate text-[15px] font-bold tracking-tight text-slate-900">{title}</h1>
         {subtitle && <p className="hidden truncate text-[12px] text-slate-400 md:block">{subtitle}</p>}
       </div>

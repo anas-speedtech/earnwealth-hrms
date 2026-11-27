@@ -171,7 +171,7 @@ export default function EmployeeApplyLeavePage() {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-5">
                 <div>
                   <label className="block text-[12px] font-medium text-slate-600 mb-1.5">Start Date</label>
                   <input

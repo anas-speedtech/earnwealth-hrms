@@ -317,7 +317,7 @@ export default function EmployeePayslipsPage() {
       {selectedPayslip && selectedPayslip.payroll && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+            <div className="px-4 py-4 sm:px-6 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-[15px] font-semibold text-slate-900">
                   Payslip — {MONTH_NAMES[selectedPayslip.month - 1]} {selectedPayslip.year}

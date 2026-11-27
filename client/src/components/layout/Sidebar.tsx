@@ -22,6 +22,8 @@ interface SidebarProps {
   role: string;
   userName: string;
   userEmail: string;
+  // Mobile drawer: close itself when a destination link is tapped.
+  onNavigate?: () => void;
 }
 
 type IconName = 'dashboard' | 'users' | 'role' | 'calendar' | 'controls' | 'profile' | 'attendance' | 'leave' | 'compoff' | 'wfh' | 'payroll' | 'reports';
@@ -30,7 +32,6 @@ interface NavItem {
   label: string;
   href: string;
   icon: IconName;
-  quickAction?: boolean;
   // When set, the item expands to reveal sub-menu entries (e.g. Role & Designation).
   submenu?: { label: string; href: string }[];
 }
@@ -64,6 +65,7 @@ const ROLE_AND_DESIGNATION_SUBMENU = [
 const LEAVES_SUBMENU = [
   { label: 'Overview', href: '/hr/leaves' },
   { label: 'Approvals', href: '/hr/leaves?tab=requests' },
+  { label: 'Review WFH', href: '/hr/wfh' },
   { label: 'Leave Policy', href: '/super-admin/leave-config' },
 ];
 
@@ -112,9 +114,6 @@ const roleNavigation: Record<string, NavItem[]> = {
     { label: 'Holidays', href: '/super-admin/holidays', icon: 'calendar' },
     { label: 'Payroll', href: '/super-admin/payroll-approval', icon: 'payroll' },
     { label: 'Reports', href: '/super-admin/reports', icon: 'reports' },
-    { label: 'Add Employee', href: '/admin/employees/new', icon: 'users', quickAction: true },
-    { label: 'Manage Departments', href: '/admin/departments', icon: 'controls', quickAction: true },
-    { label: 'Review Payroll', href: '/super-admin/payroll-approval', icon: 'calendar', quickAction: true },
   ],
   HR_ADMIN: [
     { label: 'Dashboard', href: '/hr/dashboard', icon: 'dashboard' },
@@ -143,10 +142,6 @@ const roleNavigation: Record<string, NavItem[]> = {
     { label: 'Reports', href: '/hr/reports', icon: 'reports' },
     // An HR Admin is also an employee, so they can view their own details.
     { label: 'My Profile', href: '/employee/profile', icon: 'profile' },
-    { label: 'Approve Leaves', href: '/hr/leaves', icon: 'leave', quickAction: true },
-    { label: 'Review WFH', href: '/hr/wfh', icon: 'wfh', quickAction: true },
-    { label: 'Manage Payroll', href: '/hr/payroll', icon: 'calendar', quickAction: true },
-    { label: 'View Reports', href: '/hr/reports', icon: 'controls', quickAction: true },
   ],
   EMPLOYEE: [
     { label: 'Dashboard', href: '/employee/dashboard', icon: 'dashboard' },
@@ -155,13 +150,10 @@ const roleNavigation: Record<string, NavItem[]> = {
     { label: 'Apply Leave', href: '/employee/leaves/apply', icon: 'leave' },
     { label: 'Comp-Off', href: '/employee/comp-offs', icon: 'compoff' },
     { label: 'WFH', href: '/employee/wfh', icon: 'wfh' },
-    { label: 'Apply Leave', href: '/employee/leaves/apply', icon: 'leave', quickAction: true },
-    { label: 'Request Comp-Off', href: '/employee/comp-offs', icon: 'compoff', quickAction: true },
-    { label: 'Request WFH', href: '/employee/wfh', icon: 'wfh', quickAction: true },
   ],
 };
 
-export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
+export default function Sidebar({ role, userName, userEmail, onNavigate }: SidebarProps) {
   const location = useLocation();
   const { avatarUrl } = useAuth();
   const navItems = roleNavigation[role] || [];
@@ -198,9 +190,8 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
           Menu
         </p>
         <div className="space-y-0.5">
-          {navItems.map((item, index) => {
+          {navItems.map((item) => {
             const Icon = navIcons[item.icon];
-            const beginsQuickActions = item.quickAction && !navItems[index - 1]?.quickAction;
             const activeKey = pathKey(item.href);
             const isSectionActive = item.submenu
               ? item.submenu.some((s) => s.href.split('?')[0] === activeKey)
@@ -209,11 +200,6 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
 
             return (
               <div key={item.href}>
-                {beginsQuickActions && (
-                  <p className="px-3 pb-1.5 pt-5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                    Quick Actions
-                  </p>
-                )}
                 <div className="relative">
                   {isSectionActive && (
                     <span className="absolute left-0 top-1/2 h-4 w-[2.5px] -translate-y-1/2 rounded-full bg-cyan-600" />
@@ -222,6 +208,7 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
                     <div className="group flex items-center">
                       <Link
                         to={item.href}
+                        onClick={onNavigate}
                         className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors ${
                           isSectionActive
                             ? 'bg-cyan-50 text-cyan-700'
@@ -242,6 +229,7 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
                   ) : (
                     <Link
                       to={item.href}
+                      onClick={onNavigate}
                       className={`relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors ${
                         isSectionActive
                           ? 'bg-cyan-50 text-cyan-700'
@@ -272,6 +260,7 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
                         <Link
                           key={sub.href}
                           to={sub.href}
+                          onClick={onNavigate}
                           className={`block rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
                             subActive
                               ? 'text-cyan-700'

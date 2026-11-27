@@ -276,7 +276,7 @@ export default function EmployeeLeavesPage() {
               <p className="text-slate-500">Loading comp-off balance.</p>
             ) : compOffBalance ? (
               <div className="bg-white rounded-xl border border-slate-200 p-6">
-                <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="grid grid-cols-1 gap-4 text-center sm:grid-cols-3">
                   <div>
                     <p className="text-[13px] text-slate-500">Earned</p>
                     <p className="text-xl font-bold text-slate-900">{compOffBalance.totalEarned}</p>
